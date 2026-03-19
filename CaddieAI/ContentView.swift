@@ -9,16 +9,23 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        TabView {
+            Tab("Caddie", systemImage: "figure.golf") {
+                ShotInputView()
+            }
+            Tab("History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90") {
+                ShotHistoryView()
+            }
+            Tab("Profile", systemImage: "person.circle") {
+                ProfileView()
+            }
         }
-        .padding()
     }
 }
 
 #Preview {
     ContentView()
+        .environment(ShotAdvisorViewModel())
+        .environment(ProfileStore())
+        .environment(ShotHistoryStore())
 }
