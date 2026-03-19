@@ -11,6 +11,7 @@ struct ShotInputView: View {
     @Environment(ProfileStore.self) private var profileStore
     @Environment(SpeechRecognitionService.self) private var speechService
     @Environment(ShotHistoryStore.self) private var historyStore
+    @Environment(TextToSpeechService.self) private var ttsService
     @State private var showingRecommendation = false
     @State private var selectedPhotoItem: PhotosPickerItem?
 
@@ -198,6 +199,11 @@ struct ShotInputView: View {
                         viewModel.resetForNewShot()
                         selectedPhotoItem = nil
                     }
+                    .environment(viewModel)
+                    .environment(profileStore)
+                    .environment(speechService)
+                    .environment(historyStore)
+                    .environment(ttsService)
                 }
             }
         }
@@ -234,4 +240,5 @@ private struct WaveformIndicator: View {
         .environment(ProfileStore())
         .environment(SpeechRecognitionService())
         .environment(ShotHistoryStore())
+        .environment(TextToSpeechService())
 }

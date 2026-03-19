@@ -28,4 +28,6 @@ struct ContentView: View {
         .environment(ShotAdvisorViewModel())
         .environment(ProfileStore())
         .environment(ShotHistoryStore())
+        .environment(SpeechRecognitionService())
+        .environment(TextToSpeechService())
 }

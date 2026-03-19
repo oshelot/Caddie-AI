@@ -14,10 +14,25 @@ final class SpeechRecognitionService {
     var errorMessage: String?
     var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
 
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-    private let audioEngine = AVAudioEngine()
+    // nonisolated(unsafe) to avoid @Observable macro conflict — these are only accessed on MainActor
+    private nonisolated(unsafe) var _speechRecognizerBacking: SFSpeechRecognizer?
+    private nonisolated(unsafe) var _audioEngineBacking: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+
+    private var speechRecognizer: SFSpeechRecognizer? {
+        if _speechRecognizerBacking == nil {
+            _speechRecognizerBacking = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        }
+        return _speechRecognizerBacking
+    }
+
+    private var audioEngine: AVAudioEngine {
+        if _audioEngineBacking == nil {
+            _audioEngineBacking = AVAudioEngine()
+        }
+        return _audioEngineBacking!
+    }
 
     // MARK: - Authorization
 
