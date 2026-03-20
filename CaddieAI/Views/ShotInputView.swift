@@ -175,6 +175,17 @@ struct ShotInputView: View {
                     viewModel.voiceNotes = newValue
                 }
             }
+            .onChange(of: speechService.isRecording) { _, isRecording in
+                // When recording stops, parse the transcription and auto-fill form fields
+                if !isRecording && !speechService.transcribedText.isEmpty {
+                    let result = VoiceInputParser.parse(speechService.transcribedText)
+                    VoiceInputParser.apply(
+                        result,
+                        to: &viewModel.shotContext,
+                        voiceNotes: &viewModel.voiceNotes
+                    )
+                }
+            }
             .onChange(of: selectedPhotoItem) { _, newItem in
                 if let newItem {
                     Task {

@@ -15,8 +15,8 @@ final class SpeechRecognitionService {
     var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
 
     // nonisolated(unsafe) to avoid @Observable macro conflict — these are only accessed on MainActor
-    private nonisolated(unsafe) var _speechRecognizerBacking: SFSpeechRecognizer?
-    private nonisolated(unsafe) var _audioEngineBacking: AVAudioEngine?
+    @ObservationIgnored private var _speechRecognizerBacking: SFSpeechRecognizer?
+    @ObservationIgnored private var _audioEngineBacking: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
 
