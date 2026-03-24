@@ -31,6 +31,7 @@ struct CaddieAIApp: App {
                     .environment(courseCacheService)
                     .onAppear {
                         courseViewModel.cacheService = courseCacheService
+                        courseViewModel.profileStore = profileStore
                     }
 
                 if showSplash {

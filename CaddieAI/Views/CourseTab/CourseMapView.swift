@@ -48,11 +48,33 @@ struct CourseMapView: View {
                         Text(course.name)
                             .font(.headline)
                             .foregroundStyle(.white)
-                        Text(course.holes.isEmpty
-                             ? "No hole data available"
-                             : "\(course.stats.holesDetected) holes detected")
+                        if let sel = viewModel.selectedHole,
+                           let hole = course.holes.first(where: { $0.number == sel }) {
+                            HStack(spacing: 8) {
+                                Text("Hole \(hole.number)")
+                                    .foregroundStyle(.white.opacity(0.9))
+                                if let par = hole.par {
+                                    Text("Par \(par)")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
+                                if let yardages = hole.yardages,
+                                   let maxYards = yardages.values.max() {
+                                    Text("\(maxYards) yds")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
+                                if let si = hole.strokeIndex {
+                                    Text("SI \(si)")
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
+                            }
                             .font(.caption)
-                            .foregroundStyle(.white.opacity(0.7))
+                        } else {
+                            Text(course.holes.isEmpty
+                                 ? "No hole data available"
+                                 : "\(course.stats.holesDetected) holes\(course.totalPar.map { " \u{2022} Par \($0)" } ?? "")")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
                     }
                     Spacer()
                     if !course.holes.isEmpty {

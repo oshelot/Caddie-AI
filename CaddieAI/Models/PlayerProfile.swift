@@ -23,6 +23,7 @@ struct PlayerProfile: Codable, Sendable {
     var clubDistances: [ClubDistance]
     var defaultAggressiveness: Aggressiveness
     var apiKey: String
+    var golfCourseApiKey: String
 
     // Phase 3: Player preferences
     var bunkerConfidence: SelfConfidence
@@ -39,19 +40,21 @@ struct PlayerProfile: Codable, Sendable {
         clubDistances = try container.decode([ClubDistance].self, forKey: .clubDistances)
         defaultAggressiveness = try container.decode(Aggressiveness.self, forKey: .defaultAggressiveness)
         apiKey = try container.decode(String.self, forKey: .apiKey)
+        golfCourseApiKey = try container.decodeIfPresent(String.self, forKey: .golfCourseApiKey) ?? ""
         bunkerConfidence = try container.decodeIfPresent(SelfConfidence.self, forKey: .bunkerConfidence) ?? .average
         wedgeConfidence = try container.decodeIfPresent(SelfConfidence.self, forKey: .wedgeConfidence) ?? .average
         preferredChipStyle = try container.decodeIfPresent(ChipStyle.self, forKey: .preferredChipStyle) ?? .noPreference
         swingTendency = try container.decodeIfPresent(SwingTendency.self, forKey: .swingTendency) ?? .neutral
     }
 
-    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral) {
+    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral) {
         self.handicap = handicap
         self.stockShape = stockShape
         self.missTendency = missTendency
         self.clubDistances = clubDistances
         self.defaultAggressiveness = defaultAggressiveness
         self.apiKey = apiKey
+        self.golfCourseApiKey = golfCourseApiKey
         self.bunkerConfidence = bunkerConfidence
         self.wedgeConfidence = wedgeConfidence
         self.preferredChipStyle = preferredChipStyle

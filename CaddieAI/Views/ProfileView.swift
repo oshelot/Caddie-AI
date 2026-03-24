@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 struct ProfileView: View {
     @Environment(ProfileStore.self) private var profileStore
     @State private var showAPIKey = false
+    @State private var showGolfAPIKey = false
 
     var body: some View {
         @Bindable var store = profileStore
@@ -81,7 +82,49 @@ struct ProfileView: View {
                             .foregroundStyle(.orange)
                     }
                 } header: {
-                    Text("API Configuration")
+                    Text("OpenAI API Key")
+                } footer: {
+                    Text("Powers AI caddie recommendations")
+                }
+
+                Section {
+                    HStack {
+                        if showGolfAPIKey {
+                            Text(store.profile.golfCourseApiKey.isEmpty ? "No key set" : store.profile.golfCourseApiKey)
+                                .foregroundStyle(store.profile.golfCourseApiKey.isEmpty ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        } else {
+                            Text(store.profile.golfCourseApiKey.isEmpty ? "No key set" : String(repeating: "\u{2022}", count: min(store.profile.golfCourseApiKey.count, 24)))
+                                .foregroundStyle(store.profile.golfCourseApiKey.isEmpty ? .secondary : .primary)
+                        }
+                        Spacer()
+                        Button {
+                            showGolfAPIKey.toggle()
+                        } label: {
+                            Image(systemName: showGolfAPIKey ? "eye.slash" : "eye")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Button {
+                        if let clipboardString = UIPasteboard.general.string {
+                            profileStore.profile.golfCourseApiKey = clipboardString.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    } label: {
+                        Label("Paste API Key from Clipboard", systemImage: "doc.on.clipboard")
+                    }
+                    if !store.profile.golfCourseApiKey.isEmpty {
+                        Button(role: .destructive) {
+                            profileStore.profile.golfCourseApiKey = ""
+                        } label: {
+                            Label("Clear API Key", systemImage: "trash")
+                        }
+                    }
+                } header: {
+                    Text("Golf Course API Key")
+                } footer: {
+                    Text("Enriches courses with par, yardage, and slope data from golfcourseapi.com")
                 }
 
                 Section("Short Game & Tendencies") {

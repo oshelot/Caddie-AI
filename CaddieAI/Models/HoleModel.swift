@@ -13,6 +13,9 @@ struct NormalizedHole: Codable, Sendable, Identifiable {
     var id: String           // "hole_1", "hole_2", etc.
     var number: Int
     var par: Int?
+    var strokeIndex: Int?
+    /// Yardages keyed by tee name (e.g., "Blue": 425, "White": 410)
+    var yardages: [String: Int]?
     var confidence: Double   // 0.0...1.0
     var lineOfPlay: GeoJSONLineString?
     var teeAreas: [GeoJSONPolygon]

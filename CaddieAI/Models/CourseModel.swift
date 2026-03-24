@@ -27,6 +27,12 @@ struct NormalizedCourse: Codable, Sendable, Identifiable {
     /// e.g., "Main Course", "Par 3 Course", "Red Nine"
     var subCourseName: String?
 
+    /// Scorecard metadata from Golf Course API
+    var totalPar: Int?
+    var slopeRating: Double?
+    var courseRating: Double?
+    var teeNames: [String]?
+
     static let currentSchemaVersion = "1.0"
 }
 

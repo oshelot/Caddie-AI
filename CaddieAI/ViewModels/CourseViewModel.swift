@@ -35,6 +35,7 @@ final class CourseViewModel {
 
     // Injected via environment
     var cacheService: CourseCacheService?
+    var profileStore: ProfileStore?
 
     // MARK: - Search (Nominatim + MKLocalSearch in parallel)
 
@@ -144,15 +145,15 @@ final class CourseViewModel {
 
     // MARK: - Ingest Course
 
-    func ingestCourse(_ result: CourseSearchResult) async {
+    func ingestCourse(_ result: CourseSearchResult, forceRefresh: Bool = false) async {
         isIngesting = true
         ingestionError = nil
         ingestionWarning = nil
         ingestionStep = "Checking cache…"
 
-        // Check cache first
+        // Check cache first (skip if forcing refresh)
         let courseId = NormalizedCourse.generateId(name: result.name, centroid: result.centroid)
-        if let cached = cacheService?.load(id: courseId) {
+        if !forceRefresh, let cached = cacheService?.load(id: courseId) {
             selectedCourse = cached
             isIngesting = false
             return
@@ -183,18 +184,26 @@ final class CourseViewModel {
                 state: result.state
             )
 
-            // Step 4: Cache all sub-courses
+            // Step 4: Enrich with scorecard data from Golf Course API
+            let golfApiKey = profileStore?.profile.golfCourseApiKey ?? ""
+            var enrichedCourses = courses
+            if !golfApiKey.isEmpty {
+                ingestionStep = "Fetching scorecard data…"
+                enrichedCourses = await enrichWithScorecardData(courses: courses, courseName: result.name, apiKey: golfApiKey)
+            }
+
+            // Step 5: Cache all sub-courses
             ingestionStep = "Saving to cache…"
-            for course in courses {
+            for course in enrichedCourses {
                 cacheService?.save(course)
             }
 
-            // Step 5: Handle results
-            if courses.count > 1 {
+            // Step 6: Handle results
+            if enrichedCourses.count > 1 {
                 // Multiple sub-courses — let user pick
-                availableSubCourses = courses
+                availableSubCourses = enrichedCourses
                 showSubCoursePicker = true
-            } else if let course = courses.first {
+            } else if let course = enrichedCourses.first {
                 // Single course
                 if course.holes.isEmpty {
                     ingestionWarning = "This course hasn't been mapped in OpenStreetMap yet. The satellite map will show the area, but hole layouts, greens, and hazards aren't available."
@@ -240,5 +249,62 @@ final class CourseViewModel {
         ingestionWarning = nil
         availableSubCourses = []
         showSubCoursePicker = false
+    }
+
+    // MARK: - Scorecard Enrichment
+
+    private func enrichWithScorecardData(courses: [NormalizedCourse], courseName: String, apiKey: String) async -> [NormalizedCourse] {
+        do {
+            // Search returns summary data; fetch full detail for tee/hole info
+            let results = try await GolfCourseAPIClient.searchCourses(name: courseName, apiKey: apiKey)
+            guard let bestMatch = results.first else { return courses }
+
+            // The search result may have tees already, but fetch detail to be sure
+            let detail = try await GolfCourseAPIClient.getCourse(id: bestMatch.id, apiKey: apiKey)
+            let courseData = detail ?? bestMatch
+
+            let scorecard = courseData.extractScorecardData()
+            guard !scorecard.isEmpty else { return courses }
+
+            return courses.map { course in
+                var enriched = course
+
+                // Course-level metadata
+                enriched.totalPar = scorecard.totalPar
+                enriched.teeNames = scorecard.teeYardages.keys.sorted()
+
+                // Pick first tee box with slope/rating data
+                if let teeInfo = scorecard.teeBoxInfos.first(where: { $0.slopeRating != nil }) ?? scorecard.teeBoxInfos.first {
+                    enriched.slopeRating = teeInfo.slopeRating
+                    enriched.courseRating = teeInfo.courseRating
+                }
+
+                // Enrich each hole
+                enriched.holes = enriched.holes.map { hole in
+                    var h = hole
+                    if let par = scorecard.pars[hole.number] {
+                        h.par = par
+                    }
+                    if let si = scorecard.strokeIndexes[hole.number] {
+                        h.strokeIndex = si
+                    }
+                    var yardages: [String: Int] = [:]
+                    for (teeName, holeYardages) in scorecard.teeYardages {
+                        if let yards = holeYardages[hole.number] {
+                            yardages[teeName] = yards
+                        }
+                    }
+                    if !yardages.isEmpty {
+                        h.yardages = yardages
+                    }
+                    return h
+                }
+
+                return enriched
+            }
+        } catch {
+            // Enrichment is best-effort — don't fail ingestion
+            return courses
+        }
     }
 }

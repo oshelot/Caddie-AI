@@ -24,6 +24,24 @@ struct CourseDetailView: View {
                     LabeledContent("Fetched", value: course.source.fetchedAt.formatted(.dateTime.month().day().year()))
                 }
 
+                // MARK: - Scorecard
+                if course.totalPar != nil || course.slopeRating != nil {
+                    Section("Scorecard") {
+                        if let par = course.totalPar {
+                            LabeledContent("Total Par", value: "\(par)")
+                        }
+                        if let slope = course.slopeRating {
+                            LabeledContent("Slope Rating", value: String(format: "%.0f", slope))
+                        }
+                        if let rating = course.courseRating {
+                            LabeledContent("Course Rating", value: String(format: "%.1f", rating))
+                        }
+                        if let tees = course.teeNames, !tees.isEmpty {
+                            LabeledContent("Tees", value: tees.joined(separator: ", "))
+                        }
+                    }
+                }
+
                 // MARK: - Detection Stats
                 Section("Detection Stats") {
                     StatRow(label: "Holes", count: course.stats.holesDetected, icon: "flag")
@@ -43,16 +61,32 @@ struct CourseDetailView: View {
                 // MARK: - Holes
                 Section("Holes") {
                     ForEach(course.holes.sorted(by: { $0.number < $1.number })) { hole in
-                        HStack {
-                            Text("Hole \(hole.number)")
-                                .fontWeight(.medium)
-                            if let par = hole.par {
-                                Text("Par \(par)")
-                                    .foregroundStyle(.secondary)
-                                    .font(.caption)
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Hole \(hole.number)")
+                                    .fontWeight(.medium)
+                                if let par = hole.par {
+                                    Text("Par \(par)")
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption)
+                                }
+                                if let si = hole.strokeIndex {
+                                    Text("SI \(si)")
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption)
+                                }
+                                Spacer()
+                                ConfidenceBadge(confidence: hole.confidence)
                             }
-                            Spacer()
-                            ConfidenceBadge(confidence: hole.confidence)
+                            if let yardages = hole.yardages, !yardages.isEmpty {
+                                HStack(spacing: 12) {
+                                    ForEach(yardages.sorted(by: { $0.value > $1.value }), id: \.key) { tee, yards in
+                                        Text("\(tee): \(yards)y")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
