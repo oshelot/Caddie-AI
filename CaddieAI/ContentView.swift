@@ -13,6 +13,9 @@ struct ContentView: View {
             Tab("Caddie", systemImage: "figure.golf") {
                 ShotInputView()
             }
+            Tab("Course", systemImage: "map") {
+                CourseSearchView()
+            }
             Tab("History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90") {
                 ShotHistoryView()
             }
@@ -30,4 +33,6 @@ struct ContentView: View {
         .environment(ShotHistoryStore())
         .environment(SpeechRecognitionService())
         .environment(TextToSpeechService())
+        .environment(CourseViewModel())
+        .environment(CourseCacheService())
 }

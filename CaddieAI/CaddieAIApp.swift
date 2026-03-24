@@ -14,15 +14,37 @@ struct CaddieAIApp: App {
     @State private var speechService = SpeechRecognitionService()
     @State private var ttsService = TextToSpeechService()
     @State private var shotHistoryStore = ShotHistoryStore()
+    @State private var courseViewModel = CourseViewModel()
+    @State private var courseCacheService = CourseCacheService()
+    @State private var showSplash = true
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(profileStore)
-                .environment(shotAdvisor)
-                .environment(speechService)
-                .environment(ttsService)
-                .environment(shotHistoryStore)
+            ZStack {
+                ContentView()
+                    .environment(profileStore)
+                    .environment(shotAdvisor)
+                    .environment(speechService)
+                    .environment(ttsService)
+                    .environment(shotHistoryStore)
+                    .environment(courseViewModel)
+                    .environment(courseCacheService)
+                    .onAppear {
+                        courseViewModel.cacheService = courseCacheService
+                    }
+
+                if showSplash {
+                    SplashScreenView()
+                        .transition(.opacity)
+                        .zIndex(1)
+                }
+            }
+            .task {
+                try? await Task.sleep(for: .seconds(2.2))
+                withAnimation(.easeOut(duration: 0.4)) {
+                    showSplash = false
+                }
+            }
         }
     }
 }

@@ -6,13 +6,31 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A7E25DD12F6DD97C008BA7D3 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = A7E25DD02F6DD97C008BA7D3 /* MapboxMaps */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		A77F2CC32F6B3FA0003CCCCA /* CaddieAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CaddieAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A7E25DE02F6DDD44008BA7D3 /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A7E25DD32F6DDA7A008BA7D3 /* Exceptions for "CaddieAI" folder in "CaddieAI" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A77F2CC22F6B3FA0003CCCCA /* CaddieAI */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A77F2CC52F6B3FA0003CCCCA /* CaddieAI */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A7E25DD32F6DDA7A008BA7D3 /* Exceptions for "CaddieAI" folder in "CaddieAI" target */,
+			);
 			path = CaddieAI;
 			sourceTree = "<group>";
 		};
@@ -23,6 +41,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A7E25DD12F6DD97C008BA7D3 /* MapboxMaps in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -34,6 +53,7 @@
 			children = (
 				A77F2CC52F6B3FA0003CCCCA /* CaddieAI */,
 				A77F2CC42F6B3FA0003CCCCA /* Products */,
+				A7E25DDF2F6DDD20008BA7D3 /* Configuration */,
 			);
 			sourceTree = "<group>";
 		};
@@ -43,6 +63,14 @@
 				A77F2CC32F6B3FA0003CCCCA /* CaddieAI.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A7E25DDF2F6DDD20008BA7D3 /* Configuration */ = {
+			isa = PBXGroup;
+			children = (
+				A7E25DE02F6DDD44008BA7D3 /* Secrets.swift */,
+			);
+			path = Configuration;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -65,6 +93,7 @@
 			);
 			name = CaddieAI;
 			packageProductDependencies = (
+				A7E25DD02F6DD97C008BA7D3 /* MapboxMaps */,
 			);
 			productName = CaddieAI;
 			productReference = A77F2CC32F6B3FA0003CCCCA /* CaddieAI.app */;
@@ -94,6 +123,9 @@
 			);
 			mainGroup = A77F2CBA2F6B3FA0003CCCCA;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A7E25DCF2F6DD97C008BA7D3 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A77F2CC42F6B3FA0003CCCCA /* Products */;
 			projectDirPath = "";
@@ -254,6 +286,7 @@
 				DEVELOPMENT_TEAM = 86NK92M2GD;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CaddieAI/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Caddie​AI uses the microphone for voice input";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Caddie​AI uses speech recognition to transcribe voice notes";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -288,6 +321,7 @@
 				DEVELOPMENT_TEAM = 86NK92M2GD;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CaddieAI/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Caddie​AI uses the microphone for voice input";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Caddie​AI uses speech recognition to transcribe voice notes";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -334,6 +368,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A7E25DCF2F6DD97C008BA7D3 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mapbox/mapbox-maps-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.20.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A7E25DD02F6DD97C008BA7D3 /* MapboxMaps */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A7E25DCF2F6DD97C008BA7D3 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */;
+			productName = MapboxMaps;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A77F2CBB2F6B3FA0003CCCCA /* Project object */;
 }
