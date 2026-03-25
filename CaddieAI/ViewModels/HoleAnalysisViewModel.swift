@@ -15,6 +15,8 @@ class HoleAnalysisViewModel {
     var error: String?
     var followUpResponse: String?
     var isAskingFollowUp = false
+    var weather: WeatherData?
+    var weatherError: String?
 
     private var conversationHistory: [OpenAIService.ChatMessage] = []
 
@@ -29,12 +31,38 @@ class HoleAnalysisViewModel {
         error = nil
         followUpResponse = nil
         conversationHistory = []
+        weatherError = nil
+
+        // Fetch weather (best-effort)
+        let weatherData: WeatherData?
+        do {
+            weatherData = try await WeatherService.fetchWeather(
+                latitude: course.centroid.latitude,
+                longitude: course.centroid.longitude
+            )
+            weather = weatherData
+        } catch {
+            weatherData = nil
+            weatherError = "Weather unavailable"
+        }
+
+        // Compute hole-specific weather context
+        let weatherContext: HoleWeatherContext?
+        if let wd = weatherData {
+            weatherContext = HoleAnalysisEngine.buildWeatherContext(
+                weather: wd,
+                hole: hole
+            )
+        } else {
+            weatherContext = nil
+        }
 
         // Tier 1: Deterministic analysis (instant, on-device)
         var result = HoleAnalysisEngine.analyze(
             hole: hole,
             course: course,
-            profile: profile
+            profile: profile,
+            weatherContext: weatherContext
         )
         analysis = result
 

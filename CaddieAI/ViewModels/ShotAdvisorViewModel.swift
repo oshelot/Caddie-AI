@@ -32,6 +32,25 @@ final class ShotAdvisorViewModel {
 
     private let openAIService = OpenAIService.shared
 
+    // MARK: - Auto-populate Wind from Weather
+
+    /// Applies live weather data to the shot context wind fields.
+    func applyWeather(
+        _ weather: WeatherData,
+        holeBearingDegrees: Double? = nil
+    ) {
+        shotContext.windStrength = weather.windStrength
+
+        if let bearing = holeBearingDegrees {
+            shotContext.windDirection = weather.relativeWindDirection(
+                holeBearingDegrees: bearing
+            )
+        } else {
+            // Without hole context, default to "into" for safety
+            shotContext.windDirection = .into
+        }
+    }
+
     // MARK: - Get Advice
 
     func getAdvice(profile: PlayerProfile, historyStore: ShotHistoryStore? = nil) async {

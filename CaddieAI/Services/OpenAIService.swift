@@ -429,8 +429,12 @@ final class OpenAIService: Sendable {
         Cover these in order:
         1. **Tee shot strategy**: What club to hit, where to aim, what to avoid
         2. **Key hazards**: Call out specific dangers and how to play around them
-        3. **Approach strategy**: Based on likely landing position, how to attack the green
-        4. **Green considerations**: Size, shape, and any putting considerations
+        3. **Wind and weather**: If weather data is provided, factor wind direction \
+           and strength into club selection and shot shape. For headwinds, suggest \
+           clubbing up. For tailwinds, suggest clubbing down. For crosswinds, suggest \
+           aim adjustments based on the player's stock shape and miss tendency.
+        4. **Approach strategy**: Based on likely landing position, how to attack the green
+        5. **Green considerations**: Size, shape, and any putting considerations
 
         Keep it concise — 3-5 short paragraphs max. Speak directly to the player \
         using "you" language. Be confident and reassuring, like a trusted caddie.
@@ -461,7 +465,7 @@ final class OpenAIService: Sendable {
             Club distances: \(clubList)
             """
 
-        return """
+        var message = """
             Course: \(course.name)
             
             Hole analysis data:
@@ -469,9 +473,15 @@ final class OpenAIService: Sendable {
             
             Player profile:
             \(profileSummary)
-            
-            Give me the caddie strategy for this hole.
             """
+
+        if let weather = analysis.weather {
+            message += "\n\nCurrent weather: \(weather.summaryText)"
+        }
+
+        message += "\n\nGive me the caddie strategy for this hole."
+
+        return message
     }
 
     // MARK: - History Insight Builder

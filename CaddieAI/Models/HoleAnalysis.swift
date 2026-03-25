@@ -19,8 +19,28 @@ struct HoleAnalysis: Codable, Sendable {
     var greenDepthYards: Int?
     var greenWidthYards: Int?
     var hazards: [HoleHazardInfo]
+    var weather: HoleWeatherContext?
     var strategicAdvice: String?
     var deterministicSummary: String
+}
+
+// MARK: - Weather Context (hole-specific)
+
+struct HoleWeatherContext: Codable, Sendable {
+    var temperatureF: Int
+    var windSpeedMph: Int
+    var windCompassDirection: String
+    var windRelativeToHole: WindDirection
+    var windStrength: WindStrength
+    var conditionDescription: String
+    var holeBearingDegrees: Double
+
+    var summaryText: String {
+        if windStrength == .none {
+            return "\(temperatureF)\u{00B0}F, \(conditionDescription), calm wind"
+        }
+        return "\(temperatureF)\u{00B0}F, \(conditionDescription), \(windSpeedMph) mph \(windCompassDirection) wind (\(windRelativeToHole.displayName.lowercased()) on this hole)"
+    }
 }
 
 // MARK: - Dogleg Info

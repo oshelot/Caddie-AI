@@ -21,6 +21,7 @@ final class CourseViewModel {
     var searchError: String?
 
     var selectedCourse: NormalizedCourse?
+    var currentWeather: WeatherData?
     var isIngesting = false
     var ingestionStep = ""
     var ingestionError: String?
@@ -246,9 +247,25 @@ final class CourseViewModel {
     func clearSelection() {
         selectedCourse = nil
         selectedHole = nil
+        currentWeather = nil
         ingestionWarning = nil
         availableSubCourses = []
         showSubCoursePicker = false
+    }
+
+    // MARK: - Weather
+
+    /// Fetches weather for the selected course (best-effort)
+    func fetchWeather() async {
+        guard let course = selectedCourse else { return }
+        do {
+            currentWeather = try await WeatherService.fetchWeather(
+                latitude: course.centroid.latitude,
+                longitude: course.centroid.longitude
+            )
+        } catch {
+            // Weather is optional
+        }
     }
 
     // MARK: - Scorecard Enrichment

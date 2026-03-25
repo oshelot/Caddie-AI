@@ -12,6 +12,7 @@ struct ShotInputView: View {
     @Environment(SpeechRecognitionService.self) private var speechService
     @Environment(ShotHistoryStore.self) private var historyStore
     @Environment(TextToSpeechService.self) private var ttsService
+    @Environment(CourseViewModel.self) private var courseViewModel
     @State private var showingRecommendation = false
     @State private var selectedPhotoItem: PhotosPickerItem?
 
@@ -109,9 +110,22 @@ struct ShotInputView: View {
                             Text(lie.displayName).tag(lie)
                         }
                     }
-                    Picker("Wind", selection: $vm.shotContext.windStrength) {
-                        ForEach(WindStrength.allCases) { w in
-                            Text(w.displayName).tag(w)
+                    HStack {
+                        Picker("Wind", selection: $vm.shotContext.windStrength) {
+                            ForEach(WindStrength.allCases) { w in
+                                Text(w.displayName).tag(w)
+                            }
+                        }
+                        if let weather = courseViewModel.currentWeather,
+                           weather.windStrength != .none {
+                            Button {
+                                viewModel.applyWeather(weather)
+                            } label: {
+                                Label("Live", systemImage: "antenna.radiowaves.left.and.right")
+                                    .font(.caption2)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
                         }
                     }
                     if vm.shotContext.windStrength != .none {

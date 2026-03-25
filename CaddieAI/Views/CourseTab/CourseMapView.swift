@@ -15,6 +15,7 @@ struct CourseMapView: View {
     @State private var showingDebug = false
     @State private var showingAnalysis = false
     @State private var analysisViewModel = HoleAnalysisViewModel()
+    @State private var weather: WeatherData?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -27,6 +28,19 @@ struct CourseMapView: View {
                 }
             )
             .ignoresSafeArea()
+
+            // Weather badge (top-left)
+            VStack {
+                HStack {
+                    if let weather {
+                        WeatherBadge(weather: weather)
+                            .padding(.top, 60)
+                            .padding(.leading, 12)
+                    }
+                    Spacer()
+                }
+                Spacer()
+            }
 
             // Bottom overlay
             VStack(spacing: 0) {
@@ -191,6 +205,16 @@ struct CourseMapView: View {
                 profile: profileStore.profile
             )
         }
+        .task {
+            do {
+                weather = try await WeatherService.fetchWeather(
+                    latitude: course.centroid.latitude,
+                    longitude: course.centroid.longitude
+                )
+            } catch {
+                // Weather is optional — silently fail
+            }
+        }
     }
 }
 
@@ -318,6 +342,15 @@ struct HoleAnalysisSheet: View {
                         )
                     }
                 }
+
+                if let weather = analysis.weather {
+                    factRow(
+                        label: "Weather",
+                        value: weather.summaryText,
+                        icon: "wind",
+                        iconColor: .cyan
+                    )
+                }
             }
             .padding(.horizontal)
         }
@@ -414,5 +447,31 @@ struct HoleAnalysisSheet: View {
                     .padding(.horizontal)
             }
         }
+    }
+}
+
+// MARK: - Weather Badge
+
+struct WeatherBadge: View {
+    let weather: WeatherData
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: weather.conditionSymbol)
+                .font(.caption)
+            Text(weather.temperatureDescription)
+                .font(.caption.weight(.semibold))
+            if weather.windStrength != .none {
+                Image(systemName: "wind")
+                    .font(.caption2)
+                Text("\(Int(weather.windSpeedMph))mph")
+                    .font(.caption)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.black.opacity(0.6))
+        .clipShape(Capsule())
     }
 }

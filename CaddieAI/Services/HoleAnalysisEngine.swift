@@ -18,7 +18,8 @@ enum HoleAnalysisEngine {
     static func analyze(
         hole: NormalizedHole,
         course: NormalizedCourse,
-        profile: PlayerProfile?
+        profile: PlayerProfile?,
+        weatherContext: HoleWeatherContext? = nil
     ) -> HoleAnalysis {
         let totalDistMeters = hole.lineOfPlay?.totalDistance() ?? 0
         let totalDistYards = totalDistMeters > 0 ? Int(totalDistMeters * metersToYards) : nil
@@ -35,7 +36,8 @@ enum HoleAnalysisEngine {
             fairwayWidthYards: fairwayWidth,
             greenDims: greenDims,
             hazards: hazards,
-            profile: profile
+            profile: profile,
+            weatherContext: weatherContext
         )
 
         return HoleAnalysis(
@@ -48,8 +50,37 @@ enum HoleAnalysisEngine {
             greenDepthYards: greenDims?.depth,
             greenWidthYards: greenDims?.width,
             hazards: hazards,
+            weather: weatherContext,
             strategicAdvice: nil,
             deterministicSummary: summary
+        )
+    }
+
+    // MARK: - Weather Context for Hole
+
+    /// Computes hole-specific weather context from raw weather data and hole geometry
+    static func buildWeatherContext(
+        weather: WeatherData,
+        hole: NormalizedHole
+    ) -> HoleWeatherContext? {
+        guard let line = hole.lineOfPlay,
+              let start = line.startPoint,
+              let end = line.endPoint else {
+            return nil
+        }
+
+        let holeBearing = start.bearing(to: end)
+        let relativeWind = weather.relativeWindDirection(holeBearingDegrees: holeBearing)
+        let cardinal = WeatherData.cardinalDirection(from: weather.windDirectionDegrees)
+
+        return HoleWeatherContext(
+            temperatureF: Int(weather.temperatureF),
+            windSpeedMph: Int(weather.windSpeedMph),
+            windCompassDirection: cardinal,
+            windRelativeToHole: relativeWind,
+            windStrength: weather.windStrength,
+            conditionDescription: weather.conditionDescription,
+            holeBearingDegrees: holeBearing
         )
     }
 
@@ -350,7 +381,8 @@ enum HoleAnalysisEngine {
         fairwayWidthYards: Int?,
         greenDims: GreenDimensions?,
         hazards: [HoleHazardInfo],
-        profile: PlayerProfile?
+        profile: PlayerProfile?,
+        weatherContext: HoleWeatherContext? = nil
     ) -> String {
         var parts: [String] = []
 
@@ -392,6 +424,23 @@ enum HoleAnalysisEngine {
         // Green dimensions
         if let dims = greenDims {
             parts.append("The green is \(dims.depth) yards deep and \(dims.width) yards wide.")
+        }
+
+        // Weather conditions
+        if let weather = weatherContext {
+            parts.append(weather.summaryText + ".")
+            if weather.windStrength != .none {
+                switch weather.windRelativeToHole {
+                case .into:
+                    parts.append("Wind is in your face — expect reduced carry.")
+                case .helping:
+                    parts.append("Wind is helping — the ball will fly farther.")
+                case .crossLeftToRight:
+                    parts.append("Crosswind blowing left to right — allow for drift.")
+                case .crossRightToLeft:
+                    parts.append("Crosswind blowing right to left — allow for drift.")
+                }
+            }
         }
 
         // Hazards
