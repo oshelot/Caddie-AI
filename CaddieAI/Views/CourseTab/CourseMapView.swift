@@ -10,8 +10,11 @@ import SwiftUI
 struct CourseMapView: View {
     let course: NormalizedCourse
     @Environment(CourseViewModel.self) private var viewModel
+    @Environment(ProfileStore.self) private var profileStore
     @State private var showingDetail = false
     @State private var showingDebug = false
+    @State private var showingAnalysis = false
+    @State private var analysisViewModel = HoleAnalysisViewModel()
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -77,6 +80,29 @@ struct CourseMapView: View {
                         }
                     }
                     Spacer()
+                    if viewModel.selectedHole != nil {
+                        Button {
+                            if let sel = viewModel.selectedHole,
+                               let hole = course.holes.first(where: { $0.number == sel }) {
+                                showingAnalysis = true
+                                Task {
+                                    await analysisViewModel.analyzeHole(
+                                        hole,
+                                        course: course,
+                                        profile: profileStore.profile
+                                    )
+                                }
+                            }
+                        } label: {
+                            Label("Analyze", systemImage: "wand.and.stars")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(.blue)
+                                .clipShape(Capsule())
+                        }
+                    }
                     if !course.holes.isEmpty {
                         ConfidenceBadge(confidence: course.stats.overallConfidence)
                     }
@@ -157,6 +183,236 @@ struct CourseMapView: View {
         }
         .sheet(isPresented: $showingDebug) {
             CourseDebugView(course: course)
+        }
+        .sheet(isPresented: $showingAnalysis) {
+            HoleAnalysisSheet(
+                viewModel: analysisViewModel,
+                course: course,
+                profile: profileStore.profile
+            )
+        }
+    }
+}
+
+// MARK: - Hole Analysis Sheet
+
+struct HoleAnalysisSheet: View {
+    @Bindable var viewModel: HoleAnalysisViewModel
+    let course: NormalizedCourse
+    let profile: PlayerProfile
+    @Environment(\.dismiss) private var dismiss
+    @State private var followUpText = ""
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if viewModel.isAnalyzing && viewModel.analysis == nil {
+                        ProgressView("Analyzing hole...")
+                            .frame(maxWidth: .infinity, minHeight: 200)
+                    } else if let analysis = viewModel.analysis {
+                        // Header
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Hole \(analysis.holeNumber)")
+                                .font(.title2.bold())
+                            HStack(spacing: 12) {
+                                if let par = analysis.par {
+                                    Label("Par \(par)", systemImage: "flag.fill")
+                                }
+                                if let dist = analysis.yardagesByTee?.values.max()
+                                    ?? analysis.totalDistanceYards {
+                                    Label("\(dist) yds", systemImage: "ruler")
+                                }
+                                if let dogleg = analysis.dogleg {
+                                    Label("Dogleg \(dogleg.direction.displayName)",
+                                          systemImage: "arrow.turn.down.\(dogleg.direction.rawValue)")
+                                }
+                            }
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal)
+
+                        Divider()
+
+                        // Quick Facts
+                        quickFactsSection(analysis)
+
+                        Divider()
+
+                        // Strategy
+                        strategySection(analysis)
+
+                        // Error banner
+                        if let error = viewModel.error {
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text(error)
+                                    .font(.caption)
+                            }
+                            .padding(.horizontal)
+                        }
+
+                        Divider()
+
+                        // Follow-up
+                        followUpSection()
+                    }
+                }
+                .padding(.vertical)
+            }
+            .navigationTitle("Hole Analysis")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    // MARK: - Quick Facts
+
+    @ViewBuilder
+    private func quickFactsSection(_ analysis: HoleAnalysis) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Quick Facts")
+                .font(.headline)
+                .padding(.horizontal)
+
+            VStack(spacing: 6) {
+                // Yardages by tee
+                if let yardages = analysis.yardagesByTee, !yardages.isEmpty {
+                    let sorted = yardages.sorted { $0.value > $1.value }
+                    ForEach(sorted, id: \.key) { tee, yards in
+                        factRow(label: tee, value: "\(yards) yds")
+                    }
+                } else if let dist = analysis.totalDistanceYards {
+                    factRow(label: "Distance", value: "~\(dist) yds")
+                }
+
+                if let dogleg = analysis.dogleg {
+                    factRow(
+                        label: "Dogleg",
+                        value: "\(dogleg.direction.displayName.capitalized) at \(dogleg.distanceFromTeeYards) yds (\(Int(dogleg.bendAngleDegrees))°)"
+                    )
+                }
+
+                if let width = analysis.fairwayWidthAtLandingYards {
+                    factRow(label: "Fairway width", value: "~\(width) yds at landing zone")
+                }
+
+                if let depth = analysis.greenDepthYards,
+                   let width = analysis.greenWidthYards {
+                    factRow(label: "Green", value: "\(depth) yds deep × \(width) yds wide")
+                }
+
+                if !analysis.hazards.isEmpty {
+                    ForEach(Array(analysis.hazards.enumerated()), id: \.offset) { _, hazard in
+                        factRow(
+                            label: hazard.type.displayName,
+                            value: hazard.description,
+                            icon: hazard.type == .water ? "drop.fill" : "circle.fill",
+                            iconColor: hazard.type == .water ? .blue : .orange
+                        )
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    private func factRow(
+        label: String,
+        value: String,
+        icon: String = "circle.fill",
+        iconColor: Color = .green
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption2)
+                .foregroundStyle(iconColor)
+                .frame(width: 16)
+                .padding(.top, 3)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.subheadline)
+            }
+            Spacer()
+        }
+    }
+
+    // MARK: - Strategy Section
+
+    @ViewBuilder
+    private func strategySection(_ analysis: HoleAnalysis) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Strategy")
+                    .font(.headline)
+                if viewModel.isAnalyzing {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                }
+            }
+            .padding(.horizontal)
+
+            if let advice = analysis.strategicAdvice {
+                Text(advice)
+                    .font(.body)
+                    .padding(.horizontal)
+            } else {
+                Text(analysis.deterministicSummary)
+                    .font(.body)
+                    .padding(.horizontal)
+            }
+        }
+    }
+
+    // MARK: - Follow-up Section
+
+    @ViewBuilder
+    private func followUpSection() -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Ask a follow-up")
+                .font(.headline)
+                .padding(.horizontal)
+
+            HStack {
+                TextField("e.g. What if it's windy?", text: $followUpText)
+                    .textFieldStyle(.roundedBorder)
+
+                Button {
+                    let question = followUpText
+                    followUpText = ""
+                    Task {
+                        await viewModel.askFollowUp(question, profile: profile)
+                    }
+                } label: {
+                    if viewModel.isAskingFollowUp {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title2)
+                    }
+                }
+                .disabled(followUpText.trimmingCharacters(in: .whitespaces).isEmpty || viewModel.isAskingFollowUp)
+            }
+            .padding(.horizontal)
+
+            if let response = viewModel.followUpResponse {
+                Text(response)
+                    .font(.body)
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(.horizontal)
+            }
         }
     }
 }

@@ -79,6 +79,93 @@ final class OpenAIService: Sendable {
         return try await sendRequest(messages: messages, apiKey: trimmedKey)
     }
 
+    // MARK: - Hole Analysis
+
+    func getHoleAnalysis(
+        hole: NormalizedHole,
+        analysis: HoleAnalysis,
+        course: NormalizedCourse,
+        profile: PlayerProfile
+    ) async throws -> String {
+        let trimmedKey = profile.apiKey.trimmingCharacters(in: .whitespaces)
+        guard !trimmedKey.isEmpty else {
+            throw APIError(message: "OpenAI API key not configured. Set it in your Profile tab.")
+        }
+
+        let systemPrompt = Self.holeAnalysisSystemPrompt
+        let userMessage = Self.buildHoleAnalysisMessage(
+            hole: hole,
+            analysis: analysis,
+            course: course,
+            profile: profile
+        )
+
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": userMessage]
+        ]
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o",
+            "temperature": 0.7,
+            "max_tokens": 1000,
+            "messages": messages
+        ]
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        request.timeoutInterval = 30
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let errorMessage = Self.parseErrorMessage(from: data) ?? "Hole analysis request failed."
+            throw APIError(message: errorMessage)
+        }
+
+        return try Self.parseTextResponse(from: data)
+    }
+
+    func askHoleFollowUp(
+        question: String,
+        conversationHistory: [ChatMessage],
+        apiKey: String
+    ) async throws -> String {
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespaces)
+        guard !trimmedKey.isEmpty else {
+            throw APIError(message: "OpenAI API key not configured.")
+        }
+
+        var messages = conversationHistory.map { $0.toAPIFormat() }
+        messages.append(["role": "user", "content": question])
+
+        let requestBody: [String: Any] = [
+            "model": "gpt-4o",
+            "temperature": 0.7,
+            "max_tokens": 500,
+            "messages": messages
+        ]
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+        request.timeoutInterval = 30
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let errorMessage = Self.parseErrorMessage(from: data) ?? "Follow-up failed."
+            throw APIError(message: errorMessage)
+        }
+
+        return try Self.parseTextResponse(from: data)
+    }
+
     // MARK: - Follow-up Conversation
 
     func askFollowUp(
@@ -328,6 +415,63 @@ final class OpenAIService: Sendable {
         message += "\n\nBased on this analysis, provide your caddie recommendation with execution plan as JSON."
 
         return message
+    }
+
+    // MARK: - Hole Analysis Prompt
+
+    static let holeAnalysisSystemPrompt = """
+        You are an expert golf caddie with 20+ years of PGA Tour experience. \
+        You're walking a course with your player and providing hole-by-hole strategy.
+
+        Given the hole geometry analysis and player profile, provide strategic advice \
+        in a natural, conversational caddie tone. Be specific and actionable.
+
+        Cover these in order:
+        1. **Tee shot strategy**: What club to hit, where to aim, what to avoid
+        2. **Key hazards**: Call out specific dangers and how to play around them
+        3. **Approach strategy**: Based on likely landing position, how to attack the green
+        4. **Green considerations**: Size, shape, and any putting considerations
+
+        Keep it concise — 3-5 short paragraphs max. Speak directly to the player \
+        using "you" language. Be confident and reassuring, like a trusted caddie.
+
+        Do NOT use markdown formatting, bullet points, or headers. Just natural paragraphs.
+        """
+
+    static func buildHoleAnalysisMessage(
+        hole: NormalizedHole,
+        analysis: HoleAnalysis,
+        course: NormalizedCourse,
+        profile: PlayerProfile
+    ) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        let analysisJSON = (try? String(data: encoder.encode(analysis), encoding: .utf8)) ?? "{}"
+
+        let clubList = profile.clubDistances
+            .map { "\($0.club.shortName): \($0.carryYards) yards" }
+            .joined(separator: ", ")
+
+        let profileSummary = """
+            Handicap: \(profile.handicap)
+            Stock shape: \(profile.stockShape.displayName)
+            Miss tendency: \(profile.missTendency.displayName)
+            Aggressiveness: \(profile.defaultAggressiveness.displayName)
+            Club distances: \(clubList)
+            """
+
+        return """
+            Course: \(course.name)
+            
+            Hole analysis data:
+            \(analysisJSON)
+            
+            Player profile:
+            \(profileSummary)
+            
+            Give me the caddie strategy for this hole.
+            """
     }
 
     // MARK: - History Insight Builder
