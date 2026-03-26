@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import MapboxMaps
 
 @main
 struct CaddieAIApp: App {
@@ -18,6 +19,12 @@ struct CaddieAIApp: App {
     @State private var courseCacheService = CourseCacheService()
     @State private var apiUsageStore = APIUsageStore()
     @State private var showSplash = true
+
+    init() {
+        if let token = Secrets.mapboxAccessToken {
+            MapboxOptions.accessToken = token
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

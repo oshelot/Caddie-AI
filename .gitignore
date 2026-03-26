@@ -1,0 +1,11 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# Secrets
+CaddieAI/Secrets.plist
+
+# OS
+.DS_Store
