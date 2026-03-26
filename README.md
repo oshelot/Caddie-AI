@@ -16,17 +16,33 @@ A personal iOS golf caddie app that combines deterministic golf logic with OpenA
 - Swing cues: backswing length, follow-through, tempo, strike intention
 - Swing thought and common mistake to avoid for each shot
 
+### Course Map & Hole Analysis
+- Search for courses via the Golf Course API and view interactive Mapbox satellite maps
+- Tap a hole to zoom the camera to its geometry (tees, fairway, green, bunkers, water)
+- AI-powered hole analysis with strategy breakdown and audio playback
+- Follow-up questions for deeper hole-specific advice
+
 ### Voice & Image Input
 - Voice recording via Apple Speech framework — transcribed notes are sent to the LLM
 - Photo attachment for lie/stance analysis (sent as base64 JPEG to GPT-4o vision)
-- Text-to-speech reads recommendations aloud on the course
+- Text-to-speech reads recommendations and hole analysis aloud on the course
 - Follow-up conversation with quick question chips and free-text input
 
+### Customizable Club Bag
+- Choose from 30+ clubs: woods, hybrids, irons, and degree wedges (46°–64°)
+- Add and remove clubs with a 13-club bag limit
+- Set custom carry distances for each club
+- Bag auto-sorts by distance (longest first)
+
 ### Personalization
-- Player profile: handicap, stock shape, miss tendency, club carry distances
+- Player profile: handicap, stock shape, miss tendency
 - Short game preferences: bunker confidence, wedge confidence, preferred chip style, swing tendency
 - Execution templates adapt based on player preferences (e.g., extra encouragement for low bunker confidence)
 - Profile persisted via UserDefaults
+
+### Real-Time Weather
+- Fetches current conditions (temperature, wind speed/direction, precipitation) via Open-Meteo
+- Wind direction calculated relative to the hole for accurate shot adjustments
 
 ### Shot History & Learning
 - Every recommendation is automatically saved to history
@@ -35,25 +51,31 @@ A personal iOS golf caddie app that combines deterministic golf logic with OpenA
 - Learning engine analyzes club override patterns, outcome averages, and usage frequency
 - Historical insights are fed into the LLM prompt so recommendations improve over time
 
+### API Usage Tracking
+- Tracks OpenAI token consumption (prompt, completion, total) per call
+- Monitors Golf Course API usage with configurable monthly rate limit (default 300 calls)
+- View stats and reset usage data from the API Settings page
+
 ## Architecture
 
 ```
-Models/          Data types (enums, profiles, shot context, recommendations, history)
-Services/        Golf logic engine, execution engine, OpenAI API, speech, TTS
-ViewModels/      ShotAdvisorViewModel (coordinates logic + API + state)
-Views/           SwiftUI views (input, recommendation, history, profile)
+Models/          Data types (enums, profiles, shot context, recommendations, weather, API usage)
+Services/        Golf logic, execution engine, OpenAI, speech, TTS, weather, course API, cache
+ViewModels/      ShotAdvisorViewModel, CourseViewModel, HoleAnalysisViewModel
+Views/           SwiftUI views (shot input, recommendation, course map, profile, history)
 ```
 
 - **iOS-only** — no backend server; direct OpenAI API calls via URLSession
 - **SwiftUI + @Observable** (iOS 17+)
 - **Hybrid approach**: deterministic logic runs first (instant, offline-capable), LLM enriches second
-- **UserDefaults** persistence for profile and shot history
+- **UserDefaults** persistence for profile, shot history, and API usage data
+- **Mapbox Maps SDK** for satellite course visualization
 
 ## Setup
 
 1. Open `CaddieAI.xcodeproj` in Xcode
 2. Build and run on an iOS 17+ device or simulator
-3. Go to the **Profile** tab and paste your OpenAI API key
+3. Go to **Profile → API Settings & Usage** and paste your OpenAI API key
 4. Add the following privacy keys in Xcode's Info tab (required for voice input):
    - `NSMicrophoneUsageDescription` — "CaddieAI uses the microphone for voice input"
    - `NSSpeechRecognitionUsageDescription` — "CaddieAI uses speech recognition to transcribe voice notes"
