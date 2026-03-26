@@ -8,19 +8,41 @@ import Foundation
 // MARK: - Club
 
 enum Club: String, CaseIterable, Codable, Identifiable, Sendable {
+    // Woods
     case driver
+    case twoWood
     case threeWood
+    case fourWood
     case fiveWood
+    case sevenWood
+    case nineWood
+    // Hybrids
+    case hybrid2
+    case hybrid3
     case hybrid4
+    case hybrid5
+    case hybrid6
+    // Irons
+    case iron2
+    case iron3
+    case iron4
     case iron5
     case iron6
     case iron7
     case iron8
     case iron9
+    // Wedges
     case pitchingWedge
-    case gapWedge
-    case sandWedge
-    case lobWedge
+    case wedge46
+    case wedge48
+    case wedge50
+    case gapWedge       // 52°
+    case wedge54
+    case sandWedge      // 56°
+    case wedge58
+    case lobWedge       // 60°
+    case wedge64
+    // Putter
     case putter
 
     var id: Self { self }
@@ -28,18 +50,35 @@ enum Club: String, CaseIterable, Codable, Identifiable, Sendable {
     var displayName: String {
         switch self {
         case .driver: return "Driver"
+        case .twoWood: return "2 Wood"
         case .threeWood: return "3 Wood"
+        case .fourWood: return "4 Wood"
         case .fiveWood: return "5 Wood"
+        case .sevenWood: return "7 Wood"
+        case .nineWood: return "9 Wood"
+        case .hybrid2: return "2 Hybrid"
+        case .hybrid3: return "3 Hybrid"
         case .hybrid4: return "4 Hybrid"
+        case .hybrid5: return "5 Hybrid"
+        case .hybrid6: return "6 Hybrid"
+        case .iron2: return "2 Iron"
+        case .iron3: return "3 Iron"
+        case .iron4: return "4 Iron"
         case .iron5: return "5 Iron"
         case .iron6: return "6 Iron"
         case .iron7: return "7 Iron"
         case .iron8: return "8 Iron"
         case .iron9: return "9 Iron"
         case .pitchingWedge: return "Pitching Wedge"
-        case .gapWedge: return "Gap Wedge"
-        case .sandWedge: return "Sand Wedge"
-        case .lobWedge: return "Lob Wedge"
+        case .wedge46: return "46° Wedge"
+        case .wedge48: return "48° Wedge"
+        case .wedge50: return "50° Wedge"
+        case .gapWedge: return "52° / Gap Wedge"
+        case .wedge54: return "54° Wedge"
+        case .sandWedge: return "56° / Sand Wedge"
+        case .wedge58: return "58° Wedge"
+        case .lobWedge: return "60° / Lob Wedge"
+        case .wedge64: return "64° Wedge"
         case .putter: return "Putter"
         }
     }
@@ -47,18 +86,35 @@ enum Club: String, CaseIterable, Codable, Identifiable, Sendable {
     var shortName: String {
         switch self {
         case .driver: return "Driver"
+        case .twoWood: return "2W"
         case .threeWood: return "3W"
+        case .fourWood: return "4W"
         case .fiveWood: return "5W"
+        case .sevenWood: return "7W"
+        case .nineWood: return "9W"
+        case .hybrid2: return "2H"
+        case .hybrid3: return "3H"
         case .hybrid4: return "4H"
+        case .hybrid5: return "5H"
+        case .hybrid6: return "6H"
+        case .iron2: return "2i"
+        case .iron3: return "3i"
+        case .iron4: return "4i"
         case .iron5: return "5i"
         case .iron6: return "6i"
         case .iron7: return "7i"
         case .iron8: return "8i"
         case .iron9: return "9i"
         case .pitchingWedge: return "PW"
+        case .wedge46: return "46°"
+        case .wedge48: return "48°"
+        case .wedge50: return "50°"
         case .gapWedge: return "GW"
+        case .wedge54: return "54°"
         case .sandWedge: return "SW"
+        case .wedge58: return "58°"
         case .lobWedge: return "LW"
+        case .wedge64: return "64°"
         case .putter: return "Putter"
         }
     }
@@ -66,18 +122,35 @@ enum Club: String, CaseIterable, Codable, Identifiable, Sendable {
     var defaultCarryYards: Int {
         switch self {
         case .driver: return 235
+        case .twoWood: return 228
         case .threeWood: return 220
+        case .fourWood: return 212
         case .fiveWood: return 205
+        case .sevenWood: return 195
+        case .nineWood: return 185
+        case .hybrid2: return 210
+        case .hybrid3: return 200
         case .hybrid4: return 195
+        case .hybrid5: return 185
+        case .hybrid6: return 175
+        case .iron2: return 205
+        case .iron3: return 195
+        case .iron4: return 190
         case .iron5: return 185
         case .iron6: return 175
         case .iron7: return 165
         case .iron8: return 155
         case .iron9: return 143
         case .pitchingWedge: return 132
-        case .gapWedge: return 118
+        case .wedge46: return 125
+        case .wedge48: return 120
+        case .wedge50: return 115
+        case .gapWedge: return 110
+        case .wedge54: return 102
         case .sandWedge: return 96
+        case .wedge58: return 85
         case .lobWedge: return 78
+        case .wedge64: return 65
         case .putter: return 0
         }
     }
@@ -87,23 +160,47 @@ enum Club: String, CaseIterable, Codable, Identifiable, Sendable {
         allCases.filter { $0 != .putter }
     }
 
+    /// The default bag: the 13 clubs most players carry (excludes putter)
+    static var defaultBag: [Club] {
+        [.driver, .threeWood, .fiveWood, .hybrid4,
+         .iron5, .iron6, .iron7, .iron8, .iron9,
+         .pitchingWedge, .gapWedge, .sandWedge, .lobWedge]
+    }
+
     /// Ordering index for sorting (lower = longer club)
     var sortOrder: Int {
         switch self {
         case .driver: return 0
-        case .threeWood: return 1
-        case .fiveWood: return 2
-        case .hybrid4: return 3
-        case .iron5: return 4
-        case .iron6: return 5
-        case .iron7: return 6
-        case .iron8: return 7
-        case .iron9: return 8
-        case .pitchingWedge: return 9
-        case .gapWedge: return 10
-        case .sandWedge: return 11
-        case .lobWedge: return 12
-        case .putter: return 13
+        case .twoWood: return 1
+        case .threeWood: return 2
+        case .fourWood: return 3
+        case .fiveWood: return 4
+        case .sevenWood: return 5
+        case .nineWood: return 6
+        case .hybrid2: return 7
+        case .hybrid3: return 8
+        case .hybrid4: return 9
+        case .hybrid5: return 10
+        case .hybrid6: return 11
+        case .iron2: return 12
+        case .iron3: return 13
+        case .iron4: return 14
+        case .iron5: return 15
+        case .iron6: return 16
+        case .iron7: return 17
+        case .iron8: return 18
+        case .iron9: return 19
+        case .pitchingWedge: return 20
+        case .wedge46: return 21
+        case .wedge48: return 22
+        case .wedge50: return 23
+        case .gapWedge: return 24
+        case .wedge54: return 25
+        case .sandWedge: return 26
+        case .wedge58: return 27
+        case .lobWedge: return 28
+        case .wedge64: return 29
+        case .putter: return 30
         }
     }
 }

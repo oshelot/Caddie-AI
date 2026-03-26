@@ -66,7 +66,7 @@ struct PlayerProfile: Codable, Sendable {
             handicap: 15.0,
             stockShape: .fade,
             missTendency: .right,
-            clubDistances: Club.shotClubs.map {
+            clubDistances: Club.defaultBag.map {
                 ClubDistance(club: $0, carryYards: $0.defaultCarryYards)
             },
             defaultAggressiveness: .normal,
