@@ -66,8 +66,11 @@ struct MapboxMapRepresentable: UIViewRepresentable {
     func updateUIView(_ mapView: MapView, context: Context) {
         guard let course = course else { return }
 
+        context.coordinator.course = course
+
         if context.coordinator.currentCourseId != course.id {
             context.coordinator.currentCourseId = course.id
+            context.coordinator.currentlyZoomedHole = nil
 
             let center = CLLocationCoordinate2D(
                 latitude: course.centroid.latitude,
@@ -78,6 +81,7 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         }
 
         context.coordinator.highlightHole(selectedHole)
+        context.coordinator.zoomToHole(selectedHole)
     }
 
     // MARK: - Coordinator
@@ -92,6 +96,8 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         var cancelBag: [AnyCancelable] = []
         var layersAdded = false
         var onHoleTapped: ((Int) -> Void)?
+        var course: NormalizedCourse?
+        var currentlyZoomedHole: Int?
 
         init(onHoleTapped: ((Int) -> Void)?) {
             self.onHoleTapped = onHoleTapped
@@ -196,6 +202,87 @@ struct MapboxMapRepresentable: UIViewRepresentable {
                     layer.lineWidth = .constant(2.0)
                 }
             }
+        }
+
+        // MARK: - Camera Zoom
+
+        func zoomToHole(_ holeNumber: Int?) {
+            guard let mapView = mapView,
+                  let map = mapView.mapboxMap else { return }
+
+            // Only fly if the selection actually changed
+            guard holeNumber != currentlyZoomedHole else { return }
+            currentlyZoomedHole = holeNumber
+
+            if let holeNumber,
+               let hole = course?.holes.first(where: { $0.number == holeNumber }) {
+                let coords = collectCoordinates(for: hole)
+                guard coords.count >= 2 else { return }
+
+                let padding = UIEdgeInsets(top: 80, left: 40, bottom: 200, right: 40)
+                guard let camera = try? map.camera(
+                    for: coords,
+                    camera: CameraOptions(),
+                    coordinatesPadding: padding,
+                    maxZoom: nil,
+                    offset: nil
+                ) else { return }
+                mapView.camera.fly(to: camera, duration: 0.8)
+            } else if let course {
+                // Fly back to course overview
+                let center = CLLocationCoordinate2D(
+                    latitude: course.centroid.latitude,
+                    longitude: course.centroid.longitude
+                )
+                mapView.camera.fly(to: CameraOptions(center: center, zoom: 15.5), duration: 0.8)
+            }
+        }
+
+        /// Collects all coordinates from a hole's geometry features
+        private func collectCoordinates(for hole: NormalizedHole) -> [CLLocationCoordinate2D] {
+            var coords: [CLLocationCoordinate2D] = []
+
+            // Line of play
+            if let line = hole.lineOfPlay {
+                for point in line.points {
+                    coords.append(CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude))
+                }
+            }
+
+            // Green
+            if let green = hole.green {
+                for point in green.outerRing {
+                    coords.append(CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude))
+                }
+            }
+
+            // Tee areas
+            for tee in hole.teeAreas {
+                for point in tee.outerRing {
+                    coords.append(CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude))
+                }
+            }
+
+            // Bunkers
+            for bunker in hole.bunkers {
+                for point in bunker.outerRing {
+                    coords.append(CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude))
+                }
+            }
+
+            // Water
+            for water in hole.water {
+                for point in water.outerRing {
+                    coords.append(CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude))
+                }
+            }
+
+            // Pin
+            if let pin = hole.pin {
+                coords.append(CLLocationCoordinate2D(latitude: pin.latitude, longitude: pin.longitude))
+            }
+
+            return coords
         }
 
         private func removeLayers(map: MapboxMap) {
