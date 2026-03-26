@@ -225,6 +225,7 @@ struct HoleAnalysisSheet: View {
     let course: NormalizedCourse
     let profile: PlayerProfile
     @Environment(\.dismiss) private var dismiss
+    @Environment(TextToSpeechService.self) private var ttsService
     @State private var followUpText = ""
 
     var body: some View {
@@ -290,7 +291,10 @@ struct HoleAnalysisSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("Done") {
+                        ttsService.stop()
+                        dismiss()
+                    }
                 }
             }
         }
@@ -381,6 +385,12 @@ struct HoleAnalysisSheet: View {
 
     // MARK: - Strategy Section
 
+    /// The text to speak — prefers AI advice, falls back to deterministic summary
+    private var speakableStrategy: String? {
+        guard let analysis = viewModel.analysis else { return nil }
+        return analysis.strategicAdvice ?? analysis.deterministicSummary
+    }
+
     @ViewBuilder
     private func strategySection(_ analysis: HoleAnalysis) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -390,6 +400,22 @@ struct HoleAnalysisSheet: View {
                 if viewModel.isAnalyzing {
                     ProgressView()
                         .scaleEffect(0.7)
+                }
+                Spacer()
+                if let text = speakableStrategy, !text.isEmpty {
+                    Button {
+                        if ttsService.isSpeaking {
+                            ttsService.stop()
+                        } else {
+                            ttsService.speak(text)
+                        }
+                    } label: {
+                        Label(
+                            ttsService.isSpeaking ? "Stop" : "Listen",
+                            systemImage: ttsService.isSpeaking ? "stop.circle.fill" : "speaker.wave.2.circle.fill"
+                        )
+                        .font(.callout)
+                    }
                 }
             }
             .padding(.horizontal)
