@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 
 struct ProfileView: View {
     @Environment(ProfileStore.self) private var profileStore
+    @Environment(APIUsageStore.self) private var apiUsageStore
     @State private var showAPIKey = false
     @State private var showGolfAPIKey = false
 
@@ -127,6 +128,79 @@ struct ProfileView: View {
                     Text("Enriches courses with par, yardage, and slope data from golfcourseapi.com")
                 }
 
+                Section("API Usage") {
+                    // OpenAI stats
+                    HStack {
+                        Label("OpenAI Calls", systemImage: "brain")
+                        Spacer()
+                        Text("\(apiUsageStore.data.openAITotalCalls)")
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Prompt Tokens")
+                        Spacer()
+                        Text(apiUsageStore.data.openAITotalPromptTokens.formatted())
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Completion Tokens")
+                        Spacer()
+                        Text(apiUsageStore.data.openAITotalCompletionTokens.formatted())
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("Total Tokens")
+                        Spacer()
+                        Text(apiUsageStore.data.openAITotalTokens.formatted())
+                            .foregroundStyle(.secondary)
+                    }
+                    if apiUsageStore.openAISessionCalls > 0 {
+                        HStack {
+                            Text("This Session")
+                            Spacer()
+                            Text("\(apiUsageStore.openAISessionCalls) calls, \(apiUsageStore.openAISessionTokens.formatted()) tokens")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        }
+                    }
+
+                    Divider()
+
+                    // Golf Course API stats
+                    HStack {
+                        Label("Golf Course API", systemImage: "figure.golf")
+                        Spacer()
+                        if apiUsageStore.data.golfAPIRateLimitEnabled {
+                            Text("\(apiUsageStore.data.golfAPICallsThisMonth) / \(apiUsageStore.data.golfAPIMonthlyLimit)")
+                                .foregroundStyle(
+                                    apiUsageStore.data.isGolfAPIOverLimit ? .red : .secondary
+                                )
+                        } else {
+                            Text("\(apiUsageStore.data.golfAPICallsThisMonth) this month")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    @Bindable var usageStore = apiUsageStore
+                    Toggle("Limit to \(apiUsageStore.data.golfAPIMonthlyLimit) calls/month",
+                           isOn: $usageStore.data.golfAPIRateLimitEnabled)
+
+                    if apiUsageStore.data.isGolfAPIOverLimit {
+                        Label("Monthly limit reached. Scorecard enrichment paused.",
+                              systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive) {
+                        apiUsageStore.resetAll()
+                    } label: {
+                        Label("Reset All Usage Data", systemImage: "arrow.counterclockwise")
+                    }
+                }
+
                 Section("Short Game & Tendencies") {
                     Picker("Bunker Confidence", selection: $store.profile.bunkerConfidence) {
                         ForEach(SelfConfidence.allCases) { c in
@@ -163,4 +237,5 @@ struct ProfileView: View {
 #Preview {
     ProfileView()
         .environment(ProfileStore())
+        .environment(APIUsageStore())
 }

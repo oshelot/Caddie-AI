@@ -35,4 +35,5 @@ struct ContentView: View {
         .environment(TextToSpeechService())
         .environment(CourseViewModel())
         .environment(CourseCacheService())
+        .environment(APIUsageStore())
 }

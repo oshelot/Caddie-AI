@@ -11,6 +11,7 @@ struct CourseMapView: View {
     let course: NormalizedCourse
     @Environment(CourseViewModel.self) private var viewModel
     @Environment(ProfileStore.self) private var profileStore
+    @Environment(APIUsageStore.self) private var apiUsageStore
     @State private var showingDetail = false
     @State private var showingDebug = false
     @State private var showingAnalysis = false
@@ -100,6 +101,7 @@ struct CourseMapView: View {
                                let hole = course.holes.first(where: { $0.number == sel }) {
                                 showingAnalysis = true
                                 Task {
+                                    analysisViewModel.apiUsageStore = apiUsageStore
                                     await analysisViewModel.analyzeHole(
                                         hole,
                                         course: course,

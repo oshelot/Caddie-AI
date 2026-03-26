@@ -37,6 +37,7 @@ final class CourseViewModel {
     // Injected via environment
     var cacheService: CourseCacheService?
     var profileStore: ProfileStore?
+    var apiUsageStore: APIUsageStore?
 
     // MARK: - Search (Nominatim + MKLocalSearch in parallel)
 
@@ -271,13 +272,20 @@ final class CourseViewModel {
     // MARK: - Scorecard Enrichment
 
     private func enrichWithScorecardData(courses: [NormalizedCourse], courseName: String, apiKey: String) async -> [NormalizedCourse] {
+        // Check rate limit before making Golf API calls
+        if let store = apiUsageStore, !store.canMakeGolfAPICall {
+            return courses
+        }
+
         do {
             // Search returns summary data; fetch full detail for tee/hole info
             let results = try await GolfCourseAPIClient.searchCourses(name: courseName, apiKey: apiKey)
+            apiUsageStore?.recordGolfAPICall(method: "searchCourses")
             guard let bestMatch = results.first else { return courses }
 
             // The search result may have tees already, but fetch detail to be sure
             let detail = try await GolfCourseAPIClient.getCourse(id: bestMatch.id, apiKey: apiKey)
+            apiUsageStore?.recordGolfAPICall(method: "getCourse")
             let courseData = detail ?? bestMatch
 
             let scorecard = courseData.extractScorecardData()

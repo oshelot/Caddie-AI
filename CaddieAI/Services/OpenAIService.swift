@@ -19,6 +19,14 @@ final class OpenAIService: Sendable {
         var errorDescription: String? { message }
     }
 
+    // MARK: - Token Usage
+
+    struct TokenUsage: Sendable {
+        let promptTokens: Int
+        let completionTokens: Int
+        let totalTokens: Int
+    }
+
     // MARK: - Message Type for Conversation History
 
     struct ChatMessage: Sendable {
@@ -55,7 +63,7 @@ final class OpenAIService: Sendable {
         deterministicAnalysis: DeterministicAnalysis,
         imageData: Data? = nil,
         voiceNotes: String? = nil
-    ) async throws -> ShotRecommendation {
+    ) async throws -> (ShotRecommendation, TokenUsage?) {
         let trimmedKey = profile.apiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmedKey.isEmpty else {
             throw APIError(message: "OpenAI API key not configured. Set it in your Profile tab.")
@@ -86,7 +94,7 @@ final class OpenAIService: Sendable {
         analysis: HoleAnalysis,
         course: NormalizedCourse,
         profile: PlayerProfile
-    ) async throws -> String {
+    ) async throws -> (String, TokenUsage?) {
         let trimmedKey = profile.apiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmedKey.isEmpty else {
             throw APIError(message: "OpenAI API key not configured. Set it in your Profile tab.")
@@ -133,7 +141,7 @@ final class OpenAIService: Sendable {
         question: String,
         conversationHistory: [ChatMessage],
         apiKey: String
-    ) async throws -> String {
+    ) async throws -> (String, TokenUsage?) {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmedKey.isEmpty else {
             throw APIError(message: "OpenAI API key not configured.")
@@ -172,7 +180,7 @@ final class OpenAIService: Sendable {
         question: String,
         conversationHistory: [ChatMessage],
         apiKey: String
-    ) async throws -> String {
+    ) async throws -> (String, TokenUsage?) {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmedKey.isEmpty else {
             throw APIError(message: "OpenAI API key not configured.")
@@ -207,7 +215,7 @@ final class OpenAIService: Sendable {
 
     // MARK: - Network Request
 
-    private func sendRequest(messages: [[String: Any]], apiKey: String) async throws -> ShotRecommendation {
+    private func sendRequest(messages: [[String: Any]], apiKey: String) async throws -> (ShotRecommendation, TokenUsage?) {
         let requestBody: [String: Any] = [
             "model": "gpt-4o",
             "temperature": 0.7,
@@ -240,23 +248,24 @@ final class OpenAIService: Sendable {
 
     // MARK: - Response Parsing
 
-    private static func parseRecommendation(from data: Data) throws -> ShotRecommendation {
-        let content = try extractContent(from: data)
+    private static func parseRecommendation(from data: Data) throws -> (ShotRecommendation, TokenUsage?) {
+        let (content, usage) = try extractContentAndUsage(from: data)
         guard let contentData = content.data(using: .utf8) else {
             throw APIError(message: "Could not encode response content.")
         }
         do {
-            return try JSONDecoder().decode(ShotRecommendation.self, from: contentData)
+            let recommendation = try JSONDecoder().decode(ShotRecommendation.self, from: contentData)
+            return (recommendation, usage)
         } catch {
             throw APIError(message: "Could not decode recommendation: \(error.localizedDescription)")
         }
     }
 
-    private static func parseTextResponse(from data: Data) throws -> String {
-        try extractContent(from: data)
+    private static func parseTextResponse(from data: Data) throws -> (String, TokenUsage?) {
+        try extractContentAndUsage(from: data)
     }
 
-    private static func extractContent(from data: Data) throws -> String {
+    private static func extractContentAndUsage(from data: Data) throws -> (String, TokenUsage?) {
         guard let responseJSON = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = responseJSON["choices"] as? [[String: Any]],
               let firstChoice = choices.first,
@@ -265,7 +274,16 @@ final class OpenAIService: Sendable {
         else {
             throw APIError(message: "Could not parse API response structure.")
         }
-        return content
+
+        var tokenUsage: TokenUsage?
+        if let usage = responseJSON["usage"] as? [String: Any],
+           let prompt = usage["prompt_tokens"] as? Int,
+           let completion = usage["completion_tokens"] as? Int,
+           let total = usage["total_tokens"] as? Int {
+            tokenUsage = TokenUsage(promptTokens: prompt, completionTokens: completion, totalTokens: total)
+        }
+
+        return (content, tokenUsage)
     }
 
     private static func parseErrorMessage(from data: Data) -> String? {

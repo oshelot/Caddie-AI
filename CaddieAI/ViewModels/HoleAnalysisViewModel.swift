@@ -17,6 +17,7 @@ class HoleAnalysisViewModel {
     var isAskingFollowUp = false
     var weather: WeatherData?
     var weatherError: String?
+    var apiUsageStore: APIUsageStore?
 
     private var conversationHistory: [OpenAIService.ChatMessage] = []
 
@@ -75,12 +76,22 @@ class HoleAnalysisViewModel {
         }
 
         do {
-            let advice = try await OpenAIService.shared.getHoleAnalysis(
+            let (advice, usage) = try await OpenAIService.shared.getHoleAnalysis(
                 hole: hole,
                 analysis: result,
                 course: course,
                 profile: profile
             )
+            if let usage, let store = apiUsageStore {
+                await MainActor.run {
+                    store.recordOpenAIUsage(
+                        promptTokens: usage.promptTokens,
+                        completionTokens: usage.completionTokens,
+                        totalTokens: usage.totalTokens,
+                        method: "getHoleAnalysis"
+                    )
+                }
+            }
             result.strategicAdvice = advice
             analysis = result
 
@@ -124,11 +135,21 @@ class HoleAnalysisViewModel {
         followUpResponse = nil
 
         do {
-            let response = try await OpenAIService.shared.askHoleFollowUp(
+            let (response, usage) = try await OpenAIService.shared.askHoleFollowUp(
                 question: question,
                 conversationHistory: conversationHistory,
                 apiKey: profile.apiKey
             )
+            if let usage, let store = apiUsageStore {
+                await MainActor.run {
+                    store.recordOpenAIUsage(
+                        promptTokens: usage.promptTokens,
+                        completionTokens: usage.completionTokens,
+                        totalTokens: usage.totalTokens,
+                        method: "askHoleFollowUp"
+                    )
+                }
+            }
             followUpResponse = response
 
             // Append to history for multi-turn

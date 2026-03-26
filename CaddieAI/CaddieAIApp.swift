@@ -16,6 +16,7 @@ struct CaddieAIApp: App {
     @State private var shotHistoryStore = ShotHistoryStore()
     @State private var courseViewModel = CourseViewModel()
     @State private var courseCacheService = CourseCacheService()
+    @State private var apiUsageStore = APIUsageStore()
     @State private var showSplash = true
 
     var body: some Scene {
@@ -29,9 +30,12 @@ struct CaddieAIApp: App {
                     .environment(shotHistoryStore)
                     .environment(courseViewModel)
                     .environment(courseCacheService)
+                    .environment(apiUsageStore)
                     .onAppear {
                         courseViewModel.cacheService = courseCacheService
                         courseViewModel.profileStore = profileStore
+                        courseViewModel.apiUsageStore = apiUsageStore
+                        shotAdvisor.apiUsageStore = apiUsageStore
                     }
 
                 if showSplash {

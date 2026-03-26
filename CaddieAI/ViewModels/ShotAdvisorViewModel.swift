@@ -31,6 +31,7 @@ final class ShotAdvisorViewModel {
     // MARK: - Dependencies
 
     private let openAIService = OpenAIService.shared
+    var apiUsageStore: APIUsageStore?
 
     // MARK: - Auto-populate Wind from Weather
 
@@ -84,13 +85,23 @@ final class ShotAdvisorViewModel {
 
         // Step 2: LLM enrichment (network call)
         do {
-            var result = try await openAIService.getRecommendation(
+            var (result, usage) = try await openAIService.getRecommendation(
                 context: shotContext,
                 profile: profile,
                 deterministicAnalysis: analysis,
                 imageData: imageData,
                 voiceNotes: voiceNotes.isEmpty ? nil : voiceNotes
             )
+            if let usage, let store = apiUsageStore {
+                await MainActor.run {
+                    store.recordOpenAIUsage(
+                        promptTokens: usage.promptTokens,
+                        completionTokens: usage.completionTokens,
+                        totalTokens: usage.totalTokens,
+                        method: "getRecommendation"
+                    )
+                }
+            }
             // If LLM didn't return an execution plan, use the deterministic one
             if result.executionPlan == nil {
                 result.executionPlan = analysis.executionPlan
@@ -130,11 +141,21 @@ final class ShotAdvisorViewModel {
         followUpMessages.append(FollowUpMessage(role: .user, text: question))
 
         do {
-            let answer = try await openAIService.askFollowUp(
+            let (answer, usage) = try await openAIService.askFollowUp(
                 question: question,
                 conversationHistory: conversationHistory,
                 apiKey: apiKey
             )
+            if let usage, let store = apiUsageStore {
+                await MainActor.run {
+                    store.recordOpenAIUsage(
+                        promptTokens: usage.promptTokens,
+                        completionTokens: usage.completionTokens,
+                        totalTokens: usage.totalTokens,
+                        method: "askFollowUp"
+                    )
+                }
+            }
             followUpMessages.append(FollowUpMessage(role: .caddie, text: answer))
 
             // Update conversation history
