@@ -12,6 +12,7 @@ struct APISettingsView: View {
     @Environment(APIUsageStore.self) private var apiUsageStore
     @State private var showAPIKey = false
     @State private var showGolfAPIKey = false
+    @State private var showMapboxToken = false
 
     var body: some View {
         @Bindable var store = profileStore
@@ -104,6 +105,48 @@ struct APISettingsView: View {
                 Text("Golf Course API Key")
             } footer: {
                 Text("Enriches courses with par, yardage, and slope data from golfcourseapi.com")
+            }
+
+            // MARK: - Mapbox Access Token
+
+            Section {
+                HStack {
+                    if showMapboxToken {
+                        Text(store.profile.mapboxAccessToken.isEmpty ? "No token set" : store.profile.mapboxAccessToken)
+                            .foregroundStyle(store.profile.mapboxAccessToken.isEmpty ? .secondary : .primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else {
+                        Text(store.profile.mapboxAccessToken.isEmpty ? "No token set" : String(repeating: "\u{2022}", count: min(store.profile.mapboxAccessToken.count, 24)))
+                            .foregroundStyle(store.profile.mapboxAccessToken.isEmpty ? .secondary : .primary)
+                    }
+                    Spacer()
+                    Button {
+                        showMapboxToken.toggle()
+                    } label: {
+                        Image(systemName: showMapboxToken ? "eye.slash" : "eye")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button {
+                    if let clipboardString = UIPasteboard.general.string {
+                        profileStore.profile.mapboxAccessToken = clipboardString.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                } label: {
+                    Label("Paste Token from Clipboard", systemImage: "doc.on.clipboard")
+                }
+                if !store.profile.mapboxAccessToken.isEmpty {
+                    Button(role: .destructive) {
+                        profileStore.profile.mapboxAccessToken = ""
+                    } label: {
+                        Label("Clear Token", systemImage: "trash")
+                    }
+                }
+            } header: {
+                Text("Mapbox Access Token")
+            } footer: {
+                Text("Powers satellite course maps. Requires app restart to take effect.")
             }
 
             // MARK: - Usage Stats

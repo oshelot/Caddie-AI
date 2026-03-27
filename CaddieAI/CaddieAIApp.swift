@@ -21,7 +21,15 @@ struct CaddieAIApp: App {
     @State private var showSplash = true
 
     init() {
-        if let token = Secrets.mapboxAccessToken {
+        // Read Mapbox token: prefer user-configured (in profile), fall back to bundled Secrets.plist
+        let profileToken: String? = {
+            guard let data = UserDefaults.standard.data(forKey: "playerProfile"),
+                  let profile = try? JSONDecoder().decode(PlayerProfile.self, from: data),
+                  !profile.mapboxAccessToken.isEmpty
+            else { return nil }
+            return profile.mapboxAccessToken
+        }()
+        if let token = profileToken ?? Secrets.mapboxAccessToken {
             MapboxOptions.accessToken = token
         }
     }
