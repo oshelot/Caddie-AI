@@ -470,3 +470,74 @@ enum SwingTendency: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 }
+
+// MARK: - LLM Provider
+
+enum LLMProvider: String, CaseIterable, Codable, Identifiable, Sendable {
+    case openAI
+    case claude
+    case gemini
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .openAI: return "OpenAI"
+        case .claude: return "Claude"
+        case .gemini: return "Gemini"
+        }
+    }
+
+    var availableModels: [LLMModel] {
+        switch self {
+        case .openAI: return [.gpt4o, .gpt4oMini, .gpt4Turbo]
+        case .claude: return [.claudeSonnet4, .claudeHaiku35]
+        case .gemini: return [.gemini20Flash, .gemini15Pro]
+        }
+    }
+
+    var defaultModel: LLMModel {
+        switch self {
+        case .openAI: return .gpt4o
+        case .claude: return .claudeSonnet4
+        case .gemini: return .gemini20Flash
+        }
+    }
+}
+
+// MARK: - LLM Model
+
+enum LLMModel: String, CaseIterable, Codable, Identifiable, Sendable {
+    // OpenAI
+    case gpt4o = "gpt-4o"
+    case gpt4oMini = "gpt-4o-mini"
+    case gpt4Turbo = "gpt-4-turbo"
+    // Claude
+    case claudeSonnet4 = "claude-sonnet-4-20250514"
+    case claudeHaiku35 = "claude-haiku-35-20241022"
+    // Gemini
+    case gemini20Flash = "gemini-2.0-flash"
+    case gemini15Pro = "gemini-1.5-pro"
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .gpt4o: return "GPT-4o"
+        case .gpt4oMini: return "GPT-4o Mini"
+        case .gpt4Turbo: return "GPT-4 Turbo"
+        case .claudeSonnet4: return "Claude Sonnet 4"
+        case .claudeHaiku35: return "Claude Haiku 3.5"
+        case .gemini20Flash: return "Gemini 2.0 Flash"
+        case .gemini15Pro: return "Gemini 1.5 Pro"
+        }
+    }
+
+    var provider: LLMProvider {
+        switch self {
+        case .gpt4o, .gpt4oMini, .gpt4Turbo: return .openAI
+        case .claudeSonnet4, .claudeHaiku35: return .claude
+        case .gemini20Flash, .gemini15Pro: return .gemini
+        }
+    }
+}

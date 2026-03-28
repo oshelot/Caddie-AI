@@ -30,7 +30,7 @@ final class ShotAdvisorViewModel {
 
     // MARK: - Dependencies
 
-    private let openAIService = OpenAIService.shared
+    private let llmRouter = LLMRouter.shared
     var apiUsageStore: APIUsageStore?
 
     // MARK: - Auto-populate Wind from Weather
@@ -85,7 +85,7 @@ final class ShotAdvisorViewModel {
 
         // Step 2: LLM enrichment (network call)
         do {
-            var (result, usage) = try await openAIService.getRecommendation(
+            var (result, usage) = try await llmRouter.getRecommendation(
                 context: shotContext,
                 profile: profile,
                 deterministicAnalysis: analysis,
@@ -94,11 +94,12 @@ final class ShotAdvisorViewModel {
             )
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
-                    store.recordOpenAIUsage(
+                    store.recordLLMUsage(
                         promptTokens: usage.promptTokens,
                         completionTokens: usage.completionTokens,
                         totalTokens: usage.totalTokens,
-                        method: "getRecommendation"
+                        method: "getRecommendation",
+                        provider: profile.llmProvider
                     )
                 }
             }
@@ -134,25 +135,28 @@ final class ShotAdvisorViewModel {
 
     // MARK: - Follow-Up Question
 
-    func askFollowUp(question: String, apiKey: String) async {
+    func askFollowUp(question: String, profile: PlayerProfile) async {
         guard !question.trimmingCharacters(in: .whitespaces).isEmpty else { return }
 
         isAskingFollowUp = true
         followUpMessages.append(FollowUpMessage(role: .user, text: question))
 
         do {
-            let (answer, usage) = try await openAIService.askFollowUp(
+            let (answer, usage) = try await llmRouter.askFollowUp(
                 question: question,
                 conversationHistory: conversationHistory,
-                apiKey: apiKey
+                apiKey: profile.activeLLMApiKey,
+                provider: profile.llmProvider,
+                model: profile.llmModel
             )
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
-                    store.recordOpenAIUsage(
+                    store.recordLLMUsage(
                         promptTokens: usage.promptTokens,
                         completionTokens: usage.completionTokens,
                         totalTokens: usage.totalTokens,
-                        method: "askFollowUp"
+                        method: "askFollowUp",
+                        provider: profile.llmProvider
                     )
                 }
             }

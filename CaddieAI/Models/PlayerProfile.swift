@@ -26,6 +26,12 @@ struct PlayerProfile: Codable, Sendable {
     var golfCourseApiKey: String
     var mapboxAccessToken: String
 
+    // LLM provider selection
+    var llmProvider: LLMProvider
+    var llmModel: LLMModel
+    var claudeApiKey: String
+    var geminiApiKey: String
+
     // Phase 3: Player preferences
     var bunkerConfidence: SelfConfidence
     var wedgeConfidence: SelfConfidence
@@ -43,13 +49,17 @@ struct PlayerProfile: Codable, Sendable {
         apiKey = try container.decode(String.self, forKey: .apiKey)
         golfCourseApiKey = try container.decodeIfPresent(String.self, forKey: .golfCourseApiKey) ?? ""
         mapboxAccessToken = try container.decodeIfPresent(String.self, forKey: .mapboxAccessToken) ?? ""
+        llmProvider = try container.decodeIfPresent(LLMProvider.self, forKey: .llmProvider) ?? .openAI
+        llmModel = try container.decodeIfPresent(LLMModel.self, forKey: .llmModel) ?? .gpt4o
+        claudeApiKey = try container.decodeIfPresent(String.self, forKey: .claudeApiKey) ?? ""
+        geminiApiKey = try container.decodeIfPresent(String.self, forKey: .geminiApiKey) ?? ""
         bunkerConfidence = try container.decodeIfPresent(SelfConfidence.self, forKey: .bunkerConfidence) ?? .average
         wedgeConfidence = try container.decodeIfPresent(SelfConfidence.self, forKey: .wedgeConfidence) ?? .average
         preferredChipStyle = try container.decodeIfPresent(ChipStyle.self, forKey: .preferredChipStyle) ?? .noPreference
         swingTendency = try container.decodeIfPresent(SwingTendency.self, forKey: .swingTendency) ?? .neutral
     }
 
-    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral) {
+    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", llmProvider: LLMProvider = .openAI, llmModel: LLMModel = .gpt4o, claudeApiKey: String = "", geminiApiKey: String = "", bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral) {
         self.handicap = handicap
         self.stockShape = stockShape
         self.missTendency = missTendency
@@ -58,10 +68,23 @@ struct PlayerProfile: Codable, Sendable {
         self.apiKey = apiKey
         self.golfCourseApiKey = golfCourseApiKey
         self.mapboxAccessToken = mapboxAccessToken
+        self.llmProvider = llmProvider
+        self.llmModel = llmModel
+        self.claudeApiKey = claudeApiKey
+        self.geminiApiKey = geminiApiKey
         self.bunkerConfidence = bunkerConfidence
         self.wedgeConfidence = wedgeConfidence
         self.preferredChipStyle = preferredChipStyle
         self.swingTendency = swingTendency
+    }
+
+    /// Returns the API key for the currently selected LLM provider.
+    var activeLLMApiKey: String {
+        switch llmProvider {
+        case .openAI: return apiKey
+        case .claude: return claudeApiKey
+        case .gemini: return geminiApiKey
+        }
     }
 
     static var `default`: PlayerProfile {

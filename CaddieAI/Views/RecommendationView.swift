@@ -169,7 +169,7 @@ struct RecommendationView: View {
                         Task {
                             await viewModel.askFollowUp(
                                 question: question,
-                                apiKey: profileStore.profile.apiKey
+                                profile: profileStore.profile
                             )
                         }
                     }

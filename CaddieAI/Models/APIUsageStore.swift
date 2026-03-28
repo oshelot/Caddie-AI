@@ -15,6 +15,26 @@ struct OpenAIUsageRecord: Codable, Sendable {
     let totalTokens: Int
     let timestamp: Date
     let method: String
+    let provider: String
+
+    init(promptTokens: Int, completionTokens: Int, totalTokens: Int, timestamp: Date, method: String, provider: String = "openAI") {
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+        self.totalTokens = totalTokens
+        self.timestamp = timestamp
+        self.method = method
+        self.provider = provider
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        promptTokens = try container.decode(Int.self, forKey: .promptTokens)
+        completionTokens = try container.decode(Int.self, forKey: .completionTokens)
+        totalTokens = try container.decode(Int.self, forKey: .totalTokens)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        method = try container.decode(String.self, forKey: .method)
+        provider = try container.decodeIfPresent(String.self, forKey: .provider) ?? "openAI"
+    }
 }
 
 struct GolfAPIUsageRecord: Codable, Sendable {
@@ -99,15 +119,20 @@ final class APIUsageStore {
 
     // MARK: - Recording
 
-    func recordOpenAIUsage(promptTokens: Int, completionTokens: Int, totalTokens: Int, method: String) {
+    func recordLLMUsage(promptTokens: Int, completionTokens: Int, totalTokens: Int, method: String, provider: LLMProvider) {
         let record = OpenAIUsageRecord(
             promptTokens: promptTokens,
             completionTokens: completionTokens,
             totalTokens: totalTokens,
             timestamp: Date(),
-            method: method
+            method: method,
+            provider: provider.rawValue
         )
         data.openAICalls.append(record)
+    }
+
+    func recordOpenAIUsage(promptTokens: Int, completionTokens: Int, totalTokens: Int, method: String) {
+        recordLLMUsage(promptTokens: promptTokens, completionTokens: completionTokens, totalTokens: totalTokens, method: method, provider: .openAI)
     }
 
     func recordGolfAPICall(method: String) {

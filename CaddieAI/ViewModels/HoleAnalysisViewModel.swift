@@ -67,8 +67,8 @@ class HoleAnalysisViewModel {
         )
         analysis = result
 
-        // Tier 2: OpenAI caddie narrative (async)
-        let trimmedKey = profile.apiKey.trimmingCharacters(in: .whitespaces)
+        // Tier 2: LLM caddie narrative (async)
+        let trimmedKey = profile.activeLLMApiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmedKey.isEmpty else {
             // No API key — use deterministic summary only
             isAnalyzing = false
@@ -76,7 +76,7 @@ class HoleAnalysisViewModel {
         }
 
         do {
-            let (advice, usage) = try await OpenAIService.shared.getHoleAnalysis(
+            let (advice, usage) = try await LLMRouter.shared.getHoleAnalysis(
                 hole: hole,
                 analysis: result,
                 course: course,
@@ -84,11 +84,12 @@ class HoleAnalysisViewModel {
             )
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
-                    store.recordOpenAIUsage(
+                    store.recordLLMUsage(
                         promptTokens: usage.promptTokens,
                         completionTokens: usage.completionTokens,
                         totalTokens: usage.totalTokens,
-                        method: "getHoleAnalysis"
+                        method: "getHoleAnalysis",
+                        provider: profile.llmProvider
                     )
                 }
             }
@@ -135,18 +136,21 @@ class HoleAnalysisViewModel {
         followUpResponse = nil
 
         do {
-            let (response, usage) = try await OpenAIService.shared.askHoleFollowUp(
+            let (response, usage) = try await LLMRouter.shared.askHoleFollowUp(
                 question: question,
                 conversationHistory: conversationHistory,
-                apiKey: profile.apiKey
+                apiKey: profile.activeLLMApiKey,
+                provider: profile.llmProvider,
+                model: profile.llmModel
             )
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
-                    store.recordOpenAIUsage(
+                    store.recordLLMUsage(
                         promptTokens: usage.promptTokens,
                         completionTokens: usage.completionTokens,
                         totalTokens: usage.totalTokens,
-                        method: "askHoleFollowUp"
+                        method: "askHoleFollowUp",
+                        provider: profile.llmProvider
                     )
                 }
             }

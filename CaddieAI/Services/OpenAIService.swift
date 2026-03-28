@@ -61,6 +61,7 @@ final class OpenAIService: Sendable {
         context: ShotContext,
         profile: PlayerProfile,
         deterministicAnalysis: DeterministicAnalysis,
+        model: String? = nil,
         imageData: Data? = nil,
         voiceNotes: String? = nil
     ) async throws -> (ShotRecommendation, TokenUsage?) {
@@ -84,7 +85,7 @@ final class OpenAIService: Sendable {
         let userMsg = ChatMessage(role: "user", content: userMessage, imageData: imageData)
         messages.append(userMsg.toAPIFormat())
 
-        return try await sendRequest(messages: messages, apiKey: trimmedKey)
+        return try await sendRequest(messages: messages, apiKey: trimmedKey, model: model ?? "gpt-4o")
     }
 
     // MARK: - Hole Analysis
@@ -93,7 +94,8 @@ final class OpenAIService: Sendable {
         hole: NormalizedHole,
         analysis: HoleAnalysis,
         course: NormalizedCourse,
-        profile: PlayerProfile
+        profile: PlayerProfile,
+        model: String? = nil
     ) async throws -> (String, TokenUsage?) {
         let trimmedKey = profile.apiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmedKey.isEmpty else {
@@ -114,7 +116,7 @@ final class OpenAIService: Sendable {
         ]
 
         let requestBody: [String: Any] = [
-            "model": "gpt-4o",
+            "model": model ?? "gpt-4o",
             "temperature": 0.7,
             "max_tokens": 1000,
             "messages": messages
@@ -140,7 +142,8 @@ final class OpenAIService: Sendable {
     func askHoleFollowUp(
         question: String,
         conversationHistory: [ChatMessage],
-        apiKey: String
+        apiKey: String,
+        model: String? = nil
     ) async throws -> (String, TokenUsage?) {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmedKey.isEmpty else {
@@ -151,7 +154,7 @@ final class OpenAIService: Sendable {
         messages.append(["role": "user", "content": question])
 
         let requestBody: [String: Any] = [
-            "model": "gpt-4o",
+            "model": model ?? "gpt-4o",
             "temperature": 0.7,
             "max_tokens": 500,
             "messages": messages
@@ -179,7 +182,8 @@ final class OpenAIService: Sendable {
     func askFollowUp(
         question: String,
         conversationHistory: [ChatMessage],
-        apiKey: String
+        apiKey: String,
+        model: String? = nil
     ) async throws -> (String, TokenUsage?) {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmedKey.isEmpty else {
@@ -190,7 +194,7 @@ final class OpenAIService: Sendable {
         messages.append(["role": "user", "content": question])
 
         let requestBody: [String: Any] = [
-            "model": "gpt-4o",
+            "model": model ?? "gpt-4o",
             "temperature": 0.7,
             "max_tokens": 500,
             "messages": messages
@@ -215,9 +219,9 @@ final class OpenAIService: Sendable {
 
     // MARK: - Network Request
 
-    private func sendRequest(messages: [[String: Any]], apiKey: String) async throws -> (ShotRecommendation, TokenUsage?) {
+    private func sendRequest(messages: [[String: Any]], apiKey: String, model: String = "gpt-4o") async throws -> (ShotRecommendation, TokenUsage?) {
         let requestBody: [String: Any] = [
-            "model": "gpt-4o",
+            "model": model,
             "temperature": 0.7,
             "max_tokens": 1500,
             "response_format": ["type": "json_object"],

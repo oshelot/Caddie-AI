@@ -18,18 +18,43 @@ struct APISettingsView: View {
         @Bindable var store = profileStore
 
         Form {
-            // MARK: - OpenAI API Key
+            // MARK: - AI Provider Selection
+
+            Section {
+                Picker("AI Provider", selection: $store.profile.llmProvider) {
+                    ForEach(LLMProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+
+                Picker("Model", selection: $store.profile.llmModel) {
+                    ForEach(store.profile.llmProvider.availableModels) { model in
+                        Text(model.displayName).tag(model)
+                    }
+                }
+            } header: {
+                Text("AI Provider")
+            } footer: {
+                Text("Powers AI caddie recommendations. Only one provider can be active at a time.")
+            }
+            .onChange(of: store.profile.llmProvider) { _, newProvider in
+                if store.profile.llmModel.provider != newProvider {
+                    store.profile.llmModel = newProvider.defaultModel
+                }
+            }
+
+            // MARK: - API Key for Selected Provider
 
             Section {
                 HStack {
                     if showAPIKey {
-                        Text(store.profile.apiKey.isEmpty ? "No key set" : store.profile.apiKey)
-                            .foregroundStyle(store.profile.apiKey.isEmpty ? .secondary : .primary)
+                        Text(activeKeyValue.isEmpty ? "No key set" : activeKeyValue)
+                            .foregroundStyle(activeKeyValue.isEmpty ? .secondary : .primary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     } else {
-                        Text(store.profile.apiKey.isEmpty ? "No key set" : String(repeating: "\u{2022}", count: min(store.profile.apiKey.count, 24)))
-                            .foregroundStyle(store.profile.apiKey.isEmpty ? .secondary : .primary)
+                        Text(activeKeyValue.isEmpty ? "No key set" : String(repeating: "\u{2022}", count: min(activeKeyValue.count, 24)))
+                            .foregroundStyle(activeKeyValue.isEmpty ? .secondary : .primary)
                     }
                     Spacer()
                     Button {
@@ -42,27 +67,31 @@ struct APISettingsView: View {
                 }
                 Button {
                     if let clipboardString = UIPasteboard.general.string {
-                        profileStore.profile.apiKey = clipboardString.trimmingCharacters(in: .whitespacesAndNewlines)
+                        setActiveKey(clipboardString.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                 } label: {
                     Label("Paste API Key from Clipboard", systemImage: "doc.on.clipboard")
                 }
-                if !store.profile.apiKey.isEmpty {
+                if !activeKeyValue.isEmpty {
                     Button(role: .destructive) {
-                        profileStore.profile.apiKey = ""
+                        setActiveKey("")
                     } label: {
                         Label("Clear API Key", systemImage: "trash")
                     }
                 }
-                if store.profile.apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
+                if activeKeyValue.trimmingCharacters(in: .whitespaces).isEmpty {
                     Label("Required for AI-powered recommendations", systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
             } header: {
-                Text("OpenAI API Key")
+                Text("\(profileStore.profile.llmProvider.displayName) API Key")
             } footer: {
-                Text("Powers AI caddie recommendations")
+                switch profileStore.profile.llmProvider {
+                case .openAI: Text("Get your key at platform.openai.com")
+                case .claude: Text("Get your key at console.anthropic.com")
+                case .gemini: Text("Get your key at aistudio.google.com")
+                }
             }
 
             // MARK: - Golf Course API Key
@@ -154,7 +183,7 @@ struct APISettingsView: View {
             Section("API Usage") {
                 // OpenAI stats
                 HStack {
-                    Label("OpenAI Calls", systemImage: "brain")
+                    Label("LLM Calls", systemImage: "brain")
                     Spacer()
                     Text("\(apiUsageStore.data.openAITotalCalls)")
                         .foregroundStyle(.secondary)
@@ -225,6 +254,24 @@ struct APISettingsView: View {
             }
         }
         .navigationTitle("API Settings")
+    }
+
+    // MARK: - Active Key Helpers
+
+    private var activeKeyValue: String {
+        switch profileStore.profile.llmProvider {
+        case .openAI: return profileStore.profile.apiKey
+        case .claude: return profileStore.profile.claudeApiKey
+        case .gemini: return profileStore.profile.geminiApiKey
+        }
+    }
+
+    private func setActiveKey(_ value: String) {
+        switch profileStore.profile.llmProvider {
+        case .openAI: profileStore.profile.apiKey = value
+        case .claude: profileStore.profile.claudeApiKey = value
+        case .gemini: profileStore.profile.geminiApiKey = value
+        }
     }
 }
 
