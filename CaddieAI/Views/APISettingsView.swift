@@ -178,6 +178,16 @@ struct APISettingsView: View {
                 Text("Powers satellite course maps. Requires app restart to take effect.")
             }
 
+            // MARK: - Telemetry
+
+            Section {
+                Toggle("Share Usage Data", isOn: $store.profile.telemetryEnabled)
+            } header: {
+                Text("Telemetry")
+            } footer: {
+                Text("Sends anonymous API call counts (no personal data or conversation content) to help improve CaddieAI.")
+            }
+
             // MARK: - Usage Stats
 
             Section("API Usage") {

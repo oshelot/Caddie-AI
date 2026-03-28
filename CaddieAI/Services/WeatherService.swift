@@ -57,6 +57,8 @@ enum WeatherService {
         cachedWeather = weather
         cachedCoordinate = (latitude, longitude)
 
+        TelemetryService.shared.recordWeatherCall()
+
         return weather
     }
 

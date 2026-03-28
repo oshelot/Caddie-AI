@@ -50,6 +50,7 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         let mapView = MapView(frame: .zero, mapInitOptions: mapInitOptions)
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         mapView.ornaments.compassView.isHidden = true
+        TelemetryService.shared.recordMapboxCall()
 
         context.coordinator.mapView = mapView
         mapView.mapboxMap.onStyleLoaded.observe { _ in

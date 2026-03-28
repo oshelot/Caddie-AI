@@ -92,6 +92,14 @@ class HoleAnalysisViewModel {
                         provider: profile.llmProvider
                     )
                 }
+                TelemetryService.shared.recordLLMCall(
+                    provider: profile.llmProvider.rawValue,
+                    model: profile.llmModel.rawValue,
+                    method: "getHoleAnalysis",
+                    promptTokens: usage.promptTokens,
+                    completionTokens: usage.completionTokens,
+                    totalTokens: usage.totalTokens
+                )
             }
             result.strategicAdvice = advice
             analysis = result
@@ -153,6 +161,14 @@ class HoleAnalysisViewModel {
                         provider: profile.llmProvider
                     )
                 }
+                TelemetryService.shared.recordLLMCall(
+                    provider: profile.llmProvider.rawValue,
+                    model: profile.llmModel.rawValue,
+                    method: "askHoleFollowUp",
+                    promptTokens: usage.promptTokens,
+                    completionTokens: usage.completionTokens,
+                    totalTokens: usage.totalTokens
+                )
             }
             followUpResponse = response
 

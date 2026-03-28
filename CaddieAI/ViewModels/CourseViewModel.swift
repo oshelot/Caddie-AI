@@ -157,6 +157,7 @@ final class CourseViewModel {
         let courseId = NormalizedCourse.generateId(name: result.name, centroid: result.centroid)
         if !forceRefresh, let cached = cacheService?.load(id: courseId) {
             selectedCourse = cached
+            TelemetryService.shared.recordCoursePlayed(courseName: cached.name)
             isIngesting = false
             return
         }
@@ -213,6 +214,7 @@ final class CourseViewModel {
                     ingestionWarning = "This course has limited map data. Some holes, greens, or hazards may be missing."
                 }
                 selectedCourse = course
+                TelemetryService.shared.recordCoursePlayed(courseName: course.name)
             }
         } catch {
             ingestionError = error.localizedDescription
@@ -226,6 +228,7 @@ final class CourseViewModel {
     func loadCachedCourse(id: String) {
         if let course = cacheService?.load(id: id) {
             selectedCourse = course
+            TelemetryService.shared.recordCoursePlayed(courseName: course.name)
         }
     }
 
@@ -239,6 +242,7 @@ final class CourseViewModel {
 
     func selectSubCourse(_ course: NormalizedCourse) {
         selectedCourse = course
+        TelemetryService.shared.recordCoursePlayed(courseName: course.name)
         showSubCoursePicker = false
         availableSubCourses = []
     }
@@ -281,11 +285,13 @@ final class CourseViewModel {
             // Search returns summary data; fetch full detail for tee/hole info
             let results = try await GolfCourseAPIClient.searchCourses(name: courseName, apiKey: apiKey)
             apiUsageStore?.recordGolfAPICall(method: "searchCourses")
+            TelemetryService.shared.recordGolfAPICall(method: "searchCourses")
             guard let bestMatch = results.first else { return courses }
 
             // The search result may have tees already, but fetch detail to be sure
             let detail = try await GolfCourseAPIClient.getCourse(id: bestMatch.id, apiKey: apiKey)
             apiUsageStore?.recordGolfAPICall(method: "getCourse")
+            TelemetryService.shared.recordGolfAPICall(method: "getCourse")
             let courseData = detail ?? bestMatch
 
             let scorecard = courseData.extractScorecardData()

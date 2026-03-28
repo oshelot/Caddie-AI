@@ -1,13 +1,14 @@
 # CaddieAI
 
-A personal iOS golf caddie app that combines deterministic golf logic with OpenAI GPT-4o to deliver club recommendations, target strategy, and shot execution guidance on the course.
+A personal iOS golf caddie app that combines deterministic golf logic with AI (OpenAI, Claude, or Gemini) to deliver club recommendations, target strategy, and shot execution guidance on the course.
 
 ## Features
 
 ### Shot Advisor
 - Enter distance, shot type, lie, wind, slope, and hazard notes
 - Deterministic engine calculates effective distance, wind/lie/slope adjustments, and selects the optimal club
-- GPT-4o enriches recommendations with target strategy, risk assessment, and natural caddie-style phrasing
+- AI enriches recommendations with target strategy, risk assessment, and natural caddie-style phrasing
+- Supports OpenAI (GPT-4o, GPT-4o mini, GPT-4 Turbo), Anthropic Claude (Sonnet, Haiku), and Google Gemini (2.0 Flash, 1.5 Pro)
 - Falls back to deterministic-only analysis when the LLM is unavailable
 
 ### Execution Guidance
@@ -24,7 +25,7 @@ A personal iOS golf caddie app that combines deterministic golf logic with OpenA
 
 ### Voice & Image Input
 - Voice recording via Apple Speech framework — transcribed notes are sent to the LLM
-- Photo attachment for lie/stance analysis (sent as base64 JPEG to GPT-4o vision)
+- Photo attachment for lie/stance analysis (sent as base64 JPEG to the active LLM's vision API)
 - Text-to-speech reads recommendations and hole analysis aloud on the course
 - Follow-up conversation with quick question chips and free-text input
 
@@ -52,20 +53,27 @@ A personal iOS golf caddie app that combines deterministic golf logic with OpenA
 - Historical insights are fed into the LLM prompt so recommendations improve over time
 
 ### API Usage Tracking
-- Tracks OpenAI token consumption (prompt, completion, total) per call
+- Tracks LLM token consumption (prompt, completion, total) per call across all providers
 - Monitors Golf Course API usage with configurable monthly rate limit (default 300 calls)
 - View stats and reset usage data from the API Settings page
+
+### Telemetry
+- Anonymous usage telemetry (API call counts, course plays) sent to a serverless backend
+- AWS Lambda + API Gateway + S3 infrastructure (CloudFormation template in `infra/`)
+- Batched uploads with retry on failure, periodic flush, and flush on app background
+- User opt-out toggle in API Settings
 
 ## Architecture
 
 ```
 Models/          Data types (enums, profiles, shot context, recommendations, weather, API usage)
-Services/        Golf logic, execution engine, OpenAI, speech, TTS, weather, course API, cache
+Services/        Golf logic, execution engine, LLM services (OpenAI/Claude/Gemini), router, speech, TTS, weather, course API, cache, telemetry
 ViewModels/      ShotAdvisorViewModel, CourseViewModel, HoleAnalysisViewModel
 Views/           SwiftUI views (shot input, recommendation, course map, profile, history)
+infra/           AWS CloudFormation template and Lambda handler for telemetry backend
 ```
 
-- **iOS-only** — no backend server; direct OpenAI API calls via URLSession
+- **iOS-only** — no backend server; direct LLM API calls via URLSession
 - **SwiftUI + @Observable** (iOS 17+)
 - **Hybrid approach**: deterministic logic runs first (instant, offline-capable), LLM enriches second
 - **UserDefaults** persistence for profile, shot history, and API usage data
@@ -75,7 +83,7 @@ Views/           SwiftUI views (shot input, recommendation, course map, profile,
 
 1. Open `CaddieAI.xcodeproj` in Xcode
 2. Build and run on an iOS 17+ device or simulator
-3. Go to **Profile → API Settings & Usage** and paste your OpenAI API key
+3. Go to **Profile → API Settings & Usage**, select your AI provider, and paste your API key
 4. Add the following privacy keys in Xcode's Info tab (required for voice input):
    - `NSMicrophoneUsageDescription` — "CaddieAI uses the microphone for voice input"
    - `NSSpeechRecognitionUsageDescription` — "CaddieAI uses speech recognition to transcribe voice notes"
@@ -84,4 +92,4 @@ Views/           SwiftUI views (shot input, recommendation, course map, profile,
 
 - iOS 17.0+
 - Xcode 15+
-- OpenAI API key (GPT-4o)
+- API key for at least one LLM provider: OpenAI, Anthropic Claude, or Google Gemini

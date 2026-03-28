@@ -102,6 +102,14 @@ final class ShotAdvisorViewModel {
                         provider: profile.llmProvider
                     )
                 }
+                TelemetryService.shared.recordLLMCall(
+                    provider: profile.llmProvider.rawValue,
+                    model: profile.llmModel.rawValue,
+                    method: "getRecommendation",
+                    promptTokens: usage.promptTokens,
+                    completionTokens: usage.completionTokens,
+                    totalTokens: usage.totalTokens
+                )
             }
             // If LLM didn't return an execution plan, use the deterministic one
             if result.executionPlan == nil {
@@ -159,6 +167,14 @@ final class ShotAdvisorViewModel {
                         provider: profile.llmProvider
                     )
                 }
+                TelemetryService.shared.recordLLMCall(
+                    provider: profile.llmProvider.rawValue,
+                    model: profile.llmModel.rawValue,
+                    method: "askFollowUp",
+                    promptTokens: usage.promptTokens,
+                    completionTokens: usage.completionTokens,
+                    totalTokens: usage.totalTokens
+                )
             }
             followUpMessages.append(FollowUpMessage(role: .caddie, text: answer))
 

@@ -51,6 +51,10 @@ struct CaddieAIApp: App {
                         courseViewModel.profileStore = profileStore
                         courseViewModel.apiUsageStore = apiUsageStore
                         shotAdvisor.apiUsageStore = apiUsageStore
+                        TelemetryService.shared.isEnabled = profileStore.profile.telemetryEnabled
+                    }
+                    .onChange(of: profileStore.profile.telemetryEnabled) { _, newValue in
+                        TelemetryService.shared.isEnabled = newValue
                     }
 
                 if showSplash {

@@ -20,4 +20,14 @@ enum Secrets {
     static var mapboxAccessToken: String? {
         secrets?["MBXAccessToken"] as? String
     }
+
+    /// Telemetry ingestion endpoint URL
+    static var telemetryEndpoint: String? {
+        secrets?["TelemetryEndpoint"] as? String
+    }
+
+    /// Telemetry API key (x-api-key header)
+    static var telemetryApiKey: String? {
+        secrets?["TelemetryApiKey"] as? String
+    }
 }
