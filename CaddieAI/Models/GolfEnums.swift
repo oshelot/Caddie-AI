@@ -5,6 +5,22 @@
 
 import Foundation
 
+// MARK: - User Tier
+
+enum UserTier: String, CaseIterable, Codable, Identifiable, Sendable {
+    case free
+    case paid
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .free: return "Free"
+        case .paid: return "Pro"
+        }
+    }
+}
+
 // MARK: - Club
 
 enum Club: String, CaseIterable, Codable, Identifiable, Sendable {

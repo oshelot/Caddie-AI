@@ -18,6 +18,7 @@ struct CaddieAIApp: App {
     @State private var courseViewModel = CourseViewModel()
     @State private var courseCacheService = CourseCacheService()
     @State private var apiUsageStore = APIUsageStore()
+    @State private var subscriptionManager = SubscriptionManager()
     @State private var showSplash = true
 
     init() {
@@ -39,6 +40,7 @@ struct CaddieAIApp: App {
                     .environment(courseViewModel)
                     .environment(courseCacheService)
                     .environment(apiUsageStore)
+                    .environment(subscriptionManager)
                     .onAppear {
                         courseViewModel.cacheService = courseCacheService
                         courseViewModel.profileStore = profileStore
