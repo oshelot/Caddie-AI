@@ -52,9 +52,17 @@ struct CaddieAIApp: App {
                         courseViewModel.apiUsageStore = apiUsageStore
                         shotAdvisor.apiUsageStore = apiUsageStore
                         TelemetryService.shared.isEnabled = profileStore.profile.telemetryEnabled
+                        ttsService.voiceGender = profileStore.profile.caddieVoiceGender
+                        ttsService.voiceAccent = profileStore.profile.caddieVoiceAccent
                     }
                     .onChange(of: profileStore.profile.telemetryEnabled) { _, newValue in
                         TelemetryService.shared.isEnabled = newValue
+                    }
+                    .onChange(of: profileStore.profile.caddieVoiceGender) { _, newValue in
+                        ttsService.voiceGender = newValue
+                    }
+                    .onChange(of: profileStore.profile.caddieVoiceAccent) { _, newValue in
+                        ttsService.voiceAccent = newValue
                     }
 
                 if showSplash {

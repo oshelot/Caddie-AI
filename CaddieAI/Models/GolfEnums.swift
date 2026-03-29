@@ -471,6 +471,51 @@ enum SwingTendency: String, CaseIterable, Codable, Identifiable, Sendable {
     }
 }
 
+// MARK: - Caddie Voice Gender
+
+enum CaddieVoiceGender: String, CaseIterable, Codable, Identifiable, Sendable {
+    case male
+    case female
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .male: return "Male"
+        case .female: return "Female"
+        }
+    }
+}
+
+// MARK: - Caddie Voice Accent
+
+enum CaddieVoiceAccent: String, CaseIterable, Codable, Identifiable, Sendable {
+    case american
+    case british
+    case australian
+    case indian
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .american: return "American"
+        case .british: return "British"
+        case .australian: return "Australian"
+        case .indian: return "Indian"
+        }
+    }
+
+    var languageCode: String {
+        switch self {
+        case .american: return "en-US"
+        case .british: return "en-GB"
+        case .australian: return "en-AU"
+        case .indian: return "en-IN"
+        }
+    }
+}
+
 // MARK: - LLM Provider
 
 enum LLMProvider: String, CaseIterable, Codable, Identifiable, Sendable {

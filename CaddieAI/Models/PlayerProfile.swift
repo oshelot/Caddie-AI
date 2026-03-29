@@ -35,6 +35,10 @@ struct PlayerProfile: Codable, Sendable {
     // Telemetry
     var telemetryEnabled: Bool
 
+    // Caddie voice
+    var caddieVoiceGender: CaddieVoiceGender
+    var caddieVoiceAccent: CaddieVoiceAccent
+
     // Phase 3: Player preferences
     var bunkerConfidence: SelfConfidence
     var wedgeConfidence: SelfConfidence
@@ -57,13 +61,15 @@ struct PlayerProfile: Codable, Sendable {
         claudeApiKey = try container.decodeIfPresent(String.self, forKey: .claudeApiKey) ?? ""
         geminiApiKey = try container.decodeIfPresent(String.self, forKey: .geminiApiKey) ?? ""
         telemetryEnabled = try container.decodeIfPresent(Bool.self, forKey: .telemetryEnabled) ?? true
+        caddieVoiceGender = try container.decodeIfPresent(CaddieVoiceGender.self, forKey: .caddieVoiceGender) ?? .female
+        caddieVoiceAccent = try container.decodeIfPresent(CaddieVoiceAccent.self, forKey: .caddieVoiceAccent) ?? .american
         bunkerConfidence = try container.decodeIfPresent(SelfConfidence.self, forKey: .bunkerConfidence) ?? .average
         wedgeConfidence = try container.decodeIfPresent(SelfConfidence.self, forKey: .wedgeConfidence) ?? .average
         preferredChipStyle = try container.decodeIfPresent(ChipStyle.self, forKey: .preferredChipStyle) ?? .noPreference
         swingTendency = try container.decodeIfPresent(SwingTendency.self, forKey: .swingTendency) ?? .neutral
     }
 
-    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", llmProvider: LLMProvider = .openAI, llmModel: LLMModel = .gpt4o, claudeApiKey: String = "", geminiApiKey: String = "", telemetryEnabled: Bool = true, bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral) {
+    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", llmProvider: LLMProvider = .openAI, llmModel: LLMModel = .gpt4o, claudeApiKey: String = "", geminiApiKey: String = "", telemetryEnabled: Bool = true, caddieVoiceGender: CaddieVoiceGender = .female, caddieVoiceAccent: CaddieVoiceAccent = .american, bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral) {
         self.handicap = handicap
         self.stockShape = stockShape
         self.missTendency = missTendency
@@ -77,6 +83,8 @@ struct PlayerProfile: Codable, Sendable {
         self.claudeApiKey = claudeApiKey
         self.geminiApiKey = geminiApiKey
         self.telemetryEnabled = telemetryEnabled
+        self.caddieVoiceGender = caddieVoiceGender
+        self.caddieVoiceAccent = caddieVoiceAccent
         self.bunkerConfidence = bunkerConfidence
         self.wedgeConfidence = wedgeConfidence
         self.preferredChipStyle = preferredChipStyle

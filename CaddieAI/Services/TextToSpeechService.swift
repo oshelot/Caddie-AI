@@ -9,6 +9,8 @@ import AVFoundation
 final class TextToSpeechService {
 
     var isSpeaking = false
+    var voiceGender: CaddieVoiceGender = .female
+    var voiceAccent: CaddieVoiceAccent = .american
 
     private let synthesizer = AVSpeechSynthesizer()
     private let delegate = TTSDelegate()
@@ -36,7 +38,7 @@ final class TextToSpeechService {
         utterance.rate = 0.5
         utterance.pitchMultiplier = 1.0
         utterance.volume = 1.0
-        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        utterance.voice = resolveVoice()
 
         isSpeaking = true
         synthesizer.speak(utterance)
@@ -45,6 +47,34 @@ final class TextToSpeechService {
     func stop() {
         synthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
+    }
+
+    // MARK: - Voice Resolution
+
+    private func resolveVoice() -> AVSpeechSynthesisVoice? {
+        let targetLanguage = voiceAccent.languageCode
+        let targetGender: AVSpeechSynthesisVoiceGender = voiceGender == .male ? .male : .female
+
+        let voicesForLanguage = AVSpeechSynthesisVoice.speechVoices().filter {
+            $0.language == targetLanguage
+        }
+
+        // Prefer matching gender, then enhanced quality
+        let genderMatched = voicesForLanguage.filter { $0.gender == targetGender }
+        if let enhanced = genderMatched.first(where: { $0.quality == .enhanced }) {
+            return enhanced
+        }
+        if let any = genderMatched.first {
+            return any
+        }
+
+        // Fall back to any voice for the language
+        if let fallback = voicesForLanguage.first {
+            return fallback
+        }
+
+        // Last resort: default en-US
+        return AVSpeechSynthesisVoice(language: "en-US")
     }
 }
 

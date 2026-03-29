@@ -63,6 +63,19 @@ struct ProfileView: View {
                     }
                 }
 
+                Section("Caddie Voice") {
+                    Picker("Accent", selection: $store.profile.caddieVoiceAccent) {
+                        ForEach(CaddieVoiceAccent.allCases) { accent in
+                            Text(accent.displayName).tag(accent)
+                        }
+                    }
+                    Picker("Gender", selection: $store.profile.caddieVoiceGender) {
+                        ForEach(CaddieVoiceGender.allCases) { gender in
+                            Text(gender.displayName).tag(gender)
+                        }
+                    }
+                }
+
                 Section {
                     NavigationLink {
                         YourBagView()
