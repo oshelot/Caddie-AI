@@ -4,9 +4,13 @@
 //
 //  Reusable SwiftUI wrapper around Google Mobile Ads BannerView.
 //  Collapses to zero height when no ad fills or when ads are disabled.
+//  When the GoogleMobileAds SDK is absent (open-source builds), the
+//  AdBannerSection stub renders nothing — the app builds ad-free.
 //
 
 import SwiftUI
+
+#if canImport(GoogleMobileAds)
 import GoogleMobileAds
 
 struct AdBannerView: UIViewRepresentable {
@@ -70,3 +74,14 @@ struct AdBannerSection: View {
         }
     }
 }
+
+#else
+
+/// Stub when GoogleMobileAds SDK is not available (open-source builds).
+struct AdBannerSection: View {
+    var body: some View {
+        EmptyView()
+    }
+}
+
+#endif

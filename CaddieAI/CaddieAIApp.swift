@@ -7,8 +7,10 @@
 
 import SwiftUI
 import MapboxMaps
+#if canImport(GoogleMobileAds)
 import GoogleMobileAds
 import AppTrackingTransparency
+#endif
 
 @main
 struct CaddieAIApp: App {
@@ -33,8 +35,10 @@ struct CaddieAIApp: App {
             MapboxOptions.accessToken = token
         }
 
-        // Initialize Google Mobile Ads SDK
+        // Initialize Google Mobile Ads SDK (only when framework is present)
+        #if canImport(GoogleMobileAds)
         MobileAds.shared.start(completionHandler: nil)
+        #endif
     }
 
     var body: some Scene {
@@ -102,11 +106,13 @@ struct CaddieAIApp: App {
                 }
 
                 // Request ATT authorization for ad personalization
+                #if canImport(GoogleMobileAds)
                 if adManager.shouldShowAds {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                         ATTrackingManager.requestTrackingAuthorization { _ in }
                     }
                 }
+                #endif
             }
         }
     }
