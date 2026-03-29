@@ -121,38 +121,38 @@ struct CourseSearchView: View {
                 if !viewModel.cachedCourses.isEmpty {
                     Section("Saved Courses") {
                         ForEach(viewModel.cachedCourses) { entry in
-                            Button {
-                                viewModel.loadCachedCourse(id: entry.id)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(entry.name)
-                                        .font(.headline)
-                                    if let city = entry.city {
-                                        Text([city, entry.state].compactMap { $0 }.joined(separator: ", "))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                            HStack {
+                                Button {
+                                    viewModel.loadCachedCourse(id: entry.id)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(entry.name)
+                                            .font(.headline)
+                                        if let city = entry.city {
+                                            Text([city, entry.state].compactMap { $0 }.joined(separator: ", "))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        HStack {
+                                            ConfidenceBadge(confidence: entry.overallConfidence)
+                                            Spacer()
+                                            Text("Saved \(entry.cachedAt.formatted(.relative(presentation: .named)))")
+                                                .font(.caption2)
+                                                .foregroundStyle(.tertiary)
+                                        }
                                     }
-                                    HStack {
-                                        ConfidenceBadge(confidence: entry.overallConfidence)
-                                        Spacer()
-                                        Text("Saved \(entry.cachedAt.formatted(.relative(presentation: .named)))")
-                                            .font(.caption2)
-                                            .foregroundStyle(.tertiary)
-                                    }
+                                    .padding(.vertical, 2)
                                 }
-                                .padding(.vertical, 2)
-                            }
-                            .tint(.primary)
-                            .swipeActions(edge: .leading) {
+                                .tint(.primary)
+
                                 Button {
                                     cacheService.toggleFavorite(id: entry.id)
                                 } label: {
-                                    Label(
-                                        cacheService.isFavorite(id: entry.id) ? "Unfavorite" : "Favorite",
-                                        systemImage: cacheService.isFavorite(id: entry.id) ? "star.slash" : "star.fill"
-                                    )
+                                    Image(systemName: cacheService.isFavorite(id: entry.id) ? "star.fill" : "star")
+                                        .foregroundStyle(cacheService.isFavorite(id: entry.id) ? .yellow : .gray)
+                                        .font(.title3)
                                 }
-                                .tint(.yellow)
+                                .buttonStyle(.plain)
                             }
                         }
                         .onDelete { offsets in
