@@ -3,92 +3,184 @@
 //  CaddieAI
 //
 //  API key configuration and usage statistics on a dedicated page.
+//  Tier-aware: hides API key inputs for paid users.
 //
 
 import SwiftUI
+import StoreKit
 
 struct APISettingsView: View {
     @Environment(ProfileStore.self) private var profileStore
     @Environment(APIUsageStore.self) private var apiUsageStore
+    @Environment(SubscriptionManager.self) private var subscriptionManager
     @State private var showAPIKey = false
+
+    private var isPaid: Bool { subscriptionManager.tier == .paid }
 
     var body: some View {
         @Bindable var store = profileStore
 
         Form {
-            // MARK: - AI Provider Selection
-
-            Section {
-                Picker("AI Provider", selection: $store.profile.llmProvider) {
-                    ForEach(LLMProvider.allCases) { provider in
-                        Text(provider.displayName).tag(provider)
-                    }
-                }
-
-                Picker("Model", selection: $store.profile.llmModel) {
-                    ForEach(store.profile.llmProvider.availableModels) { model in
-                        Text(model.displayName).tag(model)
-                    }
-                }
-            } header: {
-                Text("AI Provider")
-            } footer: {
-                Text("Powers AI caddie recommendations. Only one provider can be active at a time.")
-            }
-            .onChange(of: store.profile.llmProvider) { _, newProvider in
-                if store.profile.llmModel.provider != newProvider {
-                    store.profile.llmModel = newProvider.defaultModel
-                }
-            }
-
-            // MARK: - API Key for Selected Provider
+            // MARK: - Subscription Tier
 
             Section {
                 HStack {
-                    if showAPIKey {
-                        Text(activeKeyValue.isEmpty ? "No key set" : activeKeyValue)
-                            .foregroundStyle(activeKeyValue.isEmpty ? .secondary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    } else {
-                        Text(activeKeyValue.isEmpty ? "No key set" : String(repeating: "\u{2022}", count: min(activeKeyValue.count, 24)))
-                            .foregroundStyle(activeKeyValue.isEmpty ? .secondary : .primary)
-                    }
+                    Label(
+                        subscriptionManager.tier.displayName,
+                        systemImage: isPaid ? "crown.fill" : "person.fill"
+                    )
+                    .font(.headline)
                     Spacer()
+                    if isPaid {
+                        Text("Active")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                }
+
+                if isPaid {
+                    Text("All AI features are managed by CaddieAI. No API keys required.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     Button {
-                        showAPIKey.toggle()
+                        Task { await subscriptionManager.restorePurchases() }
                     } label: {
-                        Image(systemName: showAPIKey ? "eye.slash" : "eye")
-                            .foregroundStyle(.secondary)
+                        Label("Manage Subscription", systemImage: "gear")
                     }
-                    .buttonStyle(.plain)
-                }
-                Button {
-                    if let clipboardString = UIPasteboard.general.string {
-                        setActiveKey(clipboardString.trimmingCharacters(in: .whitespacesAndNewlines))
+                } else {
+                    if let product = subscriptionManager.products.first {
+                        Button {
+                            Task { await subscriptionManager.purchase(product) }
+                        } label: {
+                            HStack {
+                                Label("Upgrade to Pro", systemImage: "crown")
+                                Spacer()
+                                Text(product.displayPrice + "/mo")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .disabled(subscriptionManager.isPurchasing)
                     }
-                } label: {
-                    Label("Paste API Key from Clipboard", systemImage: "doc.on.clipboard")
-                }
-                if !activeKeyValue.isEmpty {
-                    Button(role: .destructive) {
-                        setActiveKey("")
+
+                    Button {
+                        Task { await subscriptionManager.restorePurchases() }
                     } label: {
-                        Label("Clear API Key", systemImage: "trash")
+                        Label("Restore Purchases", systemImage: "arrow.clockwise")
                     }
                 }
-                if activeKeyValue.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Label("Required for AI-powered recommendations", systemImage: "exclamationmark.triangle")
+
+                if let error = subscriptionManager.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
             } header: {
-                Text("\(profileStore.profile.llmProvider.displayName) API Key")
+                Text("Subscription")
             } footer: {
-                switch profileStore.profile.llmProvider {
-                case .openAI: Text("Get your key at platform.openai.com")
-                case .claude: Text("Get your key at console.anthropic.com")
-                case .gemini: Text("Get your key at aistudio.google.com")
+                if !isPaid {
+                    Text("Pro removes the need for API keys — unlimited AI caddie powered by GPT-4o mini.")
+                }
+            }
+
+            // MARK: - AI Provider Selection (Free tier only)
+
+            if !isPaid {
+                Section {
+                    Picker("AI Provider", selection: $store.profile.llmProvider) {
+                        ForEach(LLMProvider.allCases) { provider in
+                            Text(provider.displayName).tag(provider)
+                        }
+                    }
+
+                    Picker("Model", selection: $store.profile.llmModel) {
+                        ForEach(store.profile.llmProvider.availableModels) { model in
+                            Text(model.displayName).tag(model)
+                        }
+                    }
+                } header: {
+                    Text("AI Provider")
+                } footer: {
+                    Text("Powers AI caddie recommendations. Only one provider can be active at a time.")
+                }
+                .onChange(of: store.profile.llmProvider) { _, newProvider in
+                    if store.profile.llmModel.provider != newProvider {
+                        store.profile.llmModel = newProvider.defaultModel
+                    }
+                }
+
+                // MARK: - API Key for Selected Provider
+
+                Section {
+                    HStack {
+                        if showAPIKey {
+                            Text(activeKeyValue.isEmpty ? "No key set" : activeKeyValue)
+                                .foregroundStyle(activeKeyValue.isEmpty ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        } else {
+                            Text(activeKeyValue.isEmpty ? "No key set" : String(repeating: "\u{2022}", count: min(activeKeyValue.count, 24)))
+                                .foregroundStyle(activeKeyValue.isEmpty ? .secondary : .primary)
+                        }
+                        Spacer()
+                        Button {
+                            showAPIKey.toggle()
+                        } label: {
+                            Image(systemName: showAPIKey ? "eye.slash" : "eye")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Button {
+                        if let clipboardString = UIPasteboard.general.string {
+                            setActiveKey(clipboardString.trimmingCharacters(in: .whitespacesAndNewlines))
+                        }
+                    } label: {
+                        Label("Paste API Key from Clipboard", systemImage: "doc.on.clipboard")
+                    }
+                    if !activeKeyValue.isEmpty {
+                        Button(role: .destructive) {
+                            setActiveKey("")
+                        } label: {
+                            Label("Clear API Key", systemImage: "trash")
+                        }
+                    }
+                    if activeKeyValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Label("Required for AI-powered recommendations", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text("\(profileStore.profile.llmProvider.displayName) API Key")
+                } footer: {
+                    switch profileStore.profile.llmProvider {
+                    case .openAI: Text("Get your key at platform.openai.com")
+                    case .claude: Text("Get your key at console.anthropic.com")
+                    case .gemini: Text("Get your key at aistudio.google.com")
+                    }
+                }
+            }
+
+            // MARK: - Paid Tier Info
+
+            if isPaid {
+                Section {
+                    HStack {
+                        Label("AI Model", systemImage: "brain")
+                        Spacer()
+                        Text("GPT-4o mini")
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Label("API Keys", systemImage: "key.fill")
+                        Spacer()
+                        Text("Managed by CaddieAI")
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("AI Configuration")
+                } footer: {
+                    Text("Pro uses GPT-4o mini through our managed backend. No configuration needed.")
                 }
             }
 
@@ -204,5 +296,6 @@ struct APISettingsView: View {
         APISettingsView()
             .environment(ProfileStore())
             .environment(APIUsageStore())
+            .environment(SubscriptionManager())
     }
 }
