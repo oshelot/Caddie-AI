@@ -40,14 +40,22 @@ enum HoleAnalysisEngine {
             greenDims: greenDims,
             hazards: hazards,
             profile: profile,
-            weatherContext: weatherContext
+            weatherContext: weatherContext,
+            selectedTee: selectedTee
         )
+
+        // Filter yardages to the selected tee so views only show the relevant distance
+        let filteredYardages: [String: Int]? = if let selectedTee, let yards = hole.yardages?[selectedTee] {
+            [selectedTee: yards]
+        } else {
+            hole.yardages
+        }
 
         return HoleAnalysis(
             holeNumber: hole.number,
             par: hole.par,
             totalDistanceYards: totalDistYards,
-            yardagesByTee: hole.yardages,
+            yardagesByTee: filteredYardages,
             dogleg: dogleg,
             fairwayWidthAtLandingYards: fairwayWidth,
             greenDepthYards: greenDims?.depth,
@@ -385,7 +393,8 @@ enum HoleAnalysisEngine {
         greenDims: GreenDimensions?,
         hazards: [HoleHazardInfo],
         profile: PlayerProfile?,
-        weatherContext: HoleWeatherContext? = nil
+        weatherContext: HoleWeatherContext? = nil,
+        selectedTee: String? = nil
     ) -> String {
         var parts: [String] = []
 
@@ -394,7 +403,9 @@ enum HoleAnalysisEngine {
         if let par = hole.par {
             opening += " is a par \(par)"
         }
-        if let yardages = hole.yardages, !yardages.isEmpty {
+        if let selectedTee, let yards = hole.yardages?[selectedTee] {
+            opening += " playing \(yards) yards from the \(selectedTee) tees"
+        } else if let yardages = hole.yardages, !yardages.isEmpty {
             let yardList = yardages.sorted { $0.value > $1.value }
                 .map { "\($0.value) yards (\($0.key))" }
                 .joined(separator: ", ")
