@@ -137,6 +137,13 @@ final class TelemetryService {
         ])
     }
 
+    func recordContactInfoSubmitted(name: String, email: String?, phone: String?) {
+        var props: [String: Any] = ["name": name]
+        if let email, !email.isEmpty { props["email"] = email }
+        if let phone, !phone.isEmpty { props["phone"] = phone }
+        record(.contactInfoSubmitted, properties: props)
+    }
+
     // MARK: - Flush
 
     /// Sends all pending events to the telemetry endpoint.
@@ -221,4 +228,5 @@ enum TelemetryEventType: String {
     case adImpression = "ad_impression"
     case adClick = "ad_click"
     case adLoadFailure = "ad_load_failure"
+    case contactInfoSubmitted = "contact_info_submitted"
 }

@@ -88,6 +88,12 @@ struct ProfileView: View {
                     } label: {
                         Label("API Settings & Usage", systemImage: "gearshape.2")
                     }
+
+                    NavigationLink {
+                        ContactInfoView()
+                    } label: {
+                        Label("Stay in Touch", systemImage: "envelope.fill")
+                    }
                 }
             }
             .navigationTitle("Profile")

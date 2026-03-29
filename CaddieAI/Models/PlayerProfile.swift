@@ -45,6 +45,11 @@ struct PlayerProfile: Codable, Sendable {
     var preferredChipStyle: ChipStyle
     var swingTendency: SwingTendency
 
+    // Contact info ("Stay in Touch")
+    var contactName: String
+    var contactEmail: String
+    var contactPhone: String
+
     // Custom decoder for backward compatibility with saved profiles missing new fields
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -67,9 +72,12 @@ struct PlayerProfile: Codable, Sendable {
         wedgeConfidence = try container.decodeIfPresent(SelfConfidence.self, forKey: .wedgeConfidence) ?? .average
         preferredChipStyle = try container.decodeIfPresent(ChipStyle.self, forKey: .preferredChipStyle) ?? .noPreference
         swingTendency = try container.decodeIfPresent(SwingTendency.self, forKey: .swingTendency) ?? .neutral
+        contactName = try container.decodeIfPresent(String.self, forKey: .contactName) ?? ""
+        contactEmail = try container.decodeIfPresent(String.self, forKey: .contactEmail) ?? ""
+        contactPhone = try container.decodeIfPresent(String.self, forKey: .contactPhone) ?? ""
     }
 
-    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", llmProvider: LLMProvider = .openAI, llmModel: LLMModel = .gpt4o, claudeApiKey: String = "", geminiApiKey: String = "", telemetryEnabled: Bool = true, caddieVoiceGender: CaddieVoiceGender = .female, caddieVoiceAccent: CaddieVoiceAccent = .american, bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral) {
+    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", llmProvider: LLMProvider = .openAI, llmModel: LLMModel = .gpt4o, claudeApiKey: String = "", geminiApiKey: String = "", telemetryEnabled: Bool = true, caddieVoiceGender: CaddieVoiceGender = .female, caddieVoiceAccent: CaddieVoiceAccent = .american, bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral, contactName: String = "", contactEmail: String = "", contactPhone: String = "") {
         self.handicap = handicap
         self.stockShape = stockShape
         self.missTendency = missTendency
@@ -89,6 +97,9 @@ struct PlayerProfile: Codable, Sendable {
         self.wedgeConfidence = wedgeConfidence
         self.preferredChipStyle = preferredChipStyle
         self.swingTendency = swingTendency
+        self.contactName = contactName
+        self.contactEmail = contactEmail
+        self.contactPhone = contactPhone
     }
 
     /// Returns the API key for the currently selected LLM provider.
