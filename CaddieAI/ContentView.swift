@@ -8,18 +8,20 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var selectedTab = "course"
+
     var body: some View {
-        TabView {
-            Tab("Caddie", systemImage: "figure.golf") {
+        TabView(selection: $selectedTab) {
+            Tab("Caddie", systemImage: "figure.golf", value: "caddie") {
                 ShotInputView()
             }
-            Tab("Course", systemImage: "map") {
+            Tab("Course", systemImage: "map", value: "course") {
                 CourseSearchView()
             }
-            Tab("History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90") {
+            Tab("History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90", value: "history") {
                 ShotHistoryView()
             }
-            Tab("Profile", systemImage: "person.circle") {
+            Tab("Profile", systemImage: "person.circle", value: "profile") {
                 ProfileView()
             }
         }
@@ -36,4 +38,5 @@ struct ContentView: View {
         .environment(CourseViewModel())
         .environment(CourseCacheService())
         .environment(APIUsageStore())
+        .environment(LocationManager())
 }

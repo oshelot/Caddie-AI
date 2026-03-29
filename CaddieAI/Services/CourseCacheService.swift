@@ -92,6 +92,17 @@ final class CourseCacheService {
             .sorted { $0.cachedAt > $1.cachedAt }
     }
 
+    // MARK: - Proximity Query
+
+    /// Returns cached courses within `radiusMeters` of the given coordinate,
+    /// sorted by distance (nearest first).
+    func coursesNear(latitude: Double, longitude: Double, radiusMeters: Double = 1500) -> [CourseCacheEntry] {
+        let userPoint = GeoJSONPoint(latitude: latitude, longitude: longitude)
+        return cachedCourses
+            .filter { $0.centroid.distance(to: userPoint) <= radiusMeters }
+            .sorted { $0.centroid.distance(to: userPoint) < $1.centroid.distance(to: userPoint) }
+    }
+
     // MARK: - Invalidation
 
     func invalidate(id: String) {

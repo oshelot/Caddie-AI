@@ -6,10 +6,14 @@
 //
 
 import SwiftUI
+import CoreLocation
 
 struct CourseSearchView: View {
     @Environment(CourseViewModel.self) private var viewModel
     @Environment(CourseCacheService.self) private var cacheService
+    @Environment(LocationManager.self) private var locationManager
+    @State private var nearbyCourseSuggestion: CourseCacheEntry?
+    @State private var showNearbyPrompt = false
 
     var body: some View {
         @Bindable var vm = viewModel
@@ -124,6 +128,49 @@ struct CourseSearchView: View {
                 SubCoursePickerView()
                     .environment(viewModel)
             }
+            .task {
+                await checkForNearbyCourse()
+            }
+            .alert(
+                "Are you playing here?",
+                isPresented: $showNearbyPrompt,
+                presenting: nearbyCourseSuggestion
+            ) { entry in
+                Button("Yes, load it") {
+                    viewModel.loadCachedCourse(id: entry.id)
+                }
+                Button("No", role: .cancel) { }
+            } message: { entry in
+                let location = [entry.city, entry.state].compactMap { $0 }.joined(separator: ", ")
+                Text("It looks like you're at \(entry.name)" + (location.isEmpty ? "." : " in \(location)."))
+            }
+        }
+    }
+
+    // MARK: - Proximity Check
+
+    private func checkForNearbyCourse() async {
+        guard locationManager.isAuthorized else { return }
+        guard viewModel.selectedCourse == nil else { return }
+
+        locationManager.requestCurrentLocation()
+
+        // Wait up to 5 seconds for a location fix
+        for _ in 0..<50 {
+            if locationManager.currentLocation != nil { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+
+        guard let coord = locationManager.currentLocation else { return }
+
+        let nearby = cacheService.coursesNear(
+            latitude: coord.latitude,
+            longitude: coord.longitude
+        )
+
+        if let closest = nearby.first {
+            nearbyCourseSuggestion = closest
+            showNearbyPrompt = true
         }
     }
 }
