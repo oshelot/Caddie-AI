@@ -20,6 +20,8 @@ struct CaddieAIApp: App {
     @State private var apiUsageStore = APIUsageStore()
     @State private var subscriptionManager = SubscriptionManager()
     @State private var showSplash = true
+    @AppStorage("hasSeenSetupNotice") private var hasSeenSetupNotice = false
+    @State private var showSetupNotice = false
 
     init() {
         // Read Mapbox token from bundled Secrets.plist
@@ -66,11 +68,27 @@ struct CaddieAIApp: App {
                         .transition(.opacity)
                         .zIndex(1)
                 }
+
+                if showSetupNotice {
+                    SetupNoticeView {
+                        hasSeenSetupNotice = true
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            showSetupNotice = false
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(2)
+                }
             }
             .task {
                 try? await Task.sleep(for: .seconds(2.2))
                 withAnimation(.easeOut(duration: 0.4)) {
                     showSplash = false
+                }
+                if !hasSeenSetupNotice {
+                    withAnimation(.easeIn(duration: 0.3)) {
+                        showSetupNotice = true
+                    }
                 }
             }
         }
