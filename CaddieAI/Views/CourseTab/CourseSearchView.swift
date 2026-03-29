@@ -14,6 +14,8 @@ struct CourseSearchView: View {
     @Environment(LocationManager.self) private var locationManager
     @State private var nearbyCourseSuggestion: CourseCacheEntry?
     @State private var showNearbyPrompt = false
+    @State private var courseToDelete: CourseCacheEntry?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         @Bindable var vm = viewModel
@@ -94,8 +96,9 @@ struct CourseSearchView: View {
                         }
                         .onDelete { offsets in
                             let entries = viewModel.cachedCourses
-                            for offset in offsets {
-                                cacheService.invalidate(id: entries[offset].id)
+                            if let first = offsets.first {
+                                courseToDelete = entries[first]
+                                showDeleteConfirmation = true
                             }
                         }
                     }
@@ -143,6 +146,18 @@ struct CourseSearchView: View {
             } message: { entry in
                 let location = [entry.city, entry.state].compactMap { $0 }.joined(separator: ", ")
                 Text("It looks like you're at \(entry.name)" + (location.isEmpty ? "." : " in \(location)."))
+            }
+            .alert(
+                "Delete Course?",
+                isPresented: $showDeleteConfirmation,
+                presenting: courseToDelete
+            ) { entry in
+                Button("Delete", role: .destructive) {
+                    cacheService.invalidate(id: entry.id)
+                }
+                Button("Keep", role: .cancel) { }
+            } message: { entry in
+                Text("Course data for \(entry.name) is cached for faster loading. If you plan to play here again, consider keeping it.")
             }
         }
     }
