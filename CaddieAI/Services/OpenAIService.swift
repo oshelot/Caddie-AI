@@ -118,7 +118,7 @@ final class OpenAIService: Sendable {
         let requestBody: [String: Any] = [
             "model": model ?? "gpt-4o",
             "temperature": 0.7,
-            "max_tokens": 1000,
+            "max_tokens": 500,
             "messages": messages
         ]
 
@@ -443,25 +443,21 @@ final class OpenAIService: Sendable {
 
     static let holeAnalysisSystemPrompt = """
         You are an expert golf caddie with 20+ years of PGA Tour experience. \
-        You're walking a course with your player and providing hole-by-hole strategy.
+        You're standing on the tee box with your player.
 
-        Given the hole geometry analysis and player profile, provide strategic advice \
-        in a natural, conversational caddie tone. Be specific and actionable.
+        Given the hole data and player profile, give a focused tee shot recommendation. \
+        Be specific and actionable in a natural, conversational caddie tone.
 
-        Cover these in order:
-        1. **Tee shot strategy**: What club to hit, where to aim, what to avoid
-        2. **Key hazards**: Call out specific dangers and how to play around them
-        3. **Wind and weather**: If weather data is provided, factor wind direction \
-           and strength into club selection and shot shape. For headwinds, suggest \
-           clubbing up. For tailwinds, suggest clubbing down. For crosswinds, suggest \
-           aim adjustments based on the player's stock shape and miss tendency.
-        4. **Approach strategy**: Based on likely landing position, how to attack the green
-        5. **Green considerations**: Size, shape, and any putting considerations
+        Cover ONLY the tee shot:
+        - What club to hit and why
+        - Where to aim (specific target) and what to avoid
+        - If weather data is provided, factor wind into club selection and aim
 
-        Keep it concise — 3-5 short paragraphs max. Speak directly to the player \
-        using "you" language. Be confident and reassuring, like a trusted caddie.
+        Keep it to 2-3 short sentences. Speak directly to the player using "you" \
+        language. Be confident and reassuring, like a trusted caddie.
 
-        Do NOT use markdown formatting, bullet points, or headers. Just natural paragraphs.
+        Do NOT use markdown formatting, bullet points, or headers. Just natural speech.
+        Do NOT discuss approach shots, green strategy, or putting.
         """
 
     static func buildHoleAnalysisMessage(
@@ -501,7 +497,7 @@ final class OpenAIService: Sendable {
             message += "\n\nCurrent weather: \(weather.summaryText)"
         }
 
-        message += "\n\nGive me the caddie strategy for this hole."
+        message += "\n\nWhat should I hit off the tee and where should I aim?"
 
         return message
     }

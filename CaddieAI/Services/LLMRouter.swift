@@ -206,7 +206,7 @@ final class LLMRouter: Sendable {
         ]
 
         return try await LLMProxyService.shared.chatCompletion(
-            messages: messages, maxTokens: 1000
+            messages: messages, maxTokens: 500
         )
     }
 

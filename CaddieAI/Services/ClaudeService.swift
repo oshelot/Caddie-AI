@@ -87,7 +87,7 @@ final class ClaudeService: Sendable {
 
         let requestBody: [String: Any] = [
             "model": model.rawValue,
-            "max_tokens": 1000,
+            "max_tokens": 500,
             "system": systemPrompt,
             "messages": [["role": "user", "content": userMessage]]
         ]
