@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreLocation
+import MapKit
 
 struct CourseSearchView: View {
     @Environment(CourseViewModel.self) private var viewModel
@@ -16,6 +17,7 @@ struct CourseSearchView: View {
     @State private var showNearbyPrompt = false
     @State private var courseToDelete: CourseCacheEntry?
     @State private var showDeleteConfirmation = false
+    @State private var cityCompleter = CityCompleter()
 
     var body: some View {
         @Bindable var vm = viewModel
@@ -30,6 +32,27 @@ struct CourseSearchView: View {
 
                     TextField("City (optional)", text: $vm.cityText)
                         .textContentType(.addressCity)
+                        .onChange(of: viewModel.cityText) { _, newValue in
+                            cityCompleter.update(query: newValue)
+                        }
+
+                    if !cityCompleter.suggestions.isEmpty && !viewModel.cityText.isEmpty {
+                        ForEach(cityCompleter.suggestions, id: \.self) { suggestion in
+                            Button {
+                                viewModel.cityText = suggestion
+                                cityCompleter.clear()
+                            } label: {
+                                HStack {
+                                    Image(systemName: "mappin.circle")
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption)
+                                    Text(suggestion)
+                                        .font(.subheadline)
+                                }
+                            }
+                            .tint(.primary)
+                        }
+                    }
 
                     Button {
                         Task { await viewModel.searchCourses() }
@@ -313,6 +336,46 @@ struct SubCoursePickerView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - City Autocomplete
+
+@Observable
+final class CityCompleter: NSObject, MKLocalSearchCompleterDelegate {
+    private let completer = MKLocalSearchCompleter()
+    private(set) var suggestions: [String] = []
+
+    override init() {
+        super.init()
+        completer.delegate = self
+        completer.resultTypes = .address
+    }
+
+    func update(query: String) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            suggestions = []
+            return
+        }
+        completer.queryFragment = trimmed
+    }
+
+    func clear() {
+        suggestions = []
+        completer.cancel()
+    }
+
+    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        suggestions = Array(
+            completer.results
+                .map { [$0.title, $0.subtitle].filter { !$0.isEmpty }.joined(separator: ", ") }
+                .prefix(4)
+        )
+    }
+
+    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        // Best-effort; silently ignore
     }
 }
 
