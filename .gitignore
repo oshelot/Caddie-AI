@@ -3,9 +3,37 @@ build/
 DerivedData/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
 
-# Secrets
+# Secrets & credentials — never commit these
 CaddieAI/Secrets.plist
+*.pem
+*.p12
+*.key
+*.keystore
+*.jks
+*.env
+*.env.*
+.env.local
+.env.*.local
+credentials.json
+service-account*.json
+
+# API keys / tokens that might be dropped in the repo
+secrets/
+.secrets/
+
+# CocoaPods / SPM caches
+Pods/
+.build/
 
 # OS
 .DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
