@@ -1,95 +1,103 @@
 # CaddieAI
 
-A personal iOS golf caddie app that combines deterministic golf logic with AI (OpenAI, Claude, or Gemini) to deliver club recommendations, target strategy, and shot execution guidance on the course.
+An AI-powered golf caddie for iOS. Get real-time club recommendations, tee shot strategy, and hole analysis — all powered by LLMs and open course data.
 
 ## Features
 
-### Shot Advisor
-- Enter distance, shot type, lie, wind, slope, and hazard notes
-- Deterministic engine calculates effective distance, wind/lie/slope adjustments, and selects the optimal club
-- AI enriches recommendations with target strategy, risk assessment, and natural caddie-style phrasing
-- Supports OpenAI (GPT-4o, GPT-4o mini, GPT-4 Turbo), Anthropic Claude (Sonnet, Haiku), and Google Gemini (2.0 Flash, 1.5 Pro)
-- Falls back to deterministic-only analysis when the LLM is unavailable
-
-### Execution Guidance
-- 15 shot archetypes (bump & run, standard chip, bunker explosion, stock full swing, knockdown, etc.)
-- Setup cues: ball position, weight distribution, stance width, alignment, clubface, shaft lean
-- Swing cues: backswing length, follow-through, tempo, strike intention
-- Swing thought and common mistake to avoid for each shot
-
-### Course Map & Hole Analysis
-- Search for courses via the Golf Course API and view interactive Mapbox satellite maps
-- Tap a hole to zoom the camera to its geometry (tees, fairway, green, bunkers, water)
-- AI-powered hole analysis with strategy breakdown and audio playback
-- Follow-up questions for deeper hole-specific advice
-
-### Voice & Image Input
-- Voice recording via Apple Speech framework — transcribed notes are sent to the LLM
-- Photo attachment for lie/stance analysis (sent as base64 JPEG to the active LLM's vision API)
-- Text-to-speech reads recommendations and hole analysis aloud on the course
-- Follow-up conversation with quick question chips and free-text input
-
-### Customizable Club Bag
-- Choose from 30+ clubs: woods, hybrids, irons, and degree wedges (46°–64°)
-- Add and remove clubs with a 13-club bag limit
-- Set custom carry distances for each club
-- Bag auto-sorts by distance (longest first)
-
-### Personalization
-- Player profile: handicap, stock shape, miss tendency
-- Short game preferences: bunker confidence, wedge confidence, preferred chip style, swing tendency
-- Execution templates adapt based on player preferences (e.g., extra encouragement for low bunker confidence)
-- Profile persisted via UserDefaults
-
-### Real-Time Weather
-- Fetches current conditions (temperature, wind speed/direction, precipitation) via Open-Meteo
-- Wind direction calculated relative to the hole for accurate shot adjustments
-
-### Shot History & Learning
-- Every recommendation is automatically saved to history
-- Log shot outcomes (great/good/okay/poor/mishit) and actual club used
-- History view with detail editing and swipe-to-delete
-- Learning engine analyzes club override patterns, outcome averages, and usage frequency
-- Historical insights are fed into the LLM prompt so recommendations improve over time
-
-### API Usage Tracking
-- Tracks LLM token consumption (prompt, completion, total) per call across all providers
-- Monitors Golf Course API usage with configurable monthly rate limit (default 300 calls)
-- View stats and reset usage data from the API Settings page
-
-### Telemetry
-- Anonymous usage telemetry (API call counts, course plays) sent to a serverless backend
-- AWS Lambda + API Gateway + S3 infrastructure (CloudFormation template in `infra/`)
-- Batched uploads with retry on failure, periodic flush, and flush on app background
-- User opt-out toggle in API Settings
-
-## Architecture
-
-```
-Models/          Data types (enums, profiles, shot context, recommendations, weather, API usage)
-Services/        Golf logic, execution engine, LLM services (OpenAI/Claude/Gemini), router, speech, TTS, weather, course API, cache, telemetry
-ViewModels/      ShotAdvisorViewModel, CourseViewModel, HoleAnalysisViewModel
-Views/           SwiftUI views (shot input, recommendation, course map, profile, history)
-infra/           AWS CloudFormation template and Lambda handler for telemetry backend
-```
-
-- **iOS-only** — no backend server; direct LLM API calls via URLSession
-- **SwiftUI + @Observable** (iOS 17+)
-- **Hybrid approach**: deterministic logic runs first (instant, offline-capable), LLM enriches second
-- **UserDefaults** persistence for profile, shot history, and API usage data
-- **Mapbox Maps SDK** for satellite course visualization
-
-## Setup
-
-1. Open `CaddieAI.xcodeproj` in Xcode
-2. Build and run on an iOS 17+ device or simulator
-3. Go to **Profile → API Settings & Usage**, select your AI provider, and paste your API key
-4. Add the following privacy keys in Xcode's Info tab (required for voice input):
-   - `NSMicrophoneUsageDescription` — "CaddieAI uses the microphone for voice input"
-   - `NSSpeechRecognitionUsageDescription` — "CaddieAI uses speech recognition to transcribe voice notes"
+- **AI Hole Analysis** — Stand on the tee and get a caddie-style recommendation: what club to hit, where to aim, and what to avoid. Factors in wind, elevation, and your personal tendencies.
+- **Shot Advisor** — Mid-round advice using your player profile, lie, and conditions.
+- **Course Maps** — Interactive Mapbox-powered maps with hole outlines sourced from OpenStreetMap.
+- **Voice I/O** — Ask your caddie questions by voice; hear advice spoken back with configurable accent and gender.
+- **GPS Location** — See your position on the course map in real time.
+- **Tee Box Selection** — Choose your tees and get yardages specific to your playing distance.
+- **Player Profile** — Set your handicap, club distances, shot shape, and tendencies so recommendations are personalized.
+- **Weather-Aware** — Pulls current conditions and adjusts club selection for wind and temperature.
 
 ## Requirements
 
-- iOS 17.0+
-- Xcode 15+
-- API key for at least one LLM provider: OpenAI, Anthropic Claude, or Google Gemini
+- iOS 17+
+- Xcode 16+
+- A free [Mapbox](https://www.mapbox.com/) access token
+- An LLM API key from **one** of:
+  - [OpenAI](https://platform.openai.com/api-keys)
+  - [Anthropic / Claude](https://console.anthropic.com/settings/keys)
+  - [Google Gemini](https://aistudio.google.com/apikey)
+
+Or subscribe to **CaddieAI Pro** ($4.99/mo) to skip the API key — the app routes through a hosted proxy with no key required.
+
+## Getting Started
+
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/oshelot/Caddie-AI.git
+cd Caddie-AI
+```
+
+### 2. Add your Mapbox token
+
+Create a file at `CaddieAI/Secrets.plist` (this path is gitignored):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>MapboxAccessToken</key>
+    <string>YOUR_MAPBOX_TOKEN_HERE</string>
+</dict>
+</plist>
+```
+
+### 3. Open in Xcode
+
+```bash
+open CaddieAI.xcodeproj
+```
+
+The project uses Swift Package Manager. Xcode will resolve dependencies automatically.
+
+### 4. Configure an LLM provider
+
+Launch the app, go to **Settings > API Settings**, select your LLM provider (OpenAI, Claude, or Gemini), and paste your API key.
+
+### 5. Build and run
+
+Select an iOS 17+ simulator or device and hit **Cmd+R**.
+
+## Project Structure
+
+```
+CaddieAI/
+├── Models/          # Data models (PlayerProfile, CourseModel, HoleModel, etc.)
+├── Services/        # LLM clients, course data, weather, TTS, speech recognition
+├── ViewModels/      # CourseViewModel, HoleAnalysisViewModel, ShotAdvisorViewModel
+├── Views/
+│   ├── CourseTab/   # Course search, map, hole detail, Mapbox integration
+│   └── ...          # Profile, shot input, recommendations, settings
+└── Configuration/   # StoreKit config, secrets
+```
+
+## Free vs Pro
+
+| Feature | Free (BYOK) | Pro ($4.99/mo) |
+|---|---|---|
+| Hole analysis | Your own API key | Hosted proxy, no key needed |
+| LLM provider | OpenAI, Claude, or Gemini | GPT-4o-mini via proxy |
+| Course maps | Included | Included |
+| Voice caddie | Included | Included |
+| GPS location | Included | Included |
+
+## Tech Stack
+
+- **SwiftUI** — UI framework
+- **Mapbox Maps SDK** — Course map rendering and GPS puck
+- **OpenStreetMap / Overpass API** — Open course geometry data
+- **AVFoundation** — Text-to-speech and speech recognition
+- **StoreKit 2** — In-app subscription management
+- **Open-Meteo** — Current weather conditions for club adjustments
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE).
