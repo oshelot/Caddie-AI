@@ -34,7 +34,7 @@ git clone https://github.com/oshelot/Caddie-AI.git
 cd Caddie-AI
 ```
 
-### 2. Add your Mapbox token
+### 2. Add your API tokens
 
 Create a file at `CaddieAI/Secrets.plist` (this path is gitignored):
 
@@ -46,9 +46,14 @@ Create a file at `CaddieAI/Secrets.plist` (this path is gitignored):
 <dict>
     <key>MapboxAccessToken</key>
     <string>YOUR_MAPBOX_TOKEN_HERE</string>
+    <key>GolfCourseApiKey</key>
+    <string>YOUR_GOLF_COURSE_API_KEY_HERE</string>
 </dict>
 </plist>
 ```
+
+- **Mapbox** — free public access token from [mapbox.com](https://www.mapbox.com/)
+- **Golf Course API** — optional, enriches courses with scorecard data (par, yardages, slope/rating). Get a key at [golfcourseapi.com](https://golfcourseapi.com/)
 
 ### 3. Open in Xcode
 
