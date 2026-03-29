@@ -11,8 +11,6 @@ struct APISettingsView: View {
     @Environment(ProfileStore.self) private var profileStore
     @Environment(APIUsageStore.self) private var apiUsageStore
     @State private var showAPIKey = false
-    @State private var showGolfAPIKey = false
-    @State private var showMapboxToken = false
 
     var body: some View {
         @Bindable var store = profileStore
@@ -92,90 +90,6 @@ struct APISettingsView: View {
                 case .claude: Text("Get your key at console.anthropic.com")
                 case .gemini: Text("Get your key at aistudio.google.com")
                 }
-            }
-
-            // MARK: - Golf Course API Key
-
-            Section {
-                HStack {
-                    if showGolfAPIKey {
-                        Text(store.profile.golfCourseApiKey.isEmpty ? "No key set" : store.profile.golfCourseApiKey)
-                            .foregroundStyle(store.profile.golfCourseApiKey.isEmpty ? .secondary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    } else {
-                        Text(store.profile.golfCourseApiKey.isEmpty ? "No key set" : String(repeating: "\u{2022}", count: min(store.profile.golfCourseApiKey.count, 24)))
-                            .foregroundStyle(store.profile.golfCourseApiKey.isEmpty ? .secondary : .primary)
-                    }
-                    Spacer()
-                    Button {
-                        showGolfAPIKey.toggle()
-                    } label: {
-                        Image(systemName: showGolfAPIKey ? "eye.slash" : "eye")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-                Button {
-                    if let clipboardString = UIPasteboard.general.string {
-                        profileStore.profile.golfCourseApiKey = clipboardString.trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-                } label: {
-                    Label("Paste API Key from Clipboard", systemImage: "doc.on.clipboard")
-                }
-                if !store.profile.golfCourseApiKey.isEmpty {
-                    Button(role: .destructive) {
-                        profileStore.profile.golfCourseApiKey = ""
-                    } label: {
-                        Label("Clear API Key", systemImage: "trash")
-                    }
-                }
-            } header: {
-                Text("Golf Course API Key")
-            } footer: {
-                Text("Enriches courses with par, yardage, and slope data from golfcourseapi.com")
-            }
-
-            // MARK: - Mapbox Access Token
-
-            Section {
-                HStack {
-                    if showMapboxToken {
-                        Text(store.profile.mapboxAccessToken.isEmpty ? "No token set" : store.profile.mapboxAccessToken)
-                            .foregroundStyle(store.profile.mapboxAccessToken.isEmpty ? .secondary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    } else {
-                        Text(store.profile.mapboxAccessToken.isEmpty ? "No token set" : String(repeating: "\u{2022}", count: min(store.profile.mapboxAccessToken.count, 24)))
-                            .foregroundStyle(store.profile.mapboxAccessToken.isEmpty ? .secondary : .primary)
-                    }
-                    Spacer()
-                    Button {
-                        showMapboxToken.toggle()
-                    } label: {
-                        Image(systemName: showMapboxToken ? "eye.slash" : "eye")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-                Button {
-                    if let clipboardString = UIPasteboard.general.string {
-                        profileStore.profile.mapboxAccessToken = clipboardString.trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-                } label: {
-                    Label("Paste Token from Clipboard", systemImage: "doc.on.clipboard")
-                }
-                if !store.profile.mapboxAccessToken.isEmpty {
-                    Button(role: .destructive) {
-                        profileStore.profile.mapboxAccessToken = ""
-                    } label: {
-                        Label("Clear Token", systemImage: "trash")
-                    }
-                }
-            } header: {
-                Text("Mapbox Access Token")
-            } footer: {
-                Text("Powers satellite course maps. Requires app restart to take effect.")
             }
 
             // MARK: - Telemetry

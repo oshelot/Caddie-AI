@@ -188,7 +188,10 @@ final class CourseViewModel {
             )
 
             // Step 4: Enrich with scorecard data from Golf Course API
-            let golfApiKey = profileStore?.profile.golfCourseApiKey ?? ""
+            let golfApiKey = {
+                let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
+                return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
+            }()
             var enrichedCourses = courses
             if !golfApiKey.isEmpty {
                 ingestionStep = "Fetching scorecard data…"

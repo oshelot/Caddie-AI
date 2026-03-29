@@ -21,6 +21,11 @@ enum Secrets {
         secrets?["MBXAccessToken"] as? String
     }
 
+    /// Golf Course API key from Secrets.plist
+    static var golfCourseApiKey: String? {
+        secrets?["GolfCourseApiKey"] as? String
+    }
+
     /// Telemetry ingestion endpoint URL
     static var telemetryEndpoint: String? {
         secrets?["TelemetryEndpoint"] as? String
