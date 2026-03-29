@@ -69,7 +69,8 @@ final class GeminiService: Sendable {
         analysis: HoleAnalysis,
         course: NormalizedCourse,
         profile: PlayerProfile,
-        model: LLMModel
+        model: LLMModel,
+        selectedTee: String? = nil
     ) async throws -> (String, OpenAIService.TokenUsage?) {
         let apiKey = profile.geminiApiKey.trimmingCharacters(in: .whitespaces)
         guard !apiKey.isEmpty else {
@@ -78,7 +79,8 @@ final class GeminiService: Sendable {
 
         let systemPrompt = OpenAIService.holeAnalysisSystemPrompt
         let userMessage = OpenAIService.buildHoleAnalysisMessage(
-            hole: hole, analysis: analysis, course: course, profile: profile
+            hole: hole, analysis: analysis, course: course, profile: profile,
+            selectedTee: selectedTee
         )
 
         let requestBody: [String: Any] = [

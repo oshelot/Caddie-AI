@@ -19,10 +19,13 @@ enum HoleAnalysisEngine {
         hole: NormalizedHole,
         course: NormalizedCourse,
         profile: PlayerProfile?,
-        weatherContext: HoleWeatherContext? = nil
+        weatherContext: HoleWeatherContext? = nil,
+        selectedTee: String? = nil
     ) -> HoleAnalysis {
+        // Prefer the selected tee's yardage; fall back to geometry-based distance
+        let teeYards: Int? = selectedTee.flatMap { hole.yardages?[$0] }
         let totalDistMeters = hole.lineOfPlay?.totalDistance() ?? 0
-        let totalDistYards = totalDistMeters > 0 ? Int(totalDistMeters * metersToYards) : nil
+        let totalDistYards = teeYards ?? (totalDistMeters > 0 ? Int(totalDistMeters * metersToYards) : nil)
 
         let dogleg = detectDogleg(lineOfPlay: hole.lineOfPlay)
         let fairwayWidth = estimateFairwayWidth(hole: hole)

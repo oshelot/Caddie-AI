@@ -65,12 +65,14 @@ final class LLMRouter: Sendable {
         analysis: HoleAnalysis,
         course: NormalizedCourse,
         profile: PlayerProfile,
-        tier: UserTier = .free
+        tier: UserTier = .free,
+        selectedTee: String? = nil
     ) async throws -> (String, OpenAIService.TokenUsage?) {
         if tier == .paid {
             return try await proxyHoleAnalysis(
                 hole: hole, analysis: analysis,
-                course: course, profile: profile
+                course: course, profile: profile,
+                selectedTee: selectedTee
             )
         }
 
@@ -78,17 +80,20 @@ final class LLMRouter: Sendable {
         case .openAI:
             return try await OpenAIService.shared.getHoleAnalysis(
                 hole: hole, analysis: analysis, course: course,
-                profile: profile, model: profile.llmModel.rawValue
+                profile: profile, model: profile.llmModel.rawValue,
+                selectedTee: selectedTee
             )
         case .claude:
             return try await ClaudeService.shared.getHoleAnalysis(
                 hole: hole, analysis: analysis, course: course,
-                profile: profile, model: profile.llmModel
+                profile: profile, model: profile.llmModel,
+                selectedTee: selectedTee
             )
         case .gemini:
             return try await GeminiService.shared.getHoleAnalysis(
                 hole: hole, analysis: analysis, course: course,
-                profile: profile, model: profile.llmModel
+                profile: profile, model: profile.llmModel,
+                selectedTee: selectedTee
             )
         }
     }
@@ -193,11 +198,13 @@ final class LLMRouter: Sendable {
         hole: NormalizedHole,
         analysis: HoleAnalysis,
         course: NormalizedCourse,
-        profile: PlayerProfile
+        profile: PlayerProfile,
+        selectedTee: String? = nil
     ) async throws -> (String, OpenAIService.TokenUsage?) {
         let userMessage = OpenAIService.buildHoleAnalysisMessage(
             hole: hole, analysis: analysis,
-            course: course, profile: profile
+            course: course, profile: profile,
+            selectedTee: selectedTee
         )
 
         let messages: [[String: Any]] = [

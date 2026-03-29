@@ -33,6 +33,7 @@ final class CourseViewModel {
     var showSubCoursePicker = false
 
     var selectedHole: Int?
+    var selectedTee: String?
 
     // Injected via environment
     var cacheService: CourseCacheService?
@@ -255,6 +256,7 @@ final class CourseViewModel {
     func clearSelection() {
         selectedCourse = nil
         selectedHole = nil
+        selectedTee = nil
         currentWeather = nil
         ingestionWarning = nil
         availableSubCourses = []

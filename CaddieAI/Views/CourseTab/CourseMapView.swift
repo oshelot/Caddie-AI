@@ -96,10 +96,13 @@ struct CourseMapView: View {
                                     Text("Par \(par)")
                                         .foregroundStyle(.white.opacity(0.7))
                                 }
-                                if let yardages = hole.yardages,
-                                   let maxYards = yardages.values.max() {
-                                    Text("\(maxYards) yds")
-                                        .foregroundStyle(.white.opacity(0.7))
+                                if let yardages = hole.yardages {
+                                    let yards = viewModel.selectedTee.flatMap { yardages[$0] }
+                                        ?? yardages.values.max()
+                                    if let yards {
+                                        Text("\(yards) yds")
+                                            .foregroundStyle(.white.opacity(0.7))
+                                    }
                                 }
                                 if let si = hole.strokeIndex {
                                     Text("SI \(si)")
@@ -127,7 +130,8 @@ struct CourseMapView: View {
                                     await analysisViewModel.analyzeHole(
                                         hole,
                                         course: course,
-                                        profile: profileStore.profile
+                                        profile: profileStore.profile,
+                                        selectedTee: viewModel.selectedTee
                                     )
                                 }
                             }
@@ -199,20 +203,50 @@ struct CourseMapView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showingDetail = true
-                    } label: {
-                        Label("Course Details", systemImage: "info.circle")
+                HStack(spacing: 12) {
+                    if let teeNames = course.teeNames, teeNames.count > 1 {
+                        Menu {
+                            ForEach(teeNames, id: \.self) { tee in
+                                Button {
+                                    viewModel.selectedTee = tee
+                                } label: {
+                                    HStack {
+                                        Text(tee)
+                                        if viewModel.selectedTee == tee {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "flag.fill")
+                                Text(viewModel.selectedTee ?? "Tees")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.blue.opacity(0.8))
+                            .clipShape(Capsule())
+                        }
                     }
-                    Button {
-                        showingDebug = true
+
+                    Menu {
+                        Button {
+                            showingDetail = true
+                        } label: {
+                            Label("Course Details", systemImage: "info.circle")
+                        }
+                        Button {
+                            showingDebug = true
+                        } label: {
+                            Label("Debug Info", systemImage: "ladybug")
+                        }
                     } label: {
-                        Label("Debug Info", systemImage: "ladybug")
+                        Image(systemName: "ellipsis.circle")
+                            .foregroundStyle(.white)
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundStyle(.white)
                 }
             }
         }
@@ -230,6 +264,13 @@ struct CourseMapView: View {
             )
         }
         .task {
+            // Auto-select first tee if available and none selected
+            if viewModel.selectedTee == nil,
+               let teeNames = course.teeNames,
+               !teeNames.isEmpty {
+                viewModel.selectedTee = teeNames.first
+            }
+
             do {
                 weather = try await WeatherService.fetchWeather(
                     latitude: course.centroid.latitude,

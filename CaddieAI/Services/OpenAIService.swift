@@ -95,7 +95,8 @@ final class OpenAIService: Sendable {
         analysis: HoleAnalysis,
         course: NormalizedCourse,
         profile: PlayerProfile,
-        model: String? = nil
+        model: String? = nil,
+        selectedTee: String? = nil
     ) async throws -> (String, TokenUsage?) {
         let trimmedKey = profile.apiKey.trimmingCharacters(in: .whitespaces)
         guard !trimmedKey.isEmpty else {
@@ -107,7 +108,8 @@ final class OpenAIService: Sendable {
             hole: hole,
             analysis: analysis,
             course: course,
-            profile: profile
+            profile: profile,
+            selectedTee: selectedTee
         )
 
         let messages: [[String: Any]] = [
@@ -464,7 +466,8 @@ final class OpenAIService: Sendable {
         hole: NormalizedHole,
         analysis: HoleAnalysis,
         course: NormalizedCourse,
-        profile: PlayerProfile
+        profile: PlayerProfile,
+        selectedTee: String? = nil
     ) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -492,6 +495,13 @@ final class OpenAIService: Sendable {
             Player profile:
             \(profileSummary)
             """
+
+        if let tee = selectedTee {
+            message += "\n\nPlaying from the \(tee) tees."
+            if let yardages = hole.yardages, let yards = yardages[tee] {
+                message += " This hole plays \(yards) yards from the \(tee) tees."
+            }
+        }
 
         if let weather = analysis.weather {
             message += "\n\nCurrent weather: \(weather.summaryText)"

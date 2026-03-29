@@ -27,7 +27,8 @@ class HoleAnalysisViewModel {
     func analyzeHole(
         _ hole: NormalizedHole,
         course: NormalizedCourse,
-        profile: PlayerProfile
+        profile: PlayerProfile,
+        selectedTee: String? = nil
     ) async {
         isAnalyzing = true
         error = nil
@@ -64,7 +65,8 @@ class HoleAnalysisViewModel {
             hole: hole,
             course: course,
             profile: profile,
-            weatherContext: weatherContext
+            weatherContext: weatherContext,
+            selectedTee: selectedTee
         )
         analysis = result
 
@@ -83,7 +85,8 @@ class HoleAnalysisViewModel {
                 analysis: result,
                 course: course,
                 profile: profile,
-                tier: tier
+                tier: tier,
+                selectedTee: selectedTee
             )
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
@@ -119,7 +122,8 @@ class HoleAnalysisViewModel {
                         hole: hole,
                         analysis: result,
                         course: course,
-                        profile: profile
+                        profile: profile,
+                        selectedTee: selectedTee
                     )
                 ),
                 OpenAIService.ChatMessage(
