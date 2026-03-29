@@ -32,6 +32,9 @@ final class CourseViewModel {
     var availableSubCourses: [NormalizedCourse] = []
     var showSubCoursePicker = false
 
+    /// Task handle for cancellation support
+    private var ingestionTask: Task<Void, Never>?
+
     var selectedHole: Int?
     var selectedTee: String?
 
@@ -173,10 +176,12 @@ final class CourseViewModel {
             // Step 1: Fetch features from Overpass
             ingestionStep = "Fetching course features…"
             let response = try await OverpassClient.fetchCourseFeatures(boundingBox: bbox)
+            try Task.checkCancellation()
 
             // Step 2: Parse OSM data
             ingestionStep = "Parsing geometry…"
             let parsed = OSMParser.parse(response)
+            try Task.checkCancellation()
 
             // Step 3: Normalize into course model(s)
             ingestionStep = "Building course model…"
@@ -187,6 +192,7 @@ final class CourseViewModel {
                 city: result.city,
                 state: result.state
             )
+            try Task.checkCancellation()
 
             // Step 4: Enrich with scorecard data from Golf Course API
             let golfApiKey = {
@@ -197,6 +203,7 @@ final class CourseViewModel {
             if !golfApiKey.isEmpty {
                 ingestionStep = "Fetching scorecard data…"
                 enrichedCourses = await enrichWithScorecardData(courses: courses, courseName: result.name, apiKey: golfApiKey)
+                try Task.checkCancellation()
             }
 
             // Step 5: Cache all sub-courses
@@ -220,11 +227,27 @@ final class CourseViewModel {
                 selectedCourse = course
                 TelemetryService.shared.recordCoursePlayed(courseName: course.name)
             }
+        } catch is CancellationError {
+            // User cancelled — reset silently
         } catch {
             ingestionError = error.localizedDescription
         }
 
         isIngesting = false
+    }
+
+    /// Starts ingestion in a trackable, cancellable task.
+    func startIngestion(_ result: CourseSearchResult, forceRefresh: Bool = false) {
+        ingestionTask?.cancel()
+        ingestionTask = Task { await ingestCourse(result, forceRefresh: forceRefresh) }
+    }
+
+    /// Cancels any in-progress ingestion.
+    func cancelIngestion() {
+        ingestionTask?.cancel()
+        ingestionTask = nil
+        isIngesting = false
+        ingestionStep = ""
     }
 
     // MARK: - Load from Cache

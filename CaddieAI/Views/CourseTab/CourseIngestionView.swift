@@ -66,6 +66,12 @@ struct CourseIngestionView: View {
                 Text("Fetching course data from OpenStreetMap")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+
+                Button("Cancel", role: .cancel) {
+                    viewModel.cancelIngestion()
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 8)
             }
         }
         .padding(40)

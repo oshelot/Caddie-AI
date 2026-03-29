@@ -108,7 +108,7 @@ struct CourseSearchView: View {
                     Section("Results") {
                         ForEach(viewModel.searchResults) { result in
                             Button {
-                                Task { await viewModel.ingestCourse(result) }
+                                viewModel.startIngestion(result)
                             } label: {
                                 CourseSearchRow(result: result)
                             }
