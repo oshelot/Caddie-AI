@@ -103,6 +103,31 @@ final class CourseCacheService {
             .sorted { $0.centroid.distance(to: userPoint) < $1.centroid.distance(to: userPoint) }
     }
 
+    // MARK: - Favorites
+
+    private static let favoritesKey = "favoriteCourseIDs"
+
+    private(set) var favoriteIDs: Set<String> = {
+        Set(UserDefaults.standard.stringArray(forKey: favoritesKey) ?? [])
+    }()
+
+    func isFavorite(id: String) -> Bool {
+        favoriteIDs.contains(id)
+    }
+
+    func toggleFavorite(id: String) {
+        if favoriteIDs.contains(id) {
+            favoriteIDs.remove(id)
+        } else {
+            favoriteIDs.insert(id)
+        }
+        UserDefaults.standard.set(Array(favoriteIDs), forKey: Self.favoritesKey)
+    }
+
+    var favoriteCourses: [CourseCacheEntry] {
+        cachedCourses.filter { favoriteIDs.contains($0.id) }
+    }
+
     // MARK: - Invalidation
 
     func invalidate(id: String) {
@@ -111,6 +136,10 @@ final class CourseCacheService {
             try? FileManager.default.removeItem(at: fileURL)
         }
         index.entries.removeAll { $0.id == id }
+        if favoriteIDs.contains(id) {
+            favoriteIDs.remove(id)
+            UserDefaults.standard.set(Array(favoriteIDs), forKey: Self.favoritesKey)
+        }
         saveIndex()
     }
 

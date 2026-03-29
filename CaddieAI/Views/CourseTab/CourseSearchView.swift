@@ -45,6 +45,33 @@ struct CourseSearchView: View {
                     .disabled(viewModel.searchText.trimmingCharacters(in: .whitespaces).isEmpty || viewModel.isSearching)
                 }
 
+                // MARK: - Favorites
+                if !cacheService.favoriteCourses.isEmpty {
+                    Section("Favorites") {
+                        ForEach(cacheService.favoriteCourses) { entry in
+                            Button {
+                                viewModel.loadCachedCourse(id: entry.id)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "star.fill")
+                                        .foregroundStyle(.yellow)
+                                        .font(.caption)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(entry.name)
+                                            .font(.headline)
+                                        if let city = entry.city {
+                                            Text([city, entry.state].compactMap { $0 }.joined(separator: ", "))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                            .tint(.primary)
+                        }
+                    }
+                }
+
                 // MARK: - Search Error
                 if let error = viewModel.searchError {
                     Section {
@@ -93,6 +120,17 @@ struct CourseSearchView: View {
                                 .padding(.vertical, 2)
                             }
                             .tint(.primary)
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    cacheService.toggleFavorite(id: entry.id)
+                                } label: {
+                                    Label(
+                                        cacheService.isFavorite(id: entry.id) ? "Unfavorite" : "Favorite",
+                                        systemImage: cacheService.isFavorite(id: entry.id) ? "star.slash" : "star.fill"
+                                    )
+                                }
+                                .tint(.yellow)
+                            }
                         }
                         .onDelete { offsets in
                             let entries = viewModel.cachedCourses
