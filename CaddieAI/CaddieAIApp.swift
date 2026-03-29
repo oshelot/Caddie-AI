@@ -28,6 +28,7 @@ struct CaddieAIApp: App {
     @State private var showSplash = true
     @AppStorage("hasSeenSetupNotice") private var hasSeenSetupNotice = false
     @State private var showSetupNotice = false
+    @State private var showContactPrompt = false
 
     init() {
         // Read Mapbox token from bundled Secrets.plist
@@ -45,17 +46,6 @@ struct CaddieAIApp: App {
         WindowGroup {
             ZStack {
                 ContentView()
-                    .environment(profileStore)
-                    .environment(shotAdvisor)
-                    .environment(speechService)
-                    .environment(ttsService)
-                    .environment(shotHistoryStore)
-                    .environment(courseViewModel)
-                    .environment(courseCacheService)
-                    .environment(apiUsageStore)
-                    .environment(subscriptionManager)
-                    .environment(adManager)
-                    .environment(locationManager)
                     .onAppear {
                         courseViewModel.cacheService = courseCacheService
                         courseViewModel.profileStore = profileStore
@@ -89,11 +79,33 @@ struct CaddieAIApp: App {
                         withAnimation(.easeOut(duration: 0.3)) {
                             showSetupNotice = false
                         }
+                        tryShowContactPrompt()
                     }
                     .transition(.opacity)
                     .zIndex(2)
                 }
+
+                if showContactPrompt {
+                    OnboardingContactView {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            showContactPrompt = false
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(3)
+                }
             }
+            .environment(profileStore)
+            .environment(shotAdvisor)
+            .environment(speechService)
+            .environment(ttsService)
+            .environment(shotHistoryStore)
+            .environment(courseViewModel)
+            .environment(courseCacheService)
+            .environment(apiUsageStore)
+            .environment(subscriptionManager)
+            .environment(adManager)
+            .environment(locationManager)
             .task {
                 try? await Task.sleep(for: .seconds(2.2))
                 withAnimation(.easeOut(duration: 0.4)) {
@@ -103,6 +115,8 @@ struct CaddieAIApp: App {
                     withAnimation(.easeIn(duration: 0.3)) {
                         showSetupNotice = true
                     }
+                } else {
+                    tryShowContactPrompt()
                 }
 
                 // Request ATT authorization for ad personalization
@@ -114,6 +128,22 @@ struct CaddieAIApp: App {
                 }
                 #endif
             }
+        }
+    }
+
+    private func tryShowContactPrompt() {
+        let profile = profileStore.profile
+        // Already submitted contact info — don't show
+        guard profile.contactName.isEmpty else { return }
+        // Already skipped 3 times — stop asking
+        guard profile.contactPromptSkipCount < 3 else { return }
+        // If shown before, require 30+ days since last prompt
+        if let lastShown = profile.contactPromptLastShown {
+            let daysSince = Calendar.current.dateComponents([.day], from: lastShown, to: Date()).day ?? 0
+            guard daysSince >= 30 else { return }
+        }
+        withAnimation(.easeIn(duration: 0.3)) {
+            showContactPrompt = true
         }
     }
 }
