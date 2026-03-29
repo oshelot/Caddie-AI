@@ -13,6 +13,7 @@ import CoreLocation
 struct MapboxMapRepresentable: UIViewRepresentable {
     let course: NormalizedCourse?
     var selectedHole: Int?
+    var showUserLocation: Bool = false
     var onHoleTapped: ((Int) -> Void)?
 
     // MARK: - Layer & Source IDs
@@ -52,6 +53,12 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         mapView.ornaments.compassView.isHidden = true
         TelemetryService.shared.recordMapboxCall()
 
+        // Enable user location puck if requested
+        if showUserLocation {
+            mapView.location.options.puckType = .puck2D()
+            mapView.location.options.puckBearingEnabled = true
+        }
+
         context.coordinator.mapView = mapView
         mapView.mapboxMap.onStyleLoaded.observe { _ in
             if let course = self.course {
@@ -65,6 +72,13 @@ struct MapboxMapRepresentable: UIViewRepresentable {
     // MARK: - Update
 
     func updateUIView(_ mapView: MapView, context: Context) {
+        // Update location puck visibility
+        if showUserLocation {
+            mapView.location.options.puckType = .puck2D()
+        } else {
+            mapView.location.options.puckType = nil
+        }
+
         guard let course = course else { return }
 
         context.coordinator.course = course

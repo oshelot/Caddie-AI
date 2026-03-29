@@ -18,6 +18,8 @@ struct CourseMapView: View {
     @State private var showingAnalysis = false
     @State private var analysisViewModel = HoleAnalysisViewModel()
     @State private var weather: WeatherData?
+    @State private var locationManager = LocationManager()
+    @State private var showUserLocation = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -25,13 +27,14 @@ struct CourseMapView: View {
             MapboxMapRepresentable(
                 course: course,
                 selectedHole: viewModel.selectedHole,
+                showUserLocation: showUserLocation,
                 onHoleTapped: { hole in
                     viewModel.selectedHole = hole
                 }
             )
             .ignoresSafeArea()
 
-            // Weather badge (top-left)
+            // Weather badge (top-left) and location button (top-right)
             VStack {
                 HStack {
                     if let weather {
@@ -40,6 +43,23 @@ struct CourseMapView: View {
                             .padding(.leading, 12)
                     }
                     Spacer()
+                    Button {
+                        if locationManager.isAuthorized {
+                            showUserLocation.toggle()
+                        } else {
+                            locationManager.requestPermission()
+                            showUserLocation = true
+                        }
+                    } label: {
+                        Image(systemName: showUserLocation ? "location.fill" : "location")
+                            .font(.body)
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.black.opacity(0.6))
+                            .clipShape(Circle())
+                    }
+                    .padding(.top, 60)
+                    .padding(.trailing, 12)
                 }
                 Spacer()
             }
