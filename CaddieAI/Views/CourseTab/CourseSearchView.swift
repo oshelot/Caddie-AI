@@ -177,6 +177,9 @@ struct CourseSearchView: View {
                 }
             }
             .navigationTitle("Courses")
+            .safeAreaInset(edge: .bottom) {
+                AdBannerSection()
+            }
             .navigationDestination(isPresented: Binding(
                 get: { viewModel.selectedCourse != nil },
                 set: { if !$0 { viewModel.clearSelection() } }

@@ -79,7 +79,7 @@ struct APISettingsView: View {
                 Text("Subscription")
             } footer: {
                 if !isPaid {
-                    Text("Pro removes the need for API keys — unlimited AI caddie powered by GPT-4o mini.")
+                    Text("Pro removes the need for API keys — unlimited AI caddie powered by GPT-4o mini, plus ad-free.")
                 }
             }
 
@@ -278,6 +278,9 @@ struct APISettingsView: View {
             }
         }
         .navigationTitle("API Settings")
+        .safeAreaInset(edge: .bottom) {
+            AdBannerSection()
+        }
     }
 
     // MARK: - Active Key Helpers

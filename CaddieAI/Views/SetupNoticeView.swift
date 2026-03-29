@@ -44,7 +44,7 @@ struct SetupNoticeView: View {
                 requirementCard(
                     icon: "star.fill",
                     title: "Or Upgrade to Pro",
-                    description: "CaddieAI Pro ($4.99/mo) includes AI caddie access with no API key needed. You can upgrade anytime in API Settings.",
+                    description: "CaddieAI Pro ($4.99/mo) includes hosted AI caddie access with no API key needed, plus an ad-free experience. Upgrade anytime in API Settings.",
                     iconColor: .purple
                 )
             }

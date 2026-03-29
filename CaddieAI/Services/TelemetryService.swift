@@ -116,6 +116,27 @@ final class TelemetryService {
         ])
     }
 
+    func recordAdImpression(screen: String, adUnit: String) {
+        record(.adImpression, properties: [
+            "screen": screen,
+            "adUnit": adUnit,
+        ])
+    }
+
+    func recordAdClick(screen: String, adUnit: String) {
+        record(.adClick, properties: [
+            "screen": screen,
+            "adUnit": adUnit,
+        ])
+    }
+
+    func recordAdLoadFailure(screen: String, error: String) {
+        record(.adLoadFailure, properties: [
+            "screen": screen,
+            "error": error,
+        ])
+    }
+
     // MARK: - Flush
 
     /// Sends all pending events to the telemetry endpoint.
@@ -197,4 +218,7 @@ enum TelemetryEventType: String {
     case weatherCall = "weather_call"
     case mapboxCall = "mapbox_call"
     case coursePlayed = "course_played"
+    case adImpression = "ad_impression"
+    case adClick = "ad_click"
+    case adLoadFailure = "ad_load_failure"
 }

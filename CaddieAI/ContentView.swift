@@ -38,5 +38,6 @@ struct ContentView: View {
         .environment(CourseViewModel())
         .environment(CourseCacheService())
         .environment(APIUsageStore())
+        .environment(AdManager())
         .environment(LocationManager())
 }

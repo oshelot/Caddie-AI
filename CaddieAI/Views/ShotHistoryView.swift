@@ -33,6 +33,9 @@ struct ShotHistoryView: View {
                 }
             }
             .navigationTitle("History")
+            .safeAreaInset(edge: .bottom) {
+                AdBannerSection()
+            }
         }
     }
 }

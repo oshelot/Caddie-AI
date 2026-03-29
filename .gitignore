@@ -27,6 +27,11 @@ secrets/
 Pods/
 .build/
 
+# Vendored frameworks (too large for git — download manually)
+Frameworks/
+GoogleMobileAds.xcframework/
+UserMessagingPlatform.xcframework/
+
 # OS
 .DS_Store
 Thumbs.db

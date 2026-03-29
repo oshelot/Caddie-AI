@@ -92,6 +92,9 @@ struct ProfileView: View {
             }
             .navigationTitle("Profile")
             .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom) {
+                AdBannerSection()
+            }
         }
     }
 }

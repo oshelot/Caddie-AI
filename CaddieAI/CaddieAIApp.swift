@@ -7,6 +7,8 @@
 
 import SwiftUI
 import MapboxMaps
+import GoogleMobileAds
+import AppTrackingTransparency
 
 @main
 struct CaddieAIApp: App {
@@ -19,6 +21,7 @@ struct CaddieAIApp: App {
     @State private var courseCacheService = CourseCacheService()
     @State private var apiUsageStore = APIUsageStore()
     @State private var subscriptionManager = SubscriptionManager()
+    @State private var adManager = AdManager()
     @State private var locationManager = LocationManager()
     @State private var showSplash = true
     @AppStorage("hasSeenSetupNotice") private var hasSeenSetupNotice = false
@@ -29,6 +32,9 @@ struct CaddieAIApp: App {
         if let token = Secrets.mapboxAccessToken {
             MapboxOptions.accessToken = token
         }
+
+        // Initialize Google Mobile Ads SDK
+        MobileAds.shared.start(completionHandler: nil)
     }
 
     var body: some Scene {
@@ -44,6 +50,7 @@ struct CaddieAIApp: App {
                     .environment(courseCacheService)
                     .environment(apiUsageStore)
                     .environment(subscriptionManager)
+                    .environment(adManager)
                     .environment(locationManager)
                     .onAppear {
                         courseViewModel.cacheService = courseCacheService
@@ -51,6 +58,7 @@ struct CaddieAIApp: App {
                         courseViewModel.apiUsageStore = apiUsageStore
                         shotAdvisor.apiUsageStore = apiUsageStore
                         shotAdvisor.subscriptionManager = subscriptionManager
+                        adManager.subscriptionManager = subscriptionManager
                         TelemetryService.shared.isEnabled = profileStore.profile.telemetryEnabled
                         ttsService.voiceGender = profileStore.profile.caddieVoiceGender
                         ttsService.voiceAccent = profileStore.profile.caddieVoiceAccent
@@ -90,6 +98,13 @@ struct CaddieAIApp: App {
                 if !hasSeenSetupNotice {
                     withAnimation(.easeIn(duration: 0.3)) {
                         showSetupNotice = true
+                    }
+                }
+
+                // Request ATT authorization for ad personalization
+                if adManager.shouldShowAds {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        ATTrackingManager.requestTrackingAuthorization { _ in }
                     }
                 }
             }
