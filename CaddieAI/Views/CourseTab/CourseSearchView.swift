@@ -105,7 +105,7 @@ struct CourseSearchView: View {
 
                 // MARK: - Search Results
                 if !viewModel.searchResults.isEmpty {
-                    Section("Results") {
+                    Section {
                         ForEach(viewModel.searchResults) { result in
                             Button {
                                 viewModel.startIngestion(result)
@@ -113,6 +113,17 @@ struct CourseSearchView: View {
                                 CourseSearchRow(result: result)
                             }
                             .tint(.primary)
+                        }
+                    } header: {
+                        HStack {
+                            Text("Results")
+                            Spacer()
+                            Button("Clear") {
+                                viewModel.searchResults = []
+                                viewModel.searchError = nil
+                            }
+                            .font(.subheadline)
+                            .textCase(nil)
                         }
                     }
                 }
