@@ -255,6 +255,7 @@ final class CourseViewModel {
     func loadCachedCourse(id: String) {
         if let course = cacheService?.load(id: id) {
             selectedCourse = course
+            selectedTee = cacheService?.selectedTee(forCourse: id)
             TelemetryService.shared.recordCoursePlayed(courseName: course.name)
         }
     }

@@ -26,4 +26,5 @@ struct CourseCacheEntry: Codable, Sendable, Identifiable {
     var schemaVersion: String
     var fileName: String         // "course_<hash>.json"
     var overallConfidence: Double
+    var selectedTee: String?     // user's preferred tee box for this course
 }

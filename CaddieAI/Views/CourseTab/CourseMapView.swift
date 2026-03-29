@@ -13,6 +13,7 @@ struct CourseMapView: View {
     @Environment(ProfileStore.self) private var profileStore
     @Environment(APIUsageStore.self) private var apiUsageStore
     @Environment(SubscriptionManager.self) private var subscriptionManager
+    @Environment(CourseCacheService.self) private var cacheService
     @State private var showingDetail = false
     @State private var showingDebug = false
     @State private var showingAnalysis = false
@@ -20,6 +21,7 @@ struct CourseMapView: View {
     @State private var weather: WeatherData?
     @State private var locationManager = LocationManager()
     @State private var showUserLocation = false
+    @State private var showTeeReminder = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -61,6 +63,30 @@ struct CourseMapView: View {
                     .padding(.top, 60)
                     .padding(.trailing, 12)
                 }
+
+                // Tee box reminder callout
+                if showTeeReminder, course.teeNames != nil {
+                    HStack(spacing: 8) {
+                        Image(systemName: "flag.fill")
+                            .foregroundStyle(.yellow)
+                        Text("Tap the tee button above to choose your tee box")
+                            .font(.subheadline)
+                        Spacer()
+                        Button {
+                            withAnimation { showTeeReminder = false }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(12)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 Spacer()
             }
 
@@ -209,6 +235,8 @@ struct CourseMapView: View {
                             ForEach(teeNames, id: \.self) { tee in
                                 Button {
                                     viewModel.selectedTee = tee
+                                    cacheService.saveSelectedTee(tee, forCourse: course.id)
+                                    showTeeReminder = false
                                 } label: {
                                     HStack {
                                         Text(tee)
@@ -264,11 +292,17 @@ struct CourseMapView: View {
             )
         }
         .task {
-            // Auto-select first tee if available and none selected
+            // Restore saved tee or auto-select the first one
             if viewModel.selectedTee == nil,
                let teeNames = course.teeNames,
                !teeNames.isEmpty {
-                viewModel.selectedTee = teeNames.first
+                if let saved = cacheService.selectedTee(forCourse: course.id),
+                   teeNames.contains(saved) {
+                    viewModel.selectedTee = saved
+                } else {
+                    viewModel.selectedTee = teeNames.first
+                    showTeeReminder = true
+                }
             }
 
             do {

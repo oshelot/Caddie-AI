@@ -128,6 +128,18 @@ final class CourseCacheService {
         cachedCourses.filter { favoriteIDs.contains($0.id) }
     }
 
+    // MARK: - Tee Selection
+
+    func saveSelectedTee(_ tee: String, forCourse id: String) {
+        guard let idx = index.entries.firstIndex(where: { $0.id == id }) else { return }
+        index.entries[idx].selectedTee = tee
+        saveIndex()
+    }
+
+    func selectedTee(forCourse id: String) -> String? {
+        index.entries.first { $0.id == id }?.selectedTee
+    }
+
     // MARK: - Invalidation
 
     func invalidate(id: String) {
