@@ -26,6 +26,18 @@ enum Secrets {
         secrets?["GolfCourseApiKey"] as? String
     }
 
+    /// LLM proxy endpoint URL for paid-tier users
+    static var llmProxyEndpoint: String? {
+        let value = secrets?["LLMProxyEndpoint"] as? String
+        return (value?.isEmpty ?? true) ? nil : value
+    }
+
+    /// LLM proxy API key (x-api-key header)
+    static var llmProxyApiKey: String? {
+        let value = secrets?["LLMProxyApiKey"] as? String
+        return (value?.isEmpty ?? true) ? nil : value
+    }
+
     /// Telemetry ingestion endpoint URL
     static var telemetryEndpoint: String? {
         secrets?["TelemetryEndpoint"] as? String

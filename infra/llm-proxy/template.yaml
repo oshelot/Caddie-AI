@@ -1,0 +1,213 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CaddieAI LLM Proxy - API Gateway + Lambda for paid-tier LLM routing
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, prod]
+  OpenAIApiKey:
+    Type: String
+    Description: OpenAI API key for paid-tier LLM calls
+    NoEcho: true
+    MinLength: 10
+  ProxyApiKeyValue:
+    Type: String
+    Description: API key the iOS app sends in x-api-key header for proxy calls
+    NoEcho: true
+    MinLength: 20
+
+Resources:
+
+  # ── Lambda IAM Role ────────────────────────────────────────────────
+  ProxyFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub caddieai-llm-proxy-lambda-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # ── Lambda Function (inline code) ──────────────────────────────────
+  ProxyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub caddieai-llm-proxy-${Environment}
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 65
+      MemorySize: 128
+      Role: !GetAtt ProxyFunctionRole.Arn
+      Environment:
+        Variables:
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+      Code:
+        ZipFile: |
+          import json, os, urllib.request, urllib.error
+
+          OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+          MODEL = "gpt-4o-mini"
+          OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+
+          def handler(event, context):
+              body_str = event.get("body", "")
+              if not body_str:
+                  return resp(400, {"error": "Empty request body"})
+              if len(body_str) > 262144:
+                  return resp(400, {"error": "Request body too large"})
+              try:
+                  body = json.loads(body_str)
+              except json.JSONDecodeError:
+                  return resp(400, {"error": "Invalid JSON"})
+
+              messages = body.get("messages")
+              if not messages or not isinstance(messages, list):
+                  return resp(400, {"error": "Missing or invalid messages array"})
+
+              openai_body = {
+                  "model": MODEL,
+                  "messages": messages,
+                  "temperature": body.get("temperature", 0.7),
+                  "max_tokens": min(body.get("max_tokens", 1500), 4096),
+              }
+              if "response_format" in body:
+                  openai_body["response_format"] = body["response_format"]
+
+              req = urllib.request.Request(
+                  OPENAI_URL,
+                  data=json.dumps(openai_body).encode("utf-8"),
+                  headers={
+                      "Content-Type": "application/json",
+                      "Authorization": f"Bearer {OPENAI_API_KEY}",
+                  },
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return resp(200, json.loads(r.read().decode("utf-8")))
+              except urllib.error.HTTPError as e:
+                  err = e.read().decode("utf-8") if e.fp else "{}"
+                  return resp(e.code, {"error": "OpenAI API error", "details": err})
+              except urllib.error.URLError as e:
+                  return resp(502, {"error": f"Failed to reach OpenAI: {str(e.reason)}"})
+              except Exception as e:
+                  return resp(500, {"error": str(e)})
+
+          def resp(code, body):
+              return {"statusCode": code, "headers": {"Content-Type": "application/json"}, "body": json.dumps(body)}
+
+  # ── API Gateway (REST) ─────────────────────────────────────────────
+  ProxyApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub caddieai-llm-proxy-${Environment}
+      Description: LLM proxy endpoint for CaddieAI paid tier
+
+  # /llm resource
+  LlmResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ProxyApi
+      ParentId: !GetAtt ProxyApi.RootResourceId
+      PathPart: llm
+
+  # /llm/chat resource
+  ChatResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ProxyApi
+      ParentId: !Ref LlmResource
+      PathPart: chat
+
+  # POST /llm/chat method (requires API key)
+  ChatPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProxyApi
+      ResourceId: !Ref ChatResource
+      HttpMethod: POST
+      ApiKeyRequired: true
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FunctionArn}/invocations
+          - FunctionArn: !GetAtt ProxyFunction.Arn
+
+  # Permission for API Gateway to invoke Lambda
+  ProxyFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProxyFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ProxyApi}/*/POST/llm/chat
+
+  # Deploy the API
+  ProxyApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: ChatPostMethod
+    Properties:
+      RestApiId: !Ref ProxyApi
+
+  ProxyApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref ProxyApi
+      DeploymentId: !Ref ProxyApiDeployment
+      StageName: !Ref Environment
+      MethodSettings:
+        - HttpMethod: '*'
+          ResourcePath: '/*'
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
+
+  # ── API Key + Usage Plan ───────────────────────────────────────────
+  ProxyApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn: ProxyApiStage
+    Properties:
+      Name: !Sub caddieai-proxy-key-${Environment}
+      Enabled: true
+      Value: !Ref ProxyApiKeyValue
+      StageKeys:
+        - RestApiId: !Ref ProxyApi
+          StageName: !Ref Environment
+
+  ProxyUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn: ProxyApiStage
+    Properties:
+      UsagePlanName: !Sub caddieai-proxy-plan-${Environment}
+      Throttle:
+        BurstLimit: 10
+        RateLimit: 5
+      Quota:
+        Limit: 1000
+        Period: DAY
+      ApiStages:
+        - ApiId: !Ref ProxyApi
+          Stage: !Ref Environment
+
+  ProxyUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref ProxyApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref ProxyUsagePlan
+
+Outputs:
+  ProxyEndpointUrl:
+    Description: POST LLM proxy requests to this URL
+    Value: !Sub https://${ProxyApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/llm/chat
+
+  ProxyApiKeyId:
+    Description: API Key ID (retrieve value from API Gateway > API Keys in console)
+    Value: !Ref ProxyApiKey
