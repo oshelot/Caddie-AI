@@ -151,12 +151,20 @@ struct APISettingsView: View {
                             .foregroundStyle(.orange)
                     }
                 } header: {
-                    Text("\(profileStore.profile.llmProvider.displayName) API Key")
+                    HStack {
+                        Text("\(profileStore.profile.llmProvider.displayName) API Key")
+                        Text("— Required")
+                            .foregroundStyle(.orange)
+                            .textCase(.none)
+                    }
                 } footer: {
                     switch profileStore.profile.llmProvider {
-                    case .openAI: Text("Get your key at platform.openai.com")
-                    case .claude: Text("Get your key at console.anthropic.com")
-                    case .gemini: Text("Get your key at aistudio.google.com")
+                    case .openAI:
+                        Text("Get your key at [platform.openai.com](https://platform.openai.com/api-keys)")
+                    case .claude:
+                        Text("Get your key at [console.anthropic.com](https://console.anthropic.com/settings/keys)")
+                    case .gemini:
+                        Text("Get your key at [aistudio.google.com](https://aistudio.google.com/apikey)")
                     }
                 }
             }
