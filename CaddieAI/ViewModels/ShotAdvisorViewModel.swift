@@ -32,6 +32,7 @@ final class ShotAdvisorViewModel {
 
     private let llmRouter = LLMRouter.shared
     var apiUsageStore: APIUsageStore?
+    var subscriptionManager: SubscriptionManager?
 
     // MARK: - Auto-populate Wind from Weather
 
@@ -85,12 +86,14 @@ final class ShotAdvisorViewModel {
 
         // Step 2: LLM enrichment (network call)
         do {
+            let tier = subscriptionManager?.tier ?? .free
             var (result, usage) = try await llmRouter.getRecommendation(
                 context: shotContext,
                 profile: profile,
                 deterministicAnalysis: analysis,
                 imageData: imageData,
-                voiceNotes: voiceNotes.isEmpty ? nil : voiceNotes
+                voiceNotes: voiceNotes.isEmpty ? nil : voiceNotes,
+                tier: tier
             )
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
@@ -150,12 +153,14 @@ final class ShotAdvisorViewModel {
         followUpMessages.append(FollowUpMessage(role: .user, text: question))
 
         do {
+            let tier = subscriptionManager?.tier ?? .free
             let (answer, usage) = try await llmRouter.askFollowUp(
                 question: question,
                 conversationHistory: conversationHistory,
                 apiKey: profile.activeLLMApiKey,
                 provider: profile.llmProvider,
-                model: profile.llmModel
+                model: profile.llmModel,
+                tier: tier
             )
             if let usage, let store = apiUsageStore {
                 await MainActor.run {

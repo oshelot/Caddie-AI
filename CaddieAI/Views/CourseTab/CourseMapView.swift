@@ -12,6 +12,7 @@ struct CourseMapView: View {
     @Environment(CourseViewModel.self) private var viewModel
     @Environment(ProfileStore.self) private var profileStore
     @Environment(APIUsageStore.self) private var apiUsageStore
+    @Environment(SubscriptionManager.self) private var subscriptionManager
     @State private var showingDetail = false
     @State private var showingDebug = false
     @State private var showingAnalysis = false
@@ -102,6 +103,7 @@ struct CourseMapView: View {
                                 showingAnalysis = true
                                 Task {
                                     analysisViewModel.apiUsageStore = apiUsageStore
+                                    analysisViewModel.subscriptionManager = subscriptionManager
                                     await analysisViewModel.analyzeHole(
                                         hole,
                                         course: course,

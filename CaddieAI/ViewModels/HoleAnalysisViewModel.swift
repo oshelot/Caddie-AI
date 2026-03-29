@@ -18,6 +18,7 @@ class HoleAnalysisViewModel {
     var weather: WeatherData?
     var weatherError: String?
     var apiUsageStore: APIUsageStore?
+    var subscriptionManager: SubscriptionManager?
 
     private var conversationHistory: [OpenAIService.ChatMessage] = []
 
@@ -76,11 +77,13 @@ class HoleAnalysisViewModel {
         }
 
         do {
+            let tier = subscriptionManager?.tier ?? .free
             let (advice, usage) = try await LLMRouter.shared.getHoleAnalysis(
                 hole: hole,
                 analysis: result,
                 course: course,
-                profile: profile
+                profile: profile,
+                tier: tier
             )
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
@@ -144,12 +147,14 @@ class HoleAnalysisViewModel {
         followUpResponse = nil
 
         do {
+            let tier = subscriptionManager?.tier ?? .free
             let (response, usage) = try await LLMRouter.shared.askHoleFollowUp(
                 question: question,
                 conversationHistory: conversationHistory,
                 apiKey: profile.activeLLMApiKey,
                 provider: profile.llmProvider,
-                model: profile.llmModel
+                model: profile.llmModel,
+                tier: tier
             )
             if let usage, let store = apiUsageStore {
                 await MainActor.run {

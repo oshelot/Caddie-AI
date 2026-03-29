@@ -2,7 +2,11 @@
 //  LLMRouter.swift
 //  CaddieAI
 //
-//  Routes LLM calls to the correct provider service based on the user's profile settings.
+//  Routes LLM calls to the correct provider service based on the user's
+//  profile settings and subscription tier.
+//
+//  Free tier  → client-side call using the user's own API key (OpenAI / Claude / Gemini).
+//  Paid tier  → backend proxy (forces gpt-4o-mini, no user key required).
 //
 
 import Foundation
@@ -18,8 +22,17 @@ final class LLMRouter: Sendable {
         profile: PlayerProfile,
         deterministicAnalysis: DeterministicAnalysis,
         imageData: Data? = nil,
-        voiceNotes: String? = nil
+        voiceNotes: String? = nil,
+        tier: UserTier = .free
     ) async throws -> (ShotRecommendation, OpenAIService.TokenUsage?) {
+        if tier == .paid {
+            return try await proxyRecommendation(
+                context: context, profile: profile,
+                deterministicAnalysis: deterministicAnalysis,
+                imageData: imageData, voiceNotes: voiceNotes
+            )
+        }
+
         switch profile.llmProvider {
         case .openAI:
             return try await OpenAIService.shared.getRecommendation(
@@ -51,8 +64,16 @@ final class LLMRouter: Sendable {
         hole: NormalizedHole,
         analysis: HoleAnalysis,
         course: NormalizedCourse,
-        profile: PlayerProfile
+        profile: PlayerProfile,
+        tier: UserTier = .free
     ) async throws -> (String, OpenAIService.TokenUsage?) {
+        if tier == .paid {
+            return try await proxyHoleAnalysis(
+                hole: hole, analysis: analysis,
+                course: course, profile: profile
+            )
+        }
+
         switch profile.llmProvider {
         case .openAI:
             return try await OpenAIService.shared.getHoleAnalysis(
@@ -79,8 +100,16 @@ final class LLMRouter: Sendable {
         conversationHistory: [OpenAIService.ChatMessage],
         apiKey: String,
         provider: LLMProvider,
-        model: LLMModel
+        model: LLMModel,
+        tier: UserTier = .free
     ) async throws -> (String, OpenAIService.TokenUsage?) {
+        if tier == .paid {
+            return try await proxyFollowUp(
+                question: question,
+                conversationHistory: conversationHistory
+            )
+        }
+
         switch provider {
         case .openAI:
             return try await OpenAIService.shared.askFollowUp(
@@ -107,8 +136,16 @@ final class LLMRouter: Sendable {
         conversationHistory: [OpenAIService.ChatMessage],
         apiKey: String,
         provider: LLMProvider,
-        model: LLMModel
+        model: LLMModel,
+        tier: UserTier = .free
     ) async throws -> (String, OpenAIService.TokenUsage?) {
+        if tier == .paid {
+            return try await proxyFollowUp(
+                question: question,
+                conversationHistory: conversationHistory
+            )
+        }
+
         switch provider {
         case .openAI:
             return try await OpenAIService.shared.askHoleFollowUp(
@@ -126,5 +163,62 @@ final class LLMRouter: Sendable {
                 apiKey: apiKey, model: model
             )
         }
+    }
+
+    // MARK: - Proxy Helpers
+
+    private func proxyRecommendation(
+        context: ShotContext,
+        profile: PlayerProfile,
+        deterministicAnalysis: DeterministicAnalysis,
+        imageData: Data?,
+        voiceNotes: String?
+    ) async throws -> (ShotRecommendation, OpenAIService.TokenUsage?) {
+        let userMessage = OpenAIService.buildUserMessage(
+            context: context, profile: profile,
+            analysis: deterministicAnalysis, voiceNotes: voiceNotes
+        )
+
+        var messages: [[String: Any]] = [
+            ["role": "system", "content": OpenAIService.caddieSystemPrompt]
+        ]
+
+        let userMsg = OpenAIService.ChatMessage(role: "user", content: userMessage, imageData: imageData)
+        messages.append(userMsg.toAPIFormat())
+
+        return try await LLMProxyService.shared.chatCompletionJSON(messages: messages)
+    }
+
+    private func proxyHoleAnalysis(
+        hole: NormalizedHole,
+        analysis: HoleAnalysis,
+        course: NormalizedCourse,
+        profile: PlayerProfile
+    ) async throws -> (String, OpenAIService.TokenUsage?) {
+        let userMessage = OpenAIService.buildHoleAnalysisMessage(
+            hole: hole, analysis: analysis,
+            course: course, profile: profile
+        )
+
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": OpenAIService.holeAnalysisSystemPrompt],
+            ["role": "user", "content": userMessage]
+        ]
+
+        return try await LLMProxyService.shared.chatCompletion(
+            messages: messages, maxTokens: 1000
+        )
+    }
+
+    private func proxyFollowUp(
+        question: String,
+        conversationHistory: [OpenAIService.ChatMessage]
+    ) async throws -> (String, OpenAIService.TokenUsage?) {
+        var messages = conversationHistory.map { $0.toAPIFormat() }
+        messages.append(["role": "user", "content": question])
+
+        return try await LLMProxyService.shared.chatCompletion(
+            messages: messages, maxTokens: 500
+        )
     }
 }

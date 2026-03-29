@@ -46,6 +46,7 @@ struct CaddieAIApp: App {
                         courseViewModel.profileStore = profileStore
                         courseViewModel.apiUsageStore = apiUsageStore
                         shotAdvisor.apiUsageStore = apiUsageStore
+                        shotAdvisor.subscriptionManager = subscriptionManager
                         TelemetryService.shared.isEnabled = profileStore.profile.telemetryEnabled
                         ttsService.voiceGender = profileStore.profile.caddieVoiceGender
                         ttsService.voiceAccent = profileStore.profile.caddieVoiceAccent
