@@ -70,7 +70,7 @@ final class OpenAIService: Sendable {
             throw APIError(message: "OpenAI API key not configured. Set it in your Profile tab.")
         }
 
-        let systemPrompt = Self.caddieSystemPrompt
+        let systemPrompt = Self.caddieSystemPrompt(persona: profile.caddiePersona)
         let userMessage = Self.buildUserMessage(
             context: context,
             profile: profile,
@@ -103,7 +103,7 @@ final class OpenAIService: Sendable {
             throw APIError(message: "OpenAI API key not configured. Set it in your Profile tab.")
         }
 
-        let systemPrompt = Self.holeAnalysisSystemPrompt
+        let systemPrompt = Self.holeAnalysisSystemPrompt(persona: profile.caddiePersona)
         let userMessage = Self.buildHoleAnalysisMessage(
             hole: hole,
             analysis: analysis,
@@ -308,6 +308,10 @@ final class OpenAIService: Sendable {
         PromptService.shared.caddieSystemPrompt
     }
 
+    static func caddieSystemPrompt(persona: CaddiePersona) -> String {
+        PromptService.shared.caddieSystemPrompt(persona: persona)
+    }
+
     // MARK: - User Message Builder
 
     static func buildUserMessage(
@@ -330,7 +334,9 @@ final class OpenAIService: Sendable {
 
         let profileSummary = """
             Handicap: \(profile.handicap)
-            Stock shape: \(profile.stockShape.displayName)
+            Stock shape (woods): \(profile.woodsStockShape.displayName)
+            Stock shape (irons): \(profile.ironsStockShape.displayName)
+            Stock shape (hybrids): \(profile.hybridsStockShape.displayName)
             Miss tendency: \(profile.missTendency.displayName)
             Default aggressiveness: \(profile.defaultAggressiveness.displayName)
             Bunker confidence: \(profile.bunkerConfidence.displayName)
@@ -375,6 +381,10 @@ final class OpenAIService: Sendable {
         PromptService.shared.holeAnalysisSystemPrompt
     }
 
+    static func holeAnalysisSystemPrompt(persona: CaddiePersona) -> String {
+        PromptService.shared.holeAnalysisSystemPrompt(persona: persona)
+    }
+
     static func buildHoleAnalysisMessage(
         hole: NormalizedHole,
         analysis: HoleAnalysis,
@@ -393,7 +403,9 @@ final class OpenAIService: Sendable {
 
         let profileSummary = """
             Handicap: \(profile.handicap)
-            Stock shape: \(profile.stockShape.displayName)
+            Stock shape (woods): \(profile.woodsStockShape.displayName)
+            Stock shape (irons): \(profile.ironsStockShape.displayName)
+            Stock shape (hybrids): \(profile.hybridsStockShape.displayName)
             Miss tendency: \(profile.missTendency.displayName)
             Aggressiveness: \(profile.defaultAggressiveness.displayName)
             Club distances: \(clubList)

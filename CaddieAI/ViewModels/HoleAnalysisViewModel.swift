@@ -114,7 +114,7 @@ class HoleAnalysisViewModel {
             conversationHistory = [
                 OpenAIService.ChatMessage(
                     role: "system",
-                    content: OpenAIService.holeAnalysisSystemPrompt
+                    content: OpenAIService.holeAnalysisSystemPrompt(persona: profile.caddiePersona)
                 ),
                 OpenAIService.ChatMessage(
                     role: "user",

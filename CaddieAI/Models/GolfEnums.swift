@@ -219,6 +219,35 @@ enum Club: String, CaseIterable, Codable, Identifiable, Sendable {
         case .putter: return 30
         }
     }
+
+    var category: ClubCategory {
+        switch self {
+        case .driver, .twoWood, .threeWood, .fourWood, .fiveWood, .sevenWood, .nineWood:
+            return .woods
+        case .hybrid2, .hybrid3, .hybrid4, .hybrid5, .hybrid6:
+            return .hybrids
+        default:
+            return .irons
+        }
+    }
+}
+
+// MARK: - Club Category
+
+enum ClubCategory: String, CaseIterable, Codable, Identifiable, Sendable {
+    case woods
+    case hybrids
+    case irons
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .woods: return "Woods"
+        case .hybrids: return "Hybrids"
+        case .irons: return "Irons"
+        }
+    }
 }
 
 // MARK: - Shot Type
@@ -528,6 +557,38 @@ enum CaddieVoiceAccent: String, CaseIterable, Codable, Identifiable, Sendable {
         case .british: return "en-GB"
         case .australian: return "en-AU"
         case .indian: return "en-IN"
+        }
+    }
+}
+
+// MARK: - Caddie Persona
+
+enum CaddiePersona: String, CaseIterable, Codable, Identifiable, Sendable {
+    case professional
+    case supportiveGrandparent
+    case collegeBuddy
+    case drillSergeant
+    case chillSurfer
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .professional: return "Professional"
+        case .supportiveGrandparent: return "Supportive Grandparent"
+        case .collegeBuddy: return "College Buddy"
+        case .drillSergeant: return "Drill Sergeant"
+        case .chillSurfer: return "Chill Surfer"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .professional: return "Calm, authoritative tour caddie"
+        case .supportiveGrandparent: return "You're the best, sweetie"
+        case .collegeBuddy: return "Playful roasts, big hype"
+        case .drillSergeant: return "Tough love, no excuses"
+        case .chillSurfer: return "Laid back, go with the flow"
         }
     }
 }

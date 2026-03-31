@@ -35,9 +35,10 @@ struct PlayerProfile: Codable, Sendable {
     // Telemetry
     var telemetryEnabled: Bool
 
-    // Caddie voice
+    // Caddie voice & persona
     var caddieVoiceGender: CaddieVoiceGender
     var caddieVoiceAccent: CaddieVoiceAccent
+    var caddiePersona: CaddiePersona
 
     // Phase 3: Player preferences
     var bunkerConfidence: SelfConfidence
@@ -49,6 +50,15 @@ struct PlayerProfile: Codable, Sendable {
     var contactName: String
     var contactEmail: String
     var contactPhone: String
+
+    // Per-category stock shapes
+    var woodsStockShape: StockShape
+    var ironsStockShape: StockShape
+    var hybridsStockShape: StockShape
+
+    // Swing onboarding
+    var hasCompletedSwingOnboarding: Bool
+    var hasConfiguredBag: Bool
 
     // Onboarding contact prompt tracking
     var contactPromptSkipCount: Int
@@ -72,6 +82,13 @@ struct PlayerProfile: Codable, Sendable {
         telemetryEnabled = try container.decodeIfPresent(Bool.self, forKey: .telemetryEnabled) ?? true
         caddieVoiceGender = try container.decodeIfPresent(CaddieVoiceGender.self, forKey: .caddieVoiceGender) ?? .female
         caddieVoiceAccent = try container.decodeIfPresent(CaddieVoiceAccent.self, forKey: .caddieVoiceAccent) ?? .american
+        // Gracefully handle removed persona values (e.g. "britishCommentator")
+        if let rawPersona = try container.decodeIfPresent(String.self, forKey: .caddiePersona),
+           let persona = CaddiePersona(rawValue: rawPersona) {
+            caddiePersona = persona
+        } else {
+            caddiePersona = .professional
+        }
         bunkerConfidence = try container.decodeIfPresent(SelfConfidence.self, forKey: .bunkerConfidence) ?? .average
         wedgeConfidence = try container.decodeIfPresent(SelfConfidence.self, forKey: .wedgeConfidence) ?? .average
         preferredChipStyle = try container.decodeIfPresent(ChipStyle.self, forKey: .preferredChipStyle) ?? .noPreference
@@ -79,11 +96,16 @@ struct PlayerProfile: Codable, Sendable {
         contactName = try container.decodeIfPresent(String.self, forKey: .contactName) ?? ""
         contactEmail = try container.decodeIfPresent(String.self, forKey: .contactEmail) ?? ""
         contactPhone = try container.decodeIfPresent(String.self, forKey: .contactPhone) ?? ""
+        woodsStockShape = try container.decodeIfPresent(StockShape.self, forKey: .woodsStockShape) ?? stockShape
+        ironsStockShape = try container.decodeIfPresent(StockShape.self, forKey: .ironsStockShape) ?? stockShape
+        hybridsStockShape = try container.decodeIfPresent(StockShape.self, forKey: .hybridsStockShape) ?? stockShape
+        hasCompletedSwingOnboarding = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedSwingOnboarding) ?? true
+        hasConfiguredBag = try container.decodeIfPresent(Bool.self, forKey: .hasConfiguredBag) ?? true
         contactPromptSkipCount = try container.decodeIfPresent(Int.self, forKey: .contactPromptSkipCount) ?? 0
         contactPromptLastShown = try container.decodeIfPresent(Date.self, forKey: .contactPromptLastShown)
     }
 
-    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", llmProvider: LLMProvider = .openAI, llmModel: LLMModel = .gpt4o, claudeApiKey: String = "", geminiApiKey: String = "", telemetryEnabled: Bool = true, caddieVoiceGender: CaddieVoiceGender = .female, caddieVoiceAccent: CaddieVoiceAccent = .american, bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral, contactName: String = "", contactEmail: String = "", contactPhone: String = "", contactPromptSkipCount: Int = 0, contactPromptLastShown: Date? = nil) {
+    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", llmProvider: LLMProvider = .openAI, llmModel: LLMModel = .gpt4o, claudeApiKey: String = "", geminiApiKey: String = "", telemetryEnabled: Bool = true, caddieVoiceGender: CaddieVoiceGender = .female, caddieVoiceAccent: CaddieVoiceAccent = .american, caddiePersona: CaddiePersona = .professional, bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral, woodsStockShape: StockShape = .straight, ironsStockShape: StockShape = .straight, hybridsStockShape: StockShape = .straight, hasCompletedSwingOnboarding: Bool = false, hasConfiguredBag: Bool = false, contactName: String = "", contactEmail: String = "", contactPhone: String = "", contactPromptSkipCount: Int = 0, contactPromptLastShown: Date? = nil) {
         self.handicap = handicap
         self.stockShape = stockShape
         self.missTendency = missTendency
@@ -99,10 +121,16 @@ struct PlayerProfile: Codable, Sendable {
         self.telemetryEnabled = telemetryEnabled
         self.caddieVoiceGender = caddieVoiceGender
         self.caddieVoiceAccent = caddieVoiceAccent
+        self.caddiePersona = caddiePersona
         self.bunkerConfidence = bunkerConfidence
         self.wedgeConfidence = wedgeConfidence
         self.preferredChipStyle = preferredChipStyle
         self.swingTendency = swingTendency
+        self.woodsStockShape = woodsStockShape
+        self.ironsStockShape = ironsStockShape
+        self.hybridsStockShape = hybridsStockShape
+        self.hasCompletedSwingOnboarding = hasCompletedSwingOnboarding
+        self.hasConfiguredBag = hasConfiguredBag
         self.contactName = contactName
         self.contactEmail = contactEmail
         self.contactPhone = contactPhone
@@ -119,6 +147,15 @@ struct PlayerProfile: Codable, Sendable {
         }
     }
 
+    /// Returns the stock shape for the given club's category.
+    func stockShapeForClub(_ club: Club) -> StockShape {
+        switch club.category {
+        case .woods: return woodsStockShape
+        case .hybrids: return hybridsStockShape
+        case .irons: return ironsStockShape
+        }
+    }
+
     static var `default`: PlayerProfile {
         PlayerProfile(
             handicap: 15.0,
@@ -132,7 +169,9 @@ struct PlayerProfile: Codable, Sendable {
             bunkerConfidence: .average,
             wedgeConfidence: .average,
             preferredChipStyle: .noPreference,
-            swingTendency: .neutral
+            swingTendency: .neutral,
+            hasCompletedSwingOnboarding: false,
+            hasConfiguredBag: false
         )
     }
 }

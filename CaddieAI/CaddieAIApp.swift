@@ -29,6 +29,8 @@ struct CaddieAIApp: App {
     @AppStorage("hasSeenSetupNotice") private var hasSeenSetupNotice = false
     @State private var showSetupNotice = false
     @State private var showContactPrompt = false
+    @State private var showSwingOnboarding = false
+    @State private var showBagReminder = false
 
     init() {
         // Read Mapbox token from bundled Secrets.plist
@@ -90,9 +92,31 @@ struct CaddieAIApp: App {
                         withAnimation(.easeOut(duration: 0.3)) {
                             showContactPrompt = false
                         }
+                        tryShowSwingOnboarding()
                     }
                     .transition(.opacity)
                     .zIndex(3)
+                }
+
+                if showSwingOnboarding {
+                    SwingOnboardingView {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            showSwingOnboarding = false
+                        }
+                        tryShowBagReminder()
+                    }
+                    .transition(.opacity)
+                    .zIndex(4)
+                }
+
+                if showBagReminder {
+                    BagReminderView {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            showBagReminder = false
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(5)
                 }
             }
             .environment(profileStore)
@@ -120,6 +144,13 @@ struct CaddieAIApp: App {
                     }
                 } else {
                     tryShowContactPrompt()
+                    // If contact prompt didn't show, try swing onboarding or bag reminder
+                    if !showContactPrompt {
+                        tryShowSwingOnboarding()
+                        if !showSwingOnboarding {
+                            tryShowBagReminder()
+                        }
+                    }
                 }
 
                 // Request ATT authorization for ad personalization
@@ -131,6 +162,22 @@ struct CaddieAIApp: App {
                 }
                 #endif
             }
+        }
+    }
+
+    private func tryShowSwingOnboarding() {
+        guard !profileStore.profile.hasCompletedSwingOnboarding else { return }
+        withAnimation(.easeIn(duration: 0.3)) {
+            showSwingOnboarding = true
+        }
+    }
+
+    private func tryShowBagReminder() {
+        let profile = profileStore.profile
+        guard profile.hasCompletedSwingOnboarding else { return }
+        guard !profile.hasConfiguredBag else { return }
+        withAnimation(.easeIn(duration: 0.3)) {
+            showBagReminder = true
         }
     }
 

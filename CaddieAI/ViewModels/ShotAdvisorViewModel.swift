@@ -129,7 +129,7 @@ final class ShotAdvisorViewModel {
                 historyInsight: historyInsight
             )
             conversationHistory = [
-                OpenAIService.ChatMessage(role: "system", content: OpenAIService.caddieSystemPrompt
+                OpenAIService.ChatMessage(role: "system", content: OpenAIService.caddieSystemPrompt(persona: profile.caddiePersona)
                     + PromptService.shared.followUpAugmentation),
                 OpenAIService.ChatMessage(role: "user", content: userMessage, imageData: imageData),
                 OpenAIService.ChatMessage(role: "assistant", content: recommendationSummary(result))

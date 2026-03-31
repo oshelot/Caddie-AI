@@ -185,7 +185,7 @@ final class LLMRouter: Sendable {
         )
 
         var messages: [[String: Any]] = [
-            ["role": "system", "content": OpenAIService.caddieSystemPrompt]
+            ["role": "system", "content": OpenAIService.caddieSystemPrompt(persona: profile.caddiePersona)]
         ]
 
         let userMsg = OpenAIService.ChatMessage(role: "user", content: userMessage, imageData: imageData)
@@ -208,7 +208,7 @@ final class LLMRouter: Sendable {
         )
 
         let messages: [[String: Any]] = [
-            ["role": "system", "content": OpenAIService.holeAnalysisSystemPrompt],
+            ["role": "system", "content": OpenAIService.holeAnalysisSystemPrompt(persona: profile.caddiePersona)],
             ["role": "user", "content": userMessage]
         ]
 

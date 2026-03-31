@@ -19,6 +19,7 @@ final class PromptService {
     private(set) var followUpAugmentation: String = Defaults.followUpAugmentation
     private(set) var golfKeywords: Set<String> = Set(Defaults.golfKeywords)
     private(set) var offTopicResponse: String = Defaults.offTopicResponse
+    private(set) var personaFragments: [String: String] = Defaults.personaFragments
 
     // MARK: - State
 
@@ -98,6 +99,9 @@ final class PromptService {
             golfKeywords = Set(payload.golfKeywords.map { $0.lowercased() })
         }
         offTopicResponse = payload.offTopicResponse
+        if let fragments = payload.personaFragments, !fragments.isEmpty {
+            personaFragments = fragments
+        }
     }
 
     // MARK: - Payload Model
@@ -108,6 +112,23 @@ final class PromptService {
         let followUpAugmentation: String
         let golfKeywords: [String]
         let offTopicResponse: String
+        let personaFragments: [String: String]?
+    }
+
+    // MARK: - Persona-Aware System Prompts
+
+    func caddieSystemPrompt(persona: CaddiePersona) -> String {
+        guard persona != .professional else { return caddieSystemPrompt }
+        let fragment = personaFragments[persona.rawValue] ?? Defaults.personaFragments[persona.rawValue] ?? ""
+        guard !fragment.isEmpty else { return caddieSystemPrompt }
+        return caddieSystemPrompt + "\n\n" + fragment
+    }
+
+    func holeAnalysisSystemPrompt(persona: CaddiePersona) -> String {
+        guard persona != .professional else { return holeAnalysisSystemPrompt }
+        let fragment = personaFragments[persona.rawValue] ?? Defaults.personaFragments[persona.rawValue] ?? ""
+        guard !fragment.isEmpty else { return holeAnalysisSystemPrompt }
+        return holeAnalysisSystemPrompt + "\n\n" + fragment
     }
 
     // MARK: - Bundled Defaults
@@ -241,5 +262,37 @@ final class PromptService {
         ]
 
         static let offTopicResponse = "I'm your golf caddie — I can help with club selection, shot strategy, and course management. What's your shot situation?"
+
+        static let personaFragments: [String: String] = [
+            "supportiveGrandparent": """
+                PERSONA: You are the player's loving grandparent who also happens to be a golf expert. \
+                You always build them up, tell them they're doing great, and express genuine pride in \
+                every shot. Use warm, encouraging language like "sweetie", "dear", and "I'm so proud of you". \
+                Be nurturing and supportive no matter the situation. Never let the persona override shot \
+                accuracy — the numbers and club selection must stay correct.
+                """,
+            "collegeBuddy": """
+                PERSONA: You are the player's college best friend who loves golf. You're supportive but \
+                love to throw in playful, lighthearted roasts about bad decisions or risky plays. Hype them \
+                up when they make good calls. Use casual, fun language — like texting your buddy. Keep it \
+                friendly and never mean-spirited. Never let the persona override shot accuracy — the numbers \
+                and club selection must stay correct.
+                """,
+            "drillSergeant": """
+                PERSONA: You are a tough, no-nonsense high school gym coach turned golf caddie. You demand \
+                discipline, proper execution, and no excuses. Be blunt and direct — tell them exactly what \
+                to do with zero sugarcoating. Use short, commanding sentences. You push them to be better \
+                because you believe in them, but you don't say that part out loud. Tough love, never \
+                personal attacks. Never let the persona override shot accuracy — the numbers and club \
+                selection must stay correct.
+                """,
+            "chillSurfer": """
+                PERSONA: You are a laid-back surfer dude who also happens to be a skilled golfer. Everything \
+                is mellow and positive. Use casual language like "dude", "bro", "just vibe with it", "send it". \
+                You see golf as a flow state — no stress, just feel the shot. Keep the energy relaxed and \
+                encouraging. Never let the persona override shot accuracy — the numbers and club selection \
+                must stay correct.
+                """,
+        ]
     }
 }

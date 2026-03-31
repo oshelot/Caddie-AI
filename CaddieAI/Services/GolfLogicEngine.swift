@@ -48,7 +48,8 @@ struct GolfLogicEngine {
         )
         let targetStrategy = determineTargetStrategy(
             context: context,
-            profile: profile
+            profile: profile,
+            recommendedClub: recommendedClub
         )
         let adjustments = describeAdjustments(context: context)
 
@@ -231,7 +232,8 @@ struct GolfLogicEngine {
 
     static func determineTargetStrategy(
         context: ShotContext,
-        profile: PlayerProfile
+        profile: PlayerProfile,
+        recommendedClub: Club
     ) -> TargetStrategy {
         var target = "Center of green"
         var miss = "Safe side of the green"
@@ -276,17 +278,18 @@ struct GolfLogicEngine {
         }
 
         // Adjust for slope-induced shape changes
+        let clubShape = profile.stockShapeForClub(recommendedClub)
         switch context.slope {
         case .ballBelowFeet:
             if !reasoning.isEmpty { reasoning += " " }
             reasoning += "Ball below feet promotes a fade."
-            if profile.stockShape == .fade {
+            if clubShape == .fade {
                 miss = "Favor the left side — stance will exaggerate your fade"
             }
         case .ballAboveFeet:
             if !reasoning.isEmpty { reasoning += " " }
             reasoning += "Ball above feet promotes a draw."
-            if profile.stockShape == .draw {
+            if clubShape == .draw {
                 miss = "Favor the right side — stance will exaggerate your draw"
             }
         default:

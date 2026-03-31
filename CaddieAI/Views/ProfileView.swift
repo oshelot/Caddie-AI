@@ -23,11 +23,6 @@ struct ProfileView: View {
                             .multilineTextAlignment(.trailing)
                             .frame(width: 80)
                     }
-                    Picker("Stock Shape", selection: $store.profile.stockShape) {
-                        ForEach(StockShape.allCases) { shape in
-                            Text(shape.displayName).tag(shape)
-                        }
-                    }
                     Picker("Miss Tendency", selection: $store.profile.missTendency) {
                         ForEach(MissTendency.allCases) { miss in
                             Text(miss.displayName).tag(miss)
@@ -40,30 +35,7 @@ struct ProfileView: View {
                     }
                 }
 
-                Section("Short Game & Tendencies") {
-                    Picker("Bunker Confidence", selection: $store.profile.bunkerConfidence) {
-                        ForEach(SelfConfidence.allCases) { c in
-                            Text(c.displayName).tag(c)
-                        }
-                    }
-                    Picker("Wedge Confidence", selection: $store.profile.wedgeConfidence) {
-                        ForEach(SelfConfidence.allCases) { c in
-                            Text(c.displayName).tag(c)
-                        }
-                    }
-                    Picker("Preferred Chip Style", selection: $store.profile.preferredChipStyle) {
-                        ForEach(ChipStyle.allCases) { style in
-                            Text(style.displayName).tag(style)
-                        }
-                    }
-                    Picker("Swing Tendency", selection: $store.profile.swingTendency) {
-                        ForEach(SwingTendency.allCases) { t in
-                            Text(t.displayName).tag(t)
-                        }
-                    }
-                }
-
-                Section("Caddie Voice") {
+                Section("Caddie Voice & Personality") {
                     Picker("Accent", selection: $store.profile.caddieVoiceAccent) {
                         ForEach(CaddieVoiceAccent.allCases) { accent in
                             Text(accent.displayName).tag(accent)
@@ -74,6 +46,17 @@ struct ProfileView: View {
                             Text(gender.displayName).tag(gender)
                         }
                     }
+                    Picker("Personality", selection: $store.profile.caddiePersona) {
+                        ForEach(CaddiePersona.allCases) { persona in
+                            VStack(alignment: .leading) {
+                                Text(persona.displayName)
+                                Text(persona.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .tag(persona)
+                        }
+                    }
                 }
 
                 Section {
@@ -81,6 +64,12 @@ struct ProfileView: View {
                         YourBagView()
                     } label: {
                         Label("Your Bag", systemImage: "bag.fill")
+                    }
+
+                    NavigationLink {
+                        SwingInfoView()
+                    } label: {
+                        Label("Swing Info", systemImage: "figure.golf")
                     }
 
                     NavigationLink {

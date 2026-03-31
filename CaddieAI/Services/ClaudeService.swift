@@ -29,7 +29,7 @@ final class ClaudeService: Sendable {
             throw OpenAIService.APIError(message: "Claude API key not configured. Set it in Profile → API Settings.")
         }
 
-        let systemPrompt = OpenAIService.caddieSystemPrompt
+        let systemPrompt = OpenAIService.caddieSystemPrompt(persona: profile.caddiePersona)
         let userMessage = OpenAIService.buildUserMessage(
             context: context, profile: profile,
             analysis: deterministicAnalysis,
@@ -81,7 +81,7 @@ final class ClaudeService: Sendable {
             throw OpenAIService.APIError(message: "Claude API key not configured.")
         }
 
-        let systemPrompt = OpenAIService.holeAnalysisSystemPrompt
+        let systemPrompt = OpenAIService.holeAnalysisSystemPrompt(persona: profile.caddiePersona)
         let userMessage = OpenAIService.buildHoleAnalysisMessage(
             hole: hole, analysis: analysis, course: course, profile: profile,
             selectedTee: selectedTee
