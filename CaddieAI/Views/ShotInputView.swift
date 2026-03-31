@@ -62,6 +62,11 @@ struct ShotInputView: View {
                     if !speechService.transcribedText.isEmpty || !vm.voiceNotes.isEmpty {
                         TextField("Voice notes", text: $vm.voiceNotes, axis: .vertical)
                             .lineLimit(2...4)
+                            .onChange(of: vm.voiceNotes) { _, new in
+                                var capped = new
+                                InputGuard.enforceLimit(&capped)
+                                if capped != new { vm.voiceNotes = capped }
+                            }
                     }
 
                     // Image thumbnail
@@ -153,6 +158,11 @@ struct ShotInputView: View {
 
                     TextField("Hazard notes (optional)", text: $vm.shotContext.hazardNotes, axis: .vertical)
                         .lineLimit(2...4)
+                        .onChange(of: vm.shotContext.hazardNotes) { _, new in
+                            var capped = new
+                            InputGuard.enforceLimit(&capped)
+                            if capped != new { vm.shotContext.hazardNotes = capped }
+                        }
                 }
 
                 // Action

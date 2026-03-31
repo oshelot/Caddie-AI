@@ -326,6 +326,7 @@ struct HoleAnalysisSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(TextToSpeechService.self) private var ttsService
     @State private var followUpText = ""
+    @State private var showOffTopicAlert = false
 
     var body: some View {
         NavigationStack {
@@ -543,12 +544,21 @@ struct HoleAnalysisSheet: View {
             HStack {
                 TextField("e.g. What if it's windy?", text: $followUpText)
                     .textFieldStyle(.roundedBorder)
+                    .onChange(of: followUpText) { _, new in
+                        var capped = new
+                        InputGuard.enforceLimit(&capped)
+                        if capped != new { followUpText = capped }
+                    }
 
                 Button {
-                    let question = followUpText
-                    followUpText = ""
-                    Task {
-                        await viewModel.askFollowUp(question, profile: profile)
+                    if InputGuard.isGolfRelated(followUpText) {
+                        let question = followUpText
+                        followUpText = ""
+                        Task {
+                            await viewModel.askFollowUp(question, profile: profile)
+                        }
+                    } else {
+                        showOffTopicAlert = true
                     }
                 } label: {
                     if viewModel.isAskingFollowUp {
@@ -562,6 +572,11 @@ struct HoleAnalysisSheet: View {
                 .disabled(followUpText.trimmingCharacters(in: .whitespaces).isEmpty || viewModel.isAskingFollowUp)
             }
             .padding(.horizontal)
+            .alert("Off Topic", isPresented: $showOffTopicAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(PromptService.shared.offTopicResponse)
+            }
 
             if let response = viewModel.followUpResponse {
                 Text(response)

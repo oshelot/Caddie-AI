@@ -18,160 +18,234 @@ struct CourseSearchView: View {
     @State private var courseToDelete: CourseCacheEntry?
     @State private var showDeleteConfirmation = false
     @State private var cityCompleter = CityCompleter()
+    @State private var selectedSegment = 0
 
     var body: some View {
         @Bindable var vm = viewModel
 
         NavigationStack {
             List {
-                // MARK: - Search Section
-                Section("Search Courses") {
-                    TextField("Course name", text: $vm.searchText)
-                        .textContentType(.organizationName)
-                        .autocorrectionDisabled()
-
-                    TextField("City (optional)", text: $vm.cityText)
-                        .textContentType(.addressCity)
-                        .onChange(of: viewModel.cityText) { _, newValue in
-                            cityCompleter.update(query: newValue)
-                        }
-
-                    if !cityCompleter.suggestions.isEmpty && !viewModel.cityText.isEmpty {
-                        ForEach(cityCompleter.suggestions, id: \.self) { suggestion in
-                            Button {
-                                viewModel.cityText = suggestion
-                                cityCompleter.clear()
-                            } label: {
-                                HStack {
-                                    Image(systemName: "mappin.circle")
-                                        .foregroundStyle(.secondary)
-                                        .font(.caption)
-                                    Text(suggestion)
-                                        .font(.subheadline)
-                                }
-                            }
-                            .tint(.primary)
-                        }
+                // MARK: - Segment Picker
+                Section {
+                    Picker("View", selection: $selectedSegment) {
+                        Text("Search").tag(0)
+                        Text("Saved").tag(1)
                     }
-
-                    Button {
-                        Task { await viewModel.searchCourses() }
-                    } label: {
-                        HStack {
-                            Text("Search")
-                            if viewModel.isSearching {
-                                Spacer()
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(viewModel.searchText.trimmingCharacters(in: .whitespaces).isEmpty || viewModel.isSearching)
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                 }
 
-                // MARK: - Favorites
-                if !cacheService.favoriteCourses.isEmpty {
-                    Section("Favorites") {
-                        ForEach(cacheService.favoriteCourses) { entry in
-                            Button {
-                                viewModel.loadCachedCourse(id: entry.id)
-                            } label: {
-                                HStack {
-                                    Image(systemName: "star.fill")
-                                        .foregroundStyle(.yellow)
-                                        .font(.caption)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(entry.name)
-                                            .font(.headline)
-                                        if let city = entry.city {
-                                            Text([city, entry.state].compactMap { $0 }.joined(separator: ", "))
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
+                if selectedSegment == 0 {
+                    // MARK: - Search Section
+                    Section("Search Courses") {
+                        TextField("Course name", text: $vm.searchText)
+                            .textContentType(.organizationName)
+                            .autocorrectionDisabled()
+
+                        TextField("City (optional)", text: $vm.cityText)
+                            .textContentType(.addressCity)
+                            .onChange(of: viewModel.cityText) { _, newValue in
+                                cityCompleter.update(query: newValue)
+                            }
+
+                        if !cityCompleter.suggestions.isEmpty && !viewModel.cityText.isEmpty {
+                            ForEach(cityCompleter.suggestions, id: \.self) { suggestion in
+                                Button {
+                                    viewModel.cityText = suggestion
+                                    cityCompleter.clear()
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "mappin.circle")
+                                            .foregroundStyle(.secondary)
+                                            .font(.caption)
+                                        Text(suggestion)
+                                            .font(.subheadline)
                                     }
                                 }
+                                .tint(.primary)
                             }
-                            .tint(.primary)
                         }
-                    }
-                }
 
-                // MARK: - Search Error
-                if let error = viewModel.searchError {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.red)
-                    }
-                }
-
-                // MARK: - Search Results
-                if !viewModel.searchResults.isEmpty {
-                    Section {
-                        ForEach(viewModel.searchResults) { result in
-                            Button {
-                                viewModel.startIngestion(result)
-                            } label: {
-                                CourseSearchRow(result: result)
-                            }
-                            .tint(.primary)
-                        }
-                    } header: {
-                        HStack {
-                            Text("Results")
-                            Spacer()
-                            Button("Clear") {
-                                viewModel.searchResults = []
-                                viewModel.searchError = nil
-                            }
-                            .font(.subheadline)
-                            .textCase(nil)
-                        }
-                    }
-                }
-
-                // MARK: - Saved Courses
-                if !viewModel.cachedCourses.isEmpty {
-                    Section("Saved Courses") {
-                        ForEach(viewModel.cachedCourses) { entry in
+                        Button {
+                            Task { await viewModel.searchCourses() }
+                        } label: {
                             HStack {
+                                Text("Search")
+                                if viewModel.isSearching {
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(viewModel.searchText.trimmingCharacters(in: .whitespaces).isEmpty || viewModel.isSearching)
+                    }
+
+                    // MARK: - Favorites (quick access under Search)
+                    if !cacheService.favoriteCourses.isEmpty {
+                        Section("Favorites") {
+                            ForEach(cacheService.favoriteCourses) { entry in
                                 Button {
                                     viewModel.loadCachedCourse(id: entry.id)
                                 } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(entry.name)
-                                            .font(.headline)
-                                        if let city = entry.city {
-                                            Text([city, entry.state].compactMap { $0 }.joined(separator: ", "))
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        HStack {
-                                            ConfidenceBadge(confidence: entry.overallConfidence)
-                                            Spacer()
-                                            Text("Saved \(entry.cachedAt.formatted(.relative(presentation: .named)))")
-                                                .font(.caption2)
-                                                .foregroundStyle(.tertiary)
+                                    HStack {
+                                        Image(systemName: "star.fill")
+                                            .foregroundStyle(.yellow)
+                                            .font(.caption)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(entry.name)
+                                                .font(.headline)
+                                            if let city = entry.city {
+                                                Text([city, entry.state].compactMap { $0 }.joined(separator: ", "))
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
                                     }
-                                    .padding(.vertical, 2)
                                 }
                                 .tint(.primary)
-
-                                Button {
-                                    cacheService.toggleFavorite(id: entry.id)
-                                } label: {
-                                    Image(systemName: cacheService.isFavorite(id: entry.id) ? "star.fill" : "star")
-                                        .foregroundStyle(cacheService.isFavorite(id: entry.id) ? .yellow : .gray)
-                                        .font(.title3)
-                                }
-                                .buttonStyle(.plain)
                             }
                         }
-                        .onDelete { offsets in
-                            let entries = viewModel.cachedCourses
-                            if let first = offsets.first {
-                                courseToDelete = entries[first]
-                                showDeleteConfirmation = true
+                    }
+
+                    // MARK: - Search Error
+                    if let error = viewModel.searchError {
+                        Section {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(.red)
+                        }
+                    }
+
+                    // MARK: - Search Results
+                    if !viewModel.searchResults.isEmpty {
+                        Section {
+                            ForEach(viewModel.searchResults) { result in
+                                Button {
+                                    viewModel.startIngestion(result)
+                                } label: {
+                                    CourseSearchRow(result: result)
+                                }
+                                .tint(.primary)
                             }
+                        } header: {
+                            HStack {
+                                Text("Results")
+                                Spacer()
+                                Button("Clear") {
+                                    viewModel.searchResults = []
+                                    viewModel.searchError = nil
+                                }
+                                .font(.subheadline)
+                                .textCase(nil)
+                            }
+                        }
+                    }
+                } else {
+                    // MARK: - Saved Courses (excluding favorites)
+                    let nonFavoriteCourses = viewModel.cachedCourses.filter { !cacheService.isFavorite(id: $0.id) }
+
+                    if !cacheService.favoriteCourses.isEmpty {
+                        Section("Favorites") {
+                            ForEach(cacheService.favoriteCourses) { entry in
+                                HStack {
+                                    Button {
+                                        viewModel.loadCachedCourse(id: entry.id)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(entry.name)
+                                                .font(.headline)
+                                            if let city = entry.city {
+                                                Text([city, entry.state].compactMap { $0 }.joined(separator: ", "))
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            HStack {
+                                                ConfidenceBadge(confidence: entry.overallConfidence)
+                                                Spacer()
+                                                Text("Saved \(entry.cachedAt.formatted(.relative(presentation: .named)))")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.tertiary)
+                                            }
+                                        }
+                                        .padding(.vertical, 2)
+                                    }
+                                    .tint(.primary)
+
+                                    Button {
+                                        cacheService.toggleFavorite(id: entry.id)
+                                    } label: {
+                                        Image(systemName: "star.fill")
+                                            .foregroundStyle(.yellow)
+                                            .font(.title3)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .onDelete { offsets in
+                                let entries = cacheService.favoriteCourses
+                                if let first = offsets.first {
+                                    courseToDelete = entries[first]
+                                    showDeleteConfirmation = true
+                                }
+                            }
+                        }
+                    }
+
+                    if !nonFavoriteCourses.isEmpty {
+                        Section("Other Courses") {
+                            ForEach(nonFavoriteCourses) { entry in
+                                HStack {
+                                    Button {
+                                        viewModel.loadCachedCourse(id: entry.id)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(entry.name)
+                                                .font(.headline)
+                                            if let city = entry.city {
+                                                Text([city, entry.state].compactMap { $0 }.joined(separator: ", "))
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            HStack {
+                                                ConfidenceBadge(confidence: entry.overallConfidence)
+                                                Spacer()
+                                                Text("Saved \(entry.cachedAt.formatted(.relative(presentation: .named)))")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.tertiary)
+                                            }
+                                        }
+                                        .padding(.vertical, 2)
+                                    }
+                                    .tint(.primary)
+
+                                    Button {
+                                        cacheService.toggleFavorite(id: entry.id)
+                                    } label: {
+                                        Image(systemName: "star")
+                                            .foregroundStyle(.gray)
+                                            .font(.title3)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .onDelete { offsets in
+                                if let first = offsets.first {
+                                    courseToDelete = nonFavoriteCourses[first]
+                                    showDeleteConfirmation = true
+                                }
+                            }
+                        }
+                    }
+
+                    // Empty state
+                    if cacheService.favoriteCourses.isEmpty && nonFavoriteCourses.isEmpty {
+                        Section {
+                            ContentUnavailableView(
+                                "No Saved Courses",
+                                systemImage: "map",
+                                description: Text("Search for a course and load it to save it here.")
+                            )
+                            .listRowBackground(Color.clear)
                         }
                     }
                 }

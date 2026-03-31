@@ -130,9 +130,7 @@ final class ShotAdvisorViewModel {
             )
             conversationHistory = [
                 OpenAIService.ChatMessage(role: "system", content: OpenAIService.caddieSystemPrompt
-                    + "\n\nFor follow-up questions, respond in plain conversational English. "
-                    + "Be concise, calm, and caddie-like. 1-3 sentences max. "
-                    + "Answer from the shot context and execution plan. Do not use JSON."),
+                    + PromptService.shared.followUpAugmentation),
                 OpenAIService.ChatMessage(role: "user", content: userMessage, imageData: imageData),
                 OpenAIService.ChatMessage(role: "assistant", content: recommendationSummary(result))
             ]

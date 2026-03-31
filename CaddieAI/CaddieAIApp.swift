@@ -107,6 +107,9 @@ struct CaddieAIApp: App {
             .environment(adManager)
             .environment(locationManager)
             .task {
+                // Fetch latest prompts from S3 (non-blocking, falls back to cache/defaults)
+                await PromptService.shared.fetchIfNeeded()
+
                 try? await Task.sleep(for: .seconds(2.2))
                 withAnimation(.easeOut(duration: 0.4)) {
                     showSplash = false

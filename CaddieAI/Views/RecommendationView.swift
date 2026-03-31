@@ -305,6 +305,7 @@ private struct FollowUpSection: View {
     let messages: [FollowUpMessage]
     let isLoading: Bool
     let onSend: () -> Void
+    @State private var showOffTopicAlert = false
 
     // Quick question suggestions
     private let quickQuestions = [
@@ -376,8 +377,17 @@ private struct FollowUpSection: View {
             HStack {
                 TextField("Ask a follow-up...", text: $followUpText)
                     .textFieldStyle(.roundedBorder)
+                    .onChange(of: followUpText) { _, new in
+                        var capped = new
+                        InputGuard.enforceLimit(&capped)
+                        if capped != new { followUpText = capped }
+                    }
                 Button {
-                    onSend()
+                    if InputGuard.isGolfRelated(followUpText) {
+                        onSend()
+                    } else {
+                        showOffTopicAlert = true
+                    }
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
@@ -389,6 +399,11 @@ private struct FollowUpSection: View {
         .padding()
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .alert("Off Topic", isPresented: $showOffTopicAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(PromptService.shared.offTopicResponse)
+        }
     }
 }
 
