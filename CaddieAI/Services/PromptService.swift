@@ -20,6 +20,7 @@ final class PromptService {
     private(set) var golfKeywords: Set<String> = Set(Defaults.golfKeywords)
     private(set) var offTopicResponse: String = Defaults.offTopicResponse
     private(set) var personaFragments: [String: String] = Defaults.personaFragments
+    private(set) var featureFlags: [String: Bool] = Defaults.featureFlags
 
     // MARK: - State
 
@@ -102,6 +103,9 @@ final class PromptService {
         if let fragments = payload.personaFragments, !fragments.isEmpty {
             personaFragments = fragments
         }
+        if let flags = payload.featureFlags, !flags.isEmpty {
+            featureFlags = flags
+        }
     }
 
     // MARK: - Payload Model
@@ -113,6 +117,13 @@ final class PromptService {
         let golfKeywords: [String]
         let offTopicResponse: String
         let personaFragments: [String: String]?
+        let featureFlags: [String: Bool]?
+    }
+
+    // MARK: - Feature Flags
+
+    func isFeatureEnabled(_ key: String) -> Bool {
+        featureFlags[key] ?? false
     }
 
     // MARK: - Persona-Aware System Prompts
@@ -262,6 +273,10 @@ final class PromptService {
         ]
 
         static let offTopicResponse = "I'm your golf caddie — I can help with club selection, shot strategy, and course management. What's your shot situation?"
+
+        static let featureFlags: [String: Bool] = [
+            "imageAnalysis": true,
+        ]
 
         static let personaFragments: [String: String] = [
             "supportiveGrandparent": """

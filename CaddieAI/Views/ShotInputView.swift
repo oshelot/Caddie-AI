@@ -13,8 +13,15 @@ struct ShotInputView: View {
     @Environment(ShotHistoryStore.self) private var historyStore
     @Environment(TextToSpeechService.self) private var ttsService
     @Environment(CourseViewModel.self) private var courseViewModel
+    @Environment(SubscriptionManager.self) private var subscriptionManager
     @State private var showingRecommendation = false
     @State private var selectedPhotoItem: PhotosPickerItem?
+
+    private var imageAnalysisEnabled: Bool {
+        subscriptionManager.tier == .paid
+            && profileStore.profile.betaImageAnalysis
+            && PromptService.shared.isFeatureEnabled("imageAnalysis")
+    }
 
     var body: some View {
         @Bindable var vm = viewModel
@@ -42,20 +49,22 @@ struct ShotInputView: View {
 
                         Spacer()
 
-                        // Photo picker
-                        PhotosPicker(
-                            selection: $selectedPhotoItem,
-                            matching: .images
-                        ) {
-                            if viewModel.selectedImage != nil {
-                                Label("Photo", systemImage: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            } else {
-                                Label("Photo", systemImage: "camera.circle.fill")
-                                    .foregroundStyle(.blue)
+                        // Photo picker (Pro + Beta opt-in + server flag)
+                        if imageAnalysisEnabled {
+                            PhotosPicker(
+                                selection: $selectedPhotoItem,
+                                matching: .images
+                            ) {
+                                if viewModel.selectedImage != nil {
+                                    Label("Photo", systemImage: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                } else {
+                                    Label("Photo", systemImage: "camera.circle.fill")
+                                        .foregroundStyle(.blue)
+                                }
                             }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
 
                     // Voice transcription / notes
@@ -69,8 +78,8 @@ struct ShotInputView: View {
                             }
                     }
 
-                    // Image thumbnail
-                    if let image = viewModel.selectedImage {
+                    // Image thumbnail (only visible when image analysis is enabled)
+                    if imageAnalysisEnabled, let image = viewModel.selectedImage {
                         HStack {
                             Image(uiImage: image)
                                 .resizable()
@@ -276,4 +285,5 @@ private struct WaveformIndicator: View {
         .environment(SpeechRecognitionService())
         .environment(ShotHistoryStore())
         .environment(TextToSpeechService())
+        .environment(SubscriptionManager())
 }

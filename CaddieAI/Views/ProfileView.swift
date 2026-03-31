@@ -8,6 +8,7 @@ import SwiftUI
 struct ProfileView: View {
     @Environment(ProfileStore.self) private var profileStore
     @Environment(APIUsageStore.self) private var apiUsageStore
+    @Environment(SubscriptionManager.self) private var subscriptionManager
 
     var body: some View {
         @Bindable var store = profileStore
@@ -59,6 +60,15 @@ struct ProfileView: View {
                     }
                 }
 
+                if subscriptionManager.tier == .paid {
+                    Section("Beta Features") {
+                        Toggle("Image Analysis", isOn: $store.profile.betaImageAnalysis)
+                        Text("Attach photos of your lie for AI-powered shot analysis.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section {
                     NavigationLink {
                         YourBagView()
@@ -98,4 +108,5 @@ struct ProfileView: View {
     ProfileView()
         .environment(ProfileStore())
         .environment(APIUsageStore())
+        .environment(SubscriptionManager())
 }
