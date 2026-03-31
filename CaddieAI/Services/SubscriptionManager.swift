@@ -13,8 +13,15 @@ final class SubscriptionManager {
 
     // MARK: - Published State
 
-    /// The user's current tier, derived from subscription status.
-    private(set) var tier: UserTier = .free
+    /// The user's current tier, derived from subscription status or debug override.
+    var tier: UserTier {
+        debugTierOverride ?? _tier
+    }
+
+    /// Debug-only override. When non-nil, `tier` returns this value instead of the real entitlement.
+    var debugTierOverride: UserTier?
+
+    private var _tier: UserTier = .free
 
     /// Available subscription products fetched from the App Store.
     private(set) var products: [Product] = []
@@ -111,7 +118,7 @@ final class SubscriptionManager {
             }
         }
 
-        tier = isPaid ? .paid : .free
+        _tier = isPaid ? .paid : .free
     }
 
     // MARK: - Transaction Listener

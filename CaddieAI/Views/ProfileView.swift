@@ -94,6 +94,17 @@ struct ProfileView: View {
                         Label("Stay in Touch", systemImage: "envelope.fill")
                     }
                 }
+                #if DEBUG
+                Section("Debug") {
+                    Toggle("Override: Pro Tier", isOn: Binding(
+                        get: { subscriptionManager.debugTierOverride == .paid },
+                        set: { subscriptionManager.debugTierOverride = $0 ? .paid : nil }
+                    ))
+                    Text("Current tier: \(subscriptionManager.tier == .paid ? "Pro" : "Free")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                #endif
             }
             .navigationTitle("Profile")
             .scrollDismissesKeyboard(.interactively)
