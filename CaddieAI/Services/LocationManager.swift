@@ -49,6 +49,19 @@ final class LocationManager: NSObject, CLLocationManagerDelegate {
         currentLocation = locations.last?.coordinate
     }
 
+    /// Switch to high-accuracy continuous updates (e.g. for auto-detect shot distance).
+    func startHighAccuracyUpdates() {
+        guard isAuthorized else { return }
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.startUpdatingLocation()
+    }
+
+    /// Stop continuous updates and revert to low-power single-shot mode.
+    func stopHighAccuracyUpdates() {
+        manager.stopUpdatingLocation()
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+    }
+
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Location is best-effort for the proximity feature; silently ignore errors
     }

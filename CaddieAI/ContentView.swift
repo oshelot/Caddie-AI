@@ -7,11 +7,17 @@
 
 import SwiftUI
 
+@Observable
+final class TabRouter {
+    var selectedTab = "course"
+}
+
 struct ContentView: View {
-    @State private var selectedTab = "course"
+    @Environment(TabRouter.self) private var tabRouter
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        @Bindable var router = tabRouter
+        TabView(selection: $router.selectedTab) {
             Tab("Caddie", systemImage: "figure.golf", value: "caddie") {
                 ShotInputView()
             }
@@ -40,4 +46,5 @@ struct ContentView: View {
         .environment(APIUsageStore())
         .environment(AdManager())
         .environment(LocationManager())
+        .environment(TabRouter())
 }

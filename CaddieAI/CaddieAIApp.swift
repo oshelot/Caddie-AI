@@ -25,6 +25,7 @@ struct CaddieAIApp: App {
     @State private var subscriptionManager = SubscriptionManager()
     @State private var adManager = AdManager()
     @State private var locationManager = LocationManager()
+    @State private var tabRouter = TabRouter()
     @State private var showSplash = true
     @AppStorage("hasSeenSetupNotice") private var hasSeenSetupNotice = false
     @State private var showSetupNotice = false
@@ -130,6 +131,7 @@ struct CaddieAIApp: App {
             .environment(subscriptionManager)
             .environment(adManager)
             .environment(locationManager)
+            .environment(tabRouter)
             .task {
                 // Fetch latest prompts from S3 (non-blocking, falls back to cache/defaults)
                 await PromptService.shared.fetchIfNeeded()

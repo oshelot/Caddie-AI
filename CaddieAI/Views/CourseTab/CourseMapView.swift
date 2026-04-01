@@ -5,6 +5,7 @@
 //  Full-screen map with hole selector overlay and course info.
 //
 
+import CoreLocation
 import SwiftUI
 
 struct CourseMapView: View {
@@ -14,6 +15,9 @@ struct CourseMapView: View {
     @Environment(APIUsageStore.self) private var apiUsageStore
     @Environment(SubscriptionManager.self) private var subscriptionManager
     @Environment(CourseCacheService.self) private var cacheService
+    @Environment(ShotAdvisorViewModel.self) private var shotAdvisor
+    @Environment(TabRouter.self) private var tabRouter
+    @State private var isDetecting = false
     @State private var showingDetail = false
     @State private var showingDebug = false
     @State private var showingAnalysis = false
@@ -146,6 +150,19 @@ struct CourseMapView: View {
                     }
                     Spacer()
                     if viewModel.selectedHole != nil {
+                        Button {
+                            autoDetectAndAskCaddie()
+                        } label: {
+                            Label("Ask Caddie", systemImage: "figure.golf")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(.green)
+                                .clipShape(Capsule())
+                        }
+                        .disabled(isDetecting)
+
                         Button {
                             if let sel = viewModel.selectedHole,
                                let hole = course.holes.first(where: { $0.number == sel }) {
@@ -313,6 +330,94 @@ struct CourseMapView: View {
             } catch {
                 // Weather is optional — silently fail
             }
+        }
+    }
+
+    // MARK: - Auto Detect
+
+    private func autoDetectAndAskCaddie() {
+        guard let sel = viewModel.selectedHole,
+              let hole = course.holes.first(where: { $0.number == sel })
+        else { return }
+
+        if !locationManager.isAuthorized {
+            locationManager.requestPermission()
+            return
+        }
+
+        isDetecting = true
+        locationManager.requestCurrentLocation()
+
+        Task {
+            // Brief wait for location callback
+            try? await Task.sleep(for: .seconds(0.8))
+
+            guard let userCoord = locationManager.currentLocation else {
+                isDetecting = false
+                return
+            }
+
+            let userPoint = GeoJSONPoint(
+                latitude: userCoord.latitude,
+                longitude: userCoord.longitude
+            )
+
+            // 1. Distance to green (yards)
+            let greenTarget = hole.green?.centroid ?? hole.lineOfPlay?.endPoint
+            let distYards: Int
+            if let target = greenTarget {
+                distYards = Int(userPoint.distance(to: target) / 0.9144)
+            } else {
+                distYards = 150
+            }
+
+            // 2. Hole bearing (tee-to-green line)
+            let holeBearing = hole.lineOfPlay?.bearingAtDistance(0)
+
+            // 3. Shot type from distance vs player's bag
+            let shotType = inferShotType(
+                distanceYards: distYards,
+                clubDistances: profileStore.profile.clubDistances
+            )
+
+            // 4. Build shot context
+            shotAdvisor.resetForNewShot()
+            shotAdvisor.shotContext.distanceYards = distYards
+            shotAdvisor.shotContext.shotType = shotType
+            shotAdvisor.shotContext.lieType = .fairway
+            shotAdvisor.shotContext.aggressiveness = profileStore.profile.defaultAggressiveness
+            shotAdvisor.shotContext.slope = .level
+
+            // 5. Apply weather (wind strength + relative direction)
+            if let weather {
+                shotAdvisor.applyWeather(weather, holeBearingDegrees: holeBearing)
+            }
+
+            // 6. Auto-populate hazard notes from hole data
+            var hazards: [String] = []
+            if !hole.water.isEmpty { hazards.append("Water in play") }
+            if !hole.bunkers.isEmpty { hazards.append("\(hole.bunkers.count) bunker(s)") }
+            shotAdvisor.shotContext.hazardNotes = hazards.joined(separator: ". ")
+
+            // 7. Navigate to Caddie tab
+            isDetecting = false
+            tabRouter.selectedTab = "caddie"
+        }
+    }
+
+    private func inferShotType(distanceYards: Int, clubDistances: [ClubDistance]) -> ShotType {
+        let sorted = clubDistances.sorted { $0.carryYards > $1.carryYards }
+        let longestCarry = sorted.first?.carryYards ?? 250
+        let shortestWedge = sorted.last?.carryYards ?? 60
+
+        if distanceYards > longestCarry {
+            return .tee
+        } else if distanceYards <= 40 {
+            return .chip
+        } else if distanceYards <= shortestWedge {
+            return .pitch
+        } else {
+            return .approach
         }
     }
 }
