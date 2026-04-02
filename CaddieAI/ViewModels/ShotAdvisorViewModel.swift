@@ -20,6 +20,7 @@ final class ShotAdvisorViewModel {
     var recommendation: ShotRecommendation?
     var deterministicAnalysis: DeterministicAnalysis?
     var isLoading = false
+    var isEnriching = false
     var errorMessage: String?
 
     // MARK: - Conversation State
@@ -75,6 +76,11 @@ final class ShotAdvisorViewModel {
         )
         deterministicAnalysis = analysis
 
+        // Phase 1: Show deterministic recommendation immediately
+        recommendation = buildFallbackRecommendation(from: analysis)
+        isLoading = false
+        isEnriching = true
+
         // Prepare image data for API
         let imageData = selectedImage?.jpegData(compressionQuality: 0.5)
 
@@ -90,7 +96,7 @@ final class ShotAdvisorViewModel {
             historyInsight = nil
         }
 
-        // Step 2: LLM enrichment (network call)
+        // Phase 2: LLM enrichment (network call)
         do {
             let tier = subscriptionManager?.tier ?? .free
             var (result, usage) = try await llmRouter.getRecommendation(
@@ -142,7 +148,7 @@ final class ShotAdvisorViewModel {
             ]
         } catch {
             errorMessage = error.localizedDescription
-            recommendation = buildFallbackRecommendation(from: analysis)
+            // Keep the existing fallback recommendation (already set in Phase 1)
             LoggingService.shared.error(.llm, "getRecommendation failed: \(error.localizedDescription)", metadata: [
                 "provider": profile.llmProvider.rawValue,
                 "model": profile.llmModel.rawValue,
@@ -150,7 +156,7 @@ final class ShotAdvisorViewModel {
             ])
         }
 
-        isLoading = false
+        isEnriching = false
     }
 
     // MARK: - Follow-Up Question
@@ -246,6 +252,7 @@ final class ShotAdvisorViewModel {
         recommendation = nil
         deterministicAnalysis = nil
         errorMessage = nil
+        isEnriching = false
         conversationHistory = []
         followUpMessages = []
         lastSavedRecordID = nil

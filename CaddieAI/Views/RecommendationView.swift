@@ -6,9 +6,7 @@
 import SwiftUI
 
 struct RecommendationView: View {
-    let recommendation: ShotRecommendation
     let analysis: DeterministicAnalysis?
-    let errorMessage: String?
     let onNewShot: () -> Void
 
     @Environment(ShotAdvisorViewModel.self) private var viewModel
@@ -21,13 +19,33 @@ struct RecommendationView: View {
     @State private var selectedOutcome: ShotOutcome?
     @State private var actualClub: String = ""
 
+    private var recommendation: ShotRecommendation {
+        viewModel.recommendation ?? .mock
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
 
+                    // Enrichment banner while LLM is processing
+                    if viewModel.isEnriching {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Enhancing with AI...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(.blue.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .transition(.opacity)
+                    }
+
                     // Error banner when LLM failed
-                    if let error = errorMessage {
+                    if let error = viewModel.errorMessage, !viewModel.isEnriching {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle.fill")
@@ -158,19 +176,21 @@ struct RecommendationView: View {
                     .background(.green.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                    // Follow-Up Questions
-                    FollowUpSection(
-                        followUpText: $followUpText,
-                        messages: viewModel.followUpMessages,
-                        isLoading: viewModel.isAskingFollowUp
-                    ) {
-                        let question = followUpText
-                        followUpText = ""
-                        Task {
-                            await viewModel.askFollowUp(
-                                question: question,
-                                profile: profileStore.profile
-                            )
+                    // Follow-Up Questions (available after LLM enrichment)
+                    if !viewModel.isEnriching {
+                        FollowUpSection(
+                            followUpText: $followUpText,
+                            messages: viewModel.followUpMessages,
+                            isLoading: viewModel.isAskingFollowUp
+                        ) {
+                            let question = followUpText
+                            followUpText = ""
+                            Task {
+                                await viewModel.askFollowUp(
+                                    question: question,
+                                    profile: profileStore.profile
+                                )
+                            }
                         }
                     }
 
@@ -253,6 +273,7 @@ struct RecommendationView: View {
                     .padding(.top, 8)
                 }
                 .padding()
+                .animation(.easeInOut(duration: 0.3), value: viewModel.isEnriching)
             }
             .navigationTitle("Recommendation")
             .navigationBarTitleDisplayMode(.inline)
@@ -408,13 +429,14 @@ private struct FollowUpSection: View {
 }
 
 #Preview {
-    RecommendationView(
-        recommendation: .mock,
+    let vm = ShotAdvisorViewModel()
+    // Set a mock recommendation so the preview renders
+    vm.recommendation = .mock
+    return RecommendationView(
         analysis: nil,
-        errorMessage: nil,
         onNewShot: {}
     )
-    .environment(ShotAdvisorViewModel())
+    .environment(vm)
     .environment(ProfileStore())
     .environment(TextToSpeechService())
     .environment(ShotHistoryStore())
