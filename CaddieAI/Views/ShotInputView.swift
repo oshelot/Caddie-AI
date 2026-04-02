@@ -27,170 +27,188 @@ struct ShotInputView: View {
         @Bindable var vm = viewModel
 
         NavigationStack {
-            Form {
-                // Voice & Image Input
-                Section("Quick Input") {
-                    // Voice recording
-                    HStack {
-                        Button {
-                            speechService.toggleRecording()
-                        } label: {
-                            Label(
-                                speechService.isRecording ? "Stop" : "Speak",
-                                systemImage: speechService.isRecording ? "stop.circle.fill" : "mic.circle.fill"
-                            )
-                            .foregroundStyle(speechService.isRecording ? .red : .blue)
-                        }
-                        .buttonStyle(.plain)
+            ScrollView {
+                VStack(spacing: 16) {
+                    // Voice & Image Input
+                    GroupBox("Quick Input") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            // Voice recording
+                            HStack {
+                                Button {
+                                    speechService.toggleRecording()
+                                } label: {
+                                    Label(
+                                        speechService.isRecording ? "Stop" : "Speak",
+                                        systemImage: speechService.isRecording ? "stop.circle.fill" : "mic.circle.fill"
+                                    )
+                                    .foregroundStyle(speechService.isRecording ? .red : .blue)
+                                }
+                                .buttonStyle(.plain)
 
-                        if speechService.isRecording {
-                            WaveformIndicator()
-                        }
+                                if speechService.isRecording {
+                                    WaveformIndicator()
+                                }
 
-                        Spacer()
+                                Spacer()
 
-                        // Photo picker (Pro + Beta opt-in + server flag)
-                        if imageAnalysisEnabled {
-                            PhotosPicker(
-                                selection: $selectedPhotoItem,
-                                matching: .images
-                            ) {
-                                if viewModel.selectedImage != nil {
-                                    Label("Photo", systemImage: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                } else {
-                                    Label("Photo", systemImage: "camera.circle.fill")
-                                        .foregroundStyle(.blue)
+                                // Photo picker (Pro + Beta opt-in + server flag)
+                                if imageAnalysisEnabled {
+                                    PhotosPicker(
+                                        selection: $selectedPhotoItem,
+                                        matching: .images
+                                    ) {
+                                        if viewModel.selectedImage != nil {
+                                            Label("Photo", systemImage: "checkmark.circle.fill")
+                                                .foregroundStyle(.green)
+                                        } else {
+                                            Label("Photo", systemImage: "camera.circle.fill")
+                                                .foregroundStyle(.blue)
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
-                            .buttonStyle(.plain)
-                        }
-                    }
 
-                    // Voice transcription / notes
-                    if !speechService.transcribedText.isEmpty || !vm.voiceNotes.isEmpty {
-                        TextField("Voice notes", text: $vm.voiceNotes, axis: .vertical)
-                            .lineLimit(2...4)
-                            .onChange(of: vm.voiceNotes) { _, new in
-                                var capped = new
-                                InputGuard.enforceLimit(&capped)
-                                if capped != new { vm.voiceNotes = capped }
+                            // Voice transcription / notes
+                            if !speechService.transcribedText.isEmpty || !vm.voiceNotes.isEmpty {
+                                TextField("Voice notes", text: $vm.voiceNotes, axis: .vertical)
+                                    .lineLimit(2...4)
+                                    .onChange(of: vm.voiceNotes) { _, new in
+                                        var capped = new
+                                        InputGuard.enforceLimit(&capped)
+                                        if capped != new { vm.voiceNotes = capped }
+                                    }
                             }
-                    }
 
-                    // Image thumbnail (only visible when image analysis is enabled)
-                    if imageAnalysisEnabled, let image = viewModel.selectedImage {
-                        HStack {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 60, height: 60)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                            Text("Lie photo attached")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Remove") {
-                                viewModel.selectedImage = nil
-                                selectedPhotoItem = nil
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                        }
-                    }
-                }
-
-                // Distance & Shot Type
-                Section("Shot Setup") {
-                    HStack {
-                        Text("Distance (yards)")
-                        Spacer()
-                        TextField("150", value: $vm.shotContext.distanceYards, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                    }
-                    Picker("Shot Type", selection: $vm.shotContext.shotType) {
-                        ForEach(ShotType.allCases) { type in
-                            Text(type.displayName).tag(type)
-                        }
-                    }
-                }
-
-                // Conditions
-                Section("Conditions") {
-                    Picker("Lie", selection: $vm.shotContext.lieType) {
-                        ForEach(LieType.allCases) { lie in
-                            Text(lie.displayName).tag(lie)
-                        }
-                    }
-                    HStack {
-                        Picker("Wind", selection: $vm.shotContext.windStrength) {
-                            ForEach(WindStrength.allCases) { w in
-                                Text(w.displayName).tag(w)
-                            }
-                        }
-                        if let weather = courseViewModel.currentWeather,
-                           weather.windStrength != .none {
-                            Button {
-                                viewModel.applyWeather(weather)
-                            } label: {
-                                Label("Live", systemImage: "antenna.radiowaves.left.and.right")
-                                    .font(.caption2)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.mini)
-                        }
-                    }
-                    if vm.shotContext.windStrength != .none {
-                        Picker("Wind Direction", selection: $vm.shotContext.windDirection) {
-                            ForEach(WindDirection.allCases) { d in
-                                Text(d.displayName).tag(d)
+                            // Image thumbnail (only visible when image analysis is enabled)
+                            if imageAnalysisEnabled, let image = viewModel.selectedImage {
+                                HStack {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 60, height: 60)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    Text("Lie photo attached")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button("Remove") {
+                                        viewModel.selectedImage = nil
+                                        selectedPhotoItem = nil
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                }
                             }
                         }
                     }
-                    Picker("Slope / Stance", selection: $vm.shotContext.slope) {
-                        ForEach(Slope.allCases) { s in
-                            Text(s.displayName).tag(s)
+
+                    // Distance & Shot Type
+                    GroupBox("Shot Setup") {
+                        VStack(spacing: 12) {
+                            LabeledContent("Distance (yards)") {
+                                TextField("150", value: $vm.shotContext.distanceYards, format: .number)
+                                    .keyboardType(.numberPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 80)
+                            }
+                            LabeledContent("Shot Type") {
+                                MenuPicker(
+                                    selection: $vm.shotContext.shotType,
+                                    options: ShotType.allCases,
+                                    displayName: \.displayName
+                                )
+                            }
                         }
                     }
-                }
 
-                // Strategy
-                Section("Strategy") {
-                    Picker("Aggressiveness", selection: $vm.shotContext.aggressiveness) {
-                        ForEach(Aggressiveness.allCases) { a in
-                            Text(a.displayName).tag(a)
+                    // Conditions
+                    GroupBox("Conditions") {
+                        VStack(spacing: 12) {
+                            LabeledContent("Lie") {
+                                MenuPicker(
+                                    selection: $vm.shotContext.lieType,
+                                    options: LieType.allCases,
+                                    displayName: \.displayName
+                                )
+                            }
+
+                            LabeledContent("Wind") {
+                                HStack {
+                                    MenuPicker(
+                                        selection: $vm.shotContext.windStrength,
+                                        options: WindStrength.allCases,
+                                        displayName: \.displayName
+                                    )
+
+                                    if let weather = courseViewModel.currentWeather,
+                                       weather.windStrength != .none {
+                                        Button {
+                                            viewModel.applyWeather(weather)
+                                        } label: {
+                                            Label("Live", systemImage: "antenna.radiowaves.left.and.right")
+                                                .font(.caption2)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.mini)
+                                    }
+                                }
+                            }
+
+                            if vm.shotContext.windStrength != .none {
+                                LabeledContent("Wind Direction") {
+                                    MenuPicker(
+                                        selection: $vm.shotContext.windDirection,
+                                        options: WindDirection.allCases,
+                                        displayName: \.displayName
+                                    )
+                                }
+                            }
+
+                            LabeledContent("Slope / Stance") {
+                                MenuPicker(
+                                    selection: $vm.shotContext.slope,
+                                    options: Slope.allCases,
+                                    displayName: \.displayName
+                                )
+                            }
                         }
                     }
-                    .pickerStyle(.segmented)
 
-                    TextField("Hazard notes (optional)", text: $vm.shotContext.hazardNotes, axis: .vertical)
-                        .lineLimit(2...4)
-                        .onChange(of: vm.shotContext.hazardNotes) { _, new in
-                            var capped = new
-                            InputGuard.enforceLimit(&capped)
-                            if capped != new { vm.shotContext.hazardNotes = capped }
+                    // Strategy
+                    GroupBox("Strategy") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Picker("Aggressiveness", selection: $vm.shotContext.aggressiveness) {
+                                ForEach(Aggressiveness.allCases) { a in
+                                    Text(a.displayName).tag(a)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            TextField("Hazard notes (optional)", text: $vm.shotContext.hazardNotes, axis: .vertical)
+                                .lineLimit(2...4)
+                                .onChange(of: vm.shotContext.hazardNotes) { _, new in
+                                    var capped = new
+                                    InputGuard.enforceLimit(&capped)
+                                    if capped != new { vm.shotContext.hazardNotes = capped }
+                                }
                         }
-                }
+                    }
 
-                // Action
-                Section {
+                    // Action
                     Button {
                         Task {
                             await viewModel.getAdvice(
                                 profile: profileStore.profile,
                                 historyStore: historyStore
                             )
-                            if viewModel.recommendation != nil {
-                                showingRecommendation = true
-                            }
                         }
                     } label: {
                         HStack {
                             Spacer()
                             if viewModel.isLoading {
                                 ProgressView()
+                                    .tint(.white)
                                     .padding(.trailing, 8)
                             }
                             Text(viewModel.isLoading ? "Analyzing..." : "Get Advice")
@@ -198,8 +216,11 @@ struct ShotInputView: View {
                             Spacer()
                         }
                     }
-                    .disabled(viewModel.isLoading || viewModel.shotContext.distanceYards <= 0)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(viewModel.isLoading || viewModel.isEnriching || viewModel.shotContext.distanceYards <= 0)
                 }
+                .padding()
             }
             .navigationTitle("Caddie")
             .scrollDismissesKeyboard(.interactively)
@@ -229,15 +250,18 @@ struct ShotInputView: View {
                     }
                 }
             }
+            .onChange(of: viewModel.recommendation != nil) { _, hasRecommendation in
+                if hasRecommendation && !showingRecommendation {
+                    showingRecommendation = true
+                }
+            }
             .onAppear {
                 speechService.requestAuthorization()
             }
             .sheet(isPresented: $showingRecommendation) {
-                if let rec = viewModel.recommendation {
+                if viewModel.recommendation != nil {
                     RecommendationView(
-                        recommendation: rec,
-                        analysis: viewModel.deterministicAnalysis,
-                        errorMessage: viewModel.errorMessage
+                        analysis: viewModel.deterministicAnalysis
                     ) {
                         showingRecommendation = false
                         viewModel.resetForNewShot()
@@ -250,6 +274,39 @@ struct ShotInputView: View {
                     .environment(ttsService)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Menu Picker
+
+/// A picker rendered as a `Menu` with a custom trailing label so the chevron
+/// aligns at a fixed trailing position, matching adjacent `TextField` controls.
+private struct MenuPicker<T: Hashable & Identifiable & CaseIterable>: View
+where T.AllCases: RandomAccessCollection {
+    @Binding var selection: T
+    let options: T.AllCases
+    let displayName: KeyPath<T, String>
+
+    var body: some View {
+        Menu {
+            Picker(selection: $selection) {
+                ForEach(options) { option in
+                    Text(option[keyPath: displayName]).tag(option)
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 4) {
+                Text(selection[keyPath: displayName])
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+            }
+            .foregroundStyle(.tint)
+            .contentShape(Rectangle())
         }
     }
 }
