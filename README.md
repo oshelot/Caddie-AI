@@ -82,6 +82,10 @@ CaddieAI/
 │   ├── CourseTab/   # Course search, map, hole detail, Mapbox integration
 │   └── ...          # Profile, shot input, recommendations, settings
 └── Configuration/   # StoreKit config, secrets
+
+infrastructure/
+├── llm-proxy/       # Lambda + IAM for the hosted LLM proxy (Pro tier)
+└── logging/         # Lambda + IAM for remote diagnostic logging + Grafana dashboard
 ```
 
 ## Free vs Pro
@@ -102,6 +106,20 @@ CaddieAI/
 - **AVFoundation** — Text-to-speech and speech recognition
 - **StoreKit 2** — In-app subscription management
 - **Open-Meteo** — Current weather conditions for club adjustments
+
+## Infrastructure
+
+The `infrastructure/` directory contains the AWS Lambda functions and IAM policies that power the backend services. Both are deployed to `us-east-2`.
+
+### LLM Proxy (`infrastructure/llm-proxy/`)
+
+Routes Pro-tier LLM requests through a server-side proxy so users don't need their own API key. Calls OpenAI's `gpt-4o-mini` via a stored secret.
+
+### Remote Logging (`infrastructure/logging/`)
+
+Collects diagnostic logs from iOS and Android clients for debugging production issues. Logs are stored in CloudWatch (`/caddieai/client-logs`) and visualized in Grafana.
+
+**Payload contract (v2):** Clients send batched log entries via POST to the logging endpoint. Required fields: `deviceId`, `platform` (`ios`/`android`), `sessionId`, `appVersion`, `buildNumber`, `osVersion`, `deviceModel`, and `entries[]` where each entry must have a non-empty `message`, `level`, `category`, and `timestampMs`.
 
 ## License
 

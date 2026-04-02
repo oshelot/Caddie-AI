@@ -56,6 +56,12 @@ final class ShotAdvisorViewModel {
     // MARK: - Get Advice
 
     func getAdvice(profile: PlayerProfile, historyStore: ShotHistoryStore? = nil) async {
+        LoggingService.shared.info(.llm, "Get Advice tapped", metadata: [
+            "distance": "\(shotContext.distanceYards)",
+            "shotType": shotContext.shotType.rawValue,
+            "lie": shotContext.lieType.rawValue,
+        ])
+
         isLoading = true
         errorMessage = nil
         recommendation = nil
@@ -137,6 +143,11 @@ final class ShotAdvisorViewModel {
         } catch {
             errorMessage = error.localizedDescription
             recommendation = buildFallbackRecommendation(from: analysis)
+            LoggingService.shared.error(.llm, "getRecommendation failed: \(error.localizedDescription)", metadata: [
+                "provider": profile.llmProvider.rawValue,
+                "model": profile.llmModel.rawValue,
+                "tier": (subscriptionManager?.tier ?? .free).rawValue,
+            ])
         }
 
         isLoading = false
@@ -186,6 +197,10 @@ final class ShotAdvisorViewModel {
             conversationHistory.append(OpenAIService.ChatMessage(role: "assistant", content: answer))
         } catch {
             followUpMessages.append(FollowUpMessage(role: .caddie, text: "Sorry, I couldn't process that. \(error.localizedDescription)"))
+            LoggingService.shared.error(.llm, "askFollowUp failed: \(error.localizedDescription)", metadata: [
+                "provider": profile.llmProvider.rawValue,
+                "model": profile.llmModel.rawValue,
+            ])
         }
 
         isAskingFollowUp = false

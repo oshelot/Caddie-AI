@@ -30,6 +30,12 @@ class HoleAnalysisViewModel {
         profile: PlayerProfile,
         selectedTee: String? = nil
     ) async {
+        LoggingService.shared.info(.course, "Hole analysis started", metadata: [
+            "hole": "\(hole.number)",
+            "par": "\(hole.par)",
+            "course": course.name,
+        ])
+
         isAnalyzing = true
         error = nil
         followUpResponse = nil
@@ -47,6 +53,7 @@ class HoleAnalysisViewModel {
         } catch {
             weatherData = nil
             weatherError = "Weather unavailable"
+            LoggingService.shared.warning(.weather, "Weather fetch failed for hole analysis: \(error.localizedDescription)")
         }
 
         // Compute hole-specific weather context
@@ -134,6 +141,12 @@ class HoleAnalysisViewModel {
         } catch {
             // Tier 2 failed — deterministic summary is still available
             self.error = "AI advice unavailable: \(error.localizedDescription)"
+            LoggingService.shared.error(.llm, "getHoleAnalysis failed: \(error.localizedDescription)", metadata: [
+                "provider": profile.llmProvider.rawValue,
+                "model": profile.llmModel.rawValue,
+                "tier": (subscriptionManager?.tier ?? .free).rawValue,
+                "hole": "\(hole.number)",
+            ])
         }
 
         isAnalyzing = false
@@ -190,6 +203,10 @@ class HoleAnalysisViewModel {
             )
         } catch {
             followUpResponse = "Could not get follow-up: \(error.localizedDescription)"
+            LoggingService.shared.error(.llm, "askHoleFollowUp failed: \(error.localizedDescription)", metadata: [
+                "provider": profile.llmProvider.rawValue,
+                "model": profile.llmModel.rawValue,
+            ])
         }
 
         isAskingFollowUp = false

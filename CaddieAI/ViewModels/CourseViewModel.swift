@@ -231,6 +231,7 @@ final class CourseViewModel {
             // User cancelled — reset silently
         } catch {
             ingestionError = error.localizedDescription
+            LoggingService.shared.error(.course, "Course ingestion failed: \(error.localizedDescription)")
         }
 
         isIngesting = false

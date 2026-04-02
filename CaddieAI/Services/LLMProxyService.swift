@@ -69,6 +69,10 @@ final class LLMProxyService: Sendable {
         guard httpResponse.statusCode == 200 else {
             let errorMessage = parseErrorMessage(from: data)
                 ?? "Proxy error: HTTP \(httpResponse.statusCode)"
+            LoggingService.shared.error(.network, "LLM proxy HTTP \(httpResponse.statusCode)", metadata: [
+                "statusCode": "\(httpResponse.statusCode)",
+                "error": errorMessage,
+            ])
             throw ProxyError.apiError(errorMessage)
         }
 

@@ -103,6 +103,10 @@ struct ProfileView: View {
                     Text("Current tier: \(subscriptionManager.tier == .paid ? "Pro" : "Free")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Toggle("Remote Logging", isOn: Binding(
+                        get: { LoggingService.shared.isEnabled },
+                        set: { LoggingService.shared.isEnabled = $0 }
+                    ))
                 }
                 #endif
             }

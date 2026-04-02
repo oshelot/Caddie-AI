@@ -56,7 +56,7 @@ final class CourseCacheService {
             ))
             saveIndex()
         } catch {
-            print("[CourseCacheService] Save failed: \(error)")
+            LoggingService.shared.error(.course, "Course cache save failed: \(error.localizedDescription)")
         }
     }
 

@@ -25,36 +25,66 @@ final class LLMRouter: Sendable {
         voiceNotes: String? = nil,
         tier: UserTier = .free
     ) async throws -> (ShotRecommendation, OpenAIService.TokenUsage?) {
-        if tier == .paid {
-            return try await proxyRecommendation(
-                context: context, profile: profile,
-                deterministicAnalysis: deterministicAnalysis,
-                imageData: imageData, voiceNotes: voiceNotes
-            )
-        }
+        let provider = tier == .paid ? "proxy" : profile.llmProvider.rawValue
+        let model = tier == .paid ? "gpt-4o-mini" : profile.llmModel.rawValue
+        LoggingService.shared.info(.llm, "LLM request started", metadata: [
+            "method": "getRecommendation", "provider": provider,
+            "model": model, "tier": tier.rawValue,
+        ])
+        let start = CFAbsoluteTimeGetCurrent()
 
-        switch profile.llmProvider {
-        case .openAI:
-            return try await OpenAIService.shared.getRecommendation(
-                context: context, profile: profile,
-                deterministicAnalysis: deterministicAnalysis,
-                model: profile.llmModel.rawValue,
-                imageData: imageData, voiceNotes: voiceNotes
-            )
-        case .claude:
-            return try await ClaudeService.shared.getRecommendation(
-                context: context, profile: profile,
-                deterministicAnalysis: deterministicAnalysis,
-                model: profile.llmModel,
-                imageData: imageData, voiceNotes: voiceNotes
-            )
-        case .gemini:
-            return try await GeminiService.shared.getRecommendation(
-                context: context, profile: profile,
-                deterministicAnalysis: deterministicAnalysis,
-                model: profile.llmModel,
-                imageData: imageData, voiceNotes: voiceNotes
-            )
+        do {
+            let result: (ShotRecommendation, OpenAIService.TokenUsage?)
+            if tier == .paid {
+                result = try await proxyRecommendation(
+                    context: context, profile: profile,
+                    deterministicAnalysis: deterministicAnalysis,
+                    imageData: imageData, voiceNotes: voiceNotes
+                )
+            } else {
+                switch profile.llmProvider {
+                case .openAI:
+                    result = try await OpenAIService.shared.getRecommendation(
+                        context: context, profile: profile,
+                        deterministicAnalysis: deterministicAnalysis,
+                        model: profile.llmModel.rawValue,
+                        imageData: imageData, voiceNotes: voiceNotes
+                    )
+                case .claude:
+                    result = try await ClaudeService.shared.getRecommendation(
+                        context: context, profile: profile,
+                        deterministicAnalysis: deterministicAnalysis,
+                        model: profile.llmModel,
+                        imageData: imageData, voiceNotes: voiceNotes
+                    )
+                case .gemini:
+                    result = try await GeminiService.shared.getRecommendation(
+                        context: context, profile: profile,
+                        deterministicAnalysis: deterministicAnalysis,
+                        model: profile.llmModel,
+                        imageData: imageData, voiceNotes: voiceNotes
+                    )
+                }
+            }
+
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            var meta = ["method": "getRecommendation", "provider": provider,
+                        "model": model, "tier": tier.rawValue,
+                        "latencyMs": "\(latencyMs)"]
+            if let usage = result.1 {
+                meta["promptTokens"] = "\(usage.promptTokens)"
+                meta["completionTokens"] = "\(usage.completionTokens)"
+            }
+            LoggingService.shared.info(.llm, "LLM response received", metadata: meta)
+            return result
+        } catch {
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            LoggingService.shared.error(.llm, "LLM request failed: \(error.localizedDescription)", metadata: [
+                "method": "getRecommendation", "provider": provider,
+                "model": model, "tier": tier.rawValue,
+                "latencyMs": "\(latencyMs)",
+            ])
+            throw error
         }
     }
 
@@ -68,33 +98,65 @@ final class LLMRouter: Sendable {
         tier: UserTier = .free,
         selectedTee: String? = nil
     ) async throws -> (String, OpenAIService.TokenUsage?) {
-        if tier == .paid {
-            return try await proxyHoleAnalysis(
-                hole: hole, analysis: analysis,
-                course: course, profile: profile,
-                selectedTee: selectedTee
-            )
-        }
+        let provider = tier == .paid ? "proxy" : profile.llmProvider.rawValue
+        let model = tier == .paid ? "gpt-4o-mini" : profile.llmModel.rawValue
+        LoggingService.shared.info(.llm, "LLM request started", metadata: [
+            "method": "getHoleAnalysis", "provider": provider,
+            "model": model, "tier": tier.rawValue,
+            "hole": "\(hole.number)",
+        ])
+        let start = CFAbsoluteTimeGetCurrent()
 
-        switch profile.llmProvider {
-        case .openAI:
-            return try await OpenAIService.shared.getHoleAnalysis(
-                hole: hole, analysis: analysis, course: course,
-                profile: profile, model: profile.llmModel.rawValue,
-                selectedTee: selectedTee
-            )
-        case .claude:
-            return try await ClaudeService.shared.getHoleAnalysis(
-                hole: hole, analysis: analysis, course: course,
-                profile: profile, model: profile.llmModel,
-                selectedTee: selectedTee
-            )
-        case .gemini:
-            return try await GeminiService.shared.getHoleAnalysis(
-                hole: hole, analysis: analysis, course: course,
-                profile: profile, model: profile.llmModel,
-                selectedTee: selectedTee
-            )
+        do {
+            let result: (String, OpenAIService.TokenUsage?)
+            if tier == .paid {
+                result = try await proxyHoleAnalysis(
+                    hole: hole, analysis: analysis,
+                    course: course, profile: profile,
+                    selectedTee: selectedTee
+                )
+            } else {
+                switch profile.llmProvider {
+                case .openAI:
+                    result = try await OpenAIService.shared.getHoleAnalysis(
+                        hole: hole, analysis: analysis, course: course,
+                        profile: profile, model: profile.llmModel.rawValue,
+                        selectedTee: selectedTee
+                    )
+                case .claude:
+                    result = try await ClaudeService.shared.getHoleAnalysis(
+                        hole: hole, analysis: analysis, course: course,
+                        profile: profile, model: profile.llmModel,
+                        selectedTee: selectedTee
+                    )
+                case .gemini:
+                    result = try await GeminiService.shared.getHoleAnalysis(
+                        hole: hole, analysis: analysis, course: course,
+                        profile: profile, model: profile.llmModel,
+                        selectedTee: selectedTee
+                    )
+                }
+            }
+
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            var meta = ["method": "getHoleAnalysis", "provider": provider,
+                        "model": model, "tier": tier.rawValue,
+                        "latencyMs": "\(latencyMs)"]
+            if let usage = result.1 {
+                meta["promptTokens"] = "\(usage.promptTokens)"
+                meta["completionTokens"] = "\(usage.completionTokens)"
+            }
+            LoggingService.shared.info(.llm, "LLM response received", metadata: meta)
+            return result
+        } catch {
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            LoggingService.shared.error(.llm, "LLM request failed: \(error.localizedDescription)", metadata: [
+                "method": "getHoleAnalysis", "provider": provider,
+                "model": model, "tier": tier.rawValue,
+                "latencyMs": "\(latencyMs)",
+                "hole": "\(hole.number)",
+            ])
+            throw error
         }
     }
 
@@ -108,6 +170,13 @@ final class LLMRouter: Sendable {
         model: LLMModel,
         tier: UserTier = .free
     ) async throws -> (String, OpenAIService.TokenUsage?) {
+        LoggingService.shared.info(.llm, "LLM request started", metadata: [
+            "method": "askFollowUp",
+            "provider": tier == .paid ? "proxy" : provider.rawValue,
+            "model": tier == .paid ? "gpt-4o-mini" : model.rawValue,
+            "tier": tier.rawValue,
+        ])
+
         if tier == .paid {
             return try await proxyFollowUp(
                 question: question,
@@ -144,6 +213,13 @@ final class LLMRouter: Sendable {
         model: LLMModel,
         tier: UserTier = .free
     ) async throws -> (String, OpenAIService.TokenUsage?) {
+        LoggingService.shared.info(.llm, "LLM request started", metadata: [
+            "method": "askHoleFollowUp",
+            "provider": tier == .paid ? "proxy" : provider.rawValue,
+            "model": tier == .paid ? "gpt-4o-mini" : model.rawValue,
+            "tier": tier.rawValue,
+        ])
+
         if tier == .paid {
             return try await proxyFollowUp(
                 question: question,

@@ -31,6 +31,9 @@ struct ContentView: View {
                 ProfileView()
             }
         }
+        .onChange(of: tabRouter.selectedTab) { _, newTab in
+            LoggingService.shared.info(.general, "Tab switched", metadata: ["tab": newTab])
+        }
     }
 }
 

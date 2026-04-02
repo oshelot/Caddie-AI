@@ -47,4 +47,16 @@ enum Secrets {
     static var telemetryApiKey: String? {
         secrets?["TelemetryApiKey"] as? String
     }
+
+    /// Remote diagnostic logging endpoint URL
+    static var loggingEndpoint: String? {
+        let value = secrets?["LoggingEndpoint"] as? String
+        return (value?.isEmpty ?? true) ? nil : value
+    }
+
+    /// Remote diagnostic logging API key (x-api-key header)
+    static var loggingApiKey: String? {
+        let value = secrets?["LoggingApiKey"] as? String
+        return (value?.isEmpty ?? true) ? nil : value
+    }
 }

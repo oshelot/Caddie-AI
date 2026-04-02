@@ -78,7 +78,7 @@ final class PromptService {
             lastFetched = Date()
         } catch {
             // Network failure — continue with cached or default prompts
-            print("[PromptService] Fetch failed: \(error.localizedDescription)")
+            LoggingService.shared.warning(.network, "Prompt config fetch failed: \(error.localizedDescription)")
         }
     }
 

@@ -149,15 +149,25 @@ struct CourseMapView: View {
                         }
                     }
                     Spacer()
-                    if viewModel.selectedHole != nil {
+                    if !course.holes.isEmpty {
+                        ConfidenceBadge(confidence: course.stats.overallConfidence)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial)
+
+                // Action buttons (separate row so they don't compete for space)
+                if viewModel.selectedHole != nil {
+                    HStack(spacing: 12) {
                         Button {
                             autoDetectAndAskCaddie()
                         } label: {
                             Label("Ask Caddie", systemImage: "figure.golf")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
                                 .background(.green)
                                 .clipShape(Capsule())
                         }
@@ -182,19 +192,16 @@ struct CourseMapView: View {
                             Label("Analyze", systemImage: "wand.and.stars")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
                                 .background(.blue)
                                 .clipShape(Capsule())
                         }
                     }
-                    if !course.holes.isEmpty {
-                        ConfidenceBadge(confidence: course.stats.overallConfidence)
-                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.ultraThinMaterial)
 
                 // Hole selector (only if holes exist)
                 if !course.holes.isEmpty {

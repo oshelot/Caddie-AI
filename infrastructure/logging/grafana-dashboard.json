@@ -1,0 +1,530 @@
+{
+  "id": null,
+  "uid": "caddieai-client-logs",
+  "title": "CaddieAI — Client Diagnostic Logs",
+  "description": "Remote diagnostic logs from iOS and Android clients, streamed to CloudWatch via the logging Lambda.",
+  "tags": ["caddieai", "client-logs", "diagnostics"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "platform",
+        "type": "custom",
+        "current": { "text": "All", "value": "$__all" },
+        "options": [
+          { "text": "All", "value": "$__all", "selected": true },
+          { "text": "ios", "value": "ios", "selected": false },
+          { "text": "android", "value": "android", "selected": false }
+        ],
+        "includeAll": true,
+        "allValue": "*",
+        "label": "Platform"
+      },
+      {
+        "name": "level",
+        "type": "custom",
+        "current": { "text": "All", "value": "$__all" },
+        "options": [
+          { "text": "All", "value": "$__all", "selected": true },
+          { "text": "error", "value": "error", "selected": false },
+          { "text": "warning", "value": "warning", "selected": false },
+          { "text": "info", "value": "info", "selected": false }
+        ],
+        "includeAll": true,
+        "allValue": "*",
+        "label": "Level"
+      },
+      {
+        "name": "category",
+        "type": "custom",
+        "current": { "text": "All", "value": "$__all" },
+        "options": [
+          { "text": "All", "value": "$__all", "selected": true },
+          { "text": "llm", "value": "llm", "selected": false },
+          { "text": "network", "value": "network", "selected": false },
+          { "text": "course", "value": "course", "selected": false },
+          { "text": "weather", "value": "weather", "selected": false },
+          { "text": "analysis", "value": "analysis", "selected": false },
+          { "text": "subscription", "value": "subscription", "selected": false },
+          { "text": "general", "value": "general", "selected": false }
+        ],
+        "includeAll": true,
+        "allValue": "*",
+        "label": "Category"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Errors Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 0 },
+      "datasource": "CloudWatch",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": { "mode": "normal" }
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @timestamp, category\n| filter level = \"error\"\n| stats count(*) as errors by bin(5m), category",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Log Volume by Level",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 0 },
+      "datasource": "CloudWatch",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": { "mode": "normal" }
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "warning" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "info" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @timestamp, level\n| stats count(*) as count by bin(5m), level",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error Count",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 7 },
+      "datasource": "CloudWatch",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 1, "color": "orange" },
+              { "value": 10, "color": "red" }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @timestamp\n| filter level = \"error\"\n| stats count(*) as errors",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Warning Count",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 7 },
+      "datasource": "CloudWatch",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "orange" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 5, "color": "orange" },
+              { "value": 25, "color": "red" }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @timestamp\n| filter level = \"warning\"\n| stats count(*) as warnings",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Unique Devices",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 7 },
+      "datasource": "CloudWatch",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @logStream\n| stats count_distinct(@logStream) as devices",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Unique Sessions",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 7 },
+      "datasource": "CloudWatch",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields sessionId\n| stats count_distinct(sessionId) as sessions",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Errors by Category",
+      "type": "piechart",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 7 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields category\n| filter level = \"error\"\n| stats count(*) as count by category",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Top Error Messages",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 11 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields message, category\n| filter level = \"error\"\n| stats count(*) as occurrences by message, category\n| sort occurrences desc\n| limit 20",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "LLM Errors by Provider",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 11 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.provider as provider, metadata.model as model, metadata.tier as tier, message, deviceModel, appVersion\n| filter level = \"error\" and category = \"llm\"\n| stats count(*) as errors by provider, model, tier, message\n| sort errors desc",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "All Logs (Live Tail)",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 19 },
+      "datasource": "CloudWatch",
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @timestamp, @logStream as device, level, category, message, sessionId, appVersion, buildNumber, osVersion, deviceModel, metadata.provider, metadata.model, metadata.tier, metadata.statusCode, metadata.error, metadata.latencyMs, metadata.rawResponseSnippet\n| sort @timestamp desc\n| limit 200",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Network Errors (Proxy)",
+      "type": "table",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 31 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @timestamp, metadata.statusCode as httpStatus, metadata.error as errorMsg, @logStream as device\n| filter category = \"network\"\n| sort @timestamp desc\n| limit 50",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Course Ingestion Errors",
+      "type": "table",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 31 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @timestamp, message, @logStream as device, appVersion\n| filter category = \"course\"\n| sort @timestamp desc\n| limit 50",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Errors by App Version",
+      "type": "bargauge",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 38 },
+      "datasource": "CloudWatch",
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields appVersion\n| filter level = \"error\"\n| stats count(*) as errors by appVersion\n| sort errors desc",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Errors by OS Version",
+      "type": "bargauge",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 38 },
+      "datasource": "CloudWatch",
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields osVersion\n| filter level = \"error\"\n| stats count(*) as errors by osVersion\n| sort errors desc",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Platform Split",
+      "type": "piechart",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 38 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @logStream\n| parse @logStream \"*/*\" as platform, deviceId\n| stats count(*) as count by platform",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Errors by Device Model",
+      "type": "bargauge",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 45 },
+      "datasource": "CloudWatch",
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields deviceModel\n| filter level = \"error\" and deviceModel != \"\"\n| stats count(*) as errors by deviceModel\n| sort errors desc",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "LLM Request Latency (p50/p95/p99)",
+      "type": "table",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 45 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.latencyMs as latency, metadata.provider as provider, metadata.method as method\n| filter category = \"llm\" and latency > 0\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, pct(latency, 99) as p99_ms, count(*) as calls by provider, method",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "Recent LLM Errors (Detail)",
+      "type": "table",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 45 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @timestamp, message, metadata.provider as provider, metadata.statusCode as httpStatus, metadata.latencyMs as latencyMs, metadata.rawResponseSnippet as responseSnippet, @logStream as device\n| filter level = \"error\" and category = \"llm\"\n| sort @timestamp desc\n| limit 30",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "annotations": {
+    "list": []
+  }
+}

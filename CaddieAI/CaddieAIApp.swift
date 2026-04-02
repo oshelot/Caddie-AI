@@ -133,6 +133,9 @@ struct CaddieAIApp: App {
             .environment(locationManager)
             .environment(tabRouter)
             .task {
+                // Log app launch
+                LoggingService.shared.info(.general, "App launched")
+
                 // Fetch latest prompts from S3 (non-blocking, falls back to cache/defaults)
                 await PromptService.shared.fetchIfNeeded()
 
