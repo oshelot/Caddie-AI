@@ -107,20 +107,6 @@ infrastructure/
 - **StoreKit 2** — In-app subscription management
 - **Open-Meteo** — Current weather conditions for club adjustments
 
-## Infrastructure
-
-The `infrastructure/` directory contains the AWS Lambda functions and IAM policies that power the backend services. Both are deployed to `us-east-2`.
-
-### LLM Proxy (`infrastructure/llm-proxy/`)
-
-Routes Pro-tier LLM requests through a server-side proxy so users don't need their own API key. Calls OpenAI's `gpt-4o-mini` via a stored secret.
-
-### Remote Logging (`infrastructure/logging/`)
-
-Collects diagnostic logs from iOS and Android clients for debugging production issues. Logs are stored in CloudWatch (`/caddieai/client-logs`) and visualized in Grafana.
-
-**Payload contract (v2):** Clients send batched log entries via POST to the logging endpoint. Required fields: `deviceId`, `platform` (`ios`/`android`), `sessionId`, `appVersion`, `buildNumber`, `osVersion`, `deviceModel`, and `entries[]` where each entry must have a non-empty `message`, `level`, `category`, and `timestampMs`.
-
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE).
