@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CaddieAI config — public S3 bucket + CloudFront distribution for LLM prompts.
+  ETags are used for client-side cache invalidation: apps send If-None-Match on
+  every launch and only download a new prompts.json when the file has changed.
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: caddieai-config
+    Description: S3 bucket name (must be globally unique)
+
+Resources:
+
+  # ── S3 ─────────────────────────────────────────────────────────────────────
+
+  ConfigBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  ConfigBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ConfigBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicRead
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub '${ConfigBucket.Arn}/*'
+
+  # ── CloudFront ──────────────────────────────────────────────────────────────
+
+  # Forward If-None-Match to S3 so conditional GETs (ETag validation) work
+  # end-to-end: app → CloudFront → S3 → 304 Not Modified or 200 with new body
+  ETagOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: CaddieAI-ForwardConditionalHeaders
+        Comment: Forwards If-None-Match and If-Modified-Since to S3 for ETag validation
+        HeadersConfig:
+          HeaderBehavior: whitelist
+          Headers:
+            - If-None-Match
+            - If-Modified-Since
+        CookiesConfig:
+          CookieBehavior: none
+        QueryStringsConfig:
+          QueryStringBehavior: none
+
+  # Tell clients to always revalidate (don't serve from browser/system cache
+  # without checking the ETag first)
+  ConfigResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: CaddieAI-ConfigCacheHeaders
+        Comment: Sets Cache-Control no-cache so clients always revalidate via ETag
+        CustomHeadersConfig:
+          Items:
+            - Header: Cache-Control
+              Value: no-cache
+              Override: true
+
+  ConfigDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: CaddieAI config — LLM prompts
+        Enabled: true
+        HttpVersion: http2
+        # PriceClass_100 = US, Canada, Europe only — cheapest tier
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: S3Origin
+            # Regional domain avoids eventual-consistency issues on new uploads
+            DomainName: !GetAtt ConfigBucket.RegionalDomainName
+            S3OriginConfig:
+              # Empty string = no OAI; bucket is public so none is needed
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # CachingDisabled: CloudFront does not cache; every request is proxied
+          # to S3, which handles ETag comparison and returns 304 or 200
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: !Ref ETagOriginRequestPolicy
+          ResponseHeadersPolicyId: !Ref ConfigResponseHeadersPolicy
+
+# ── Outputs ───────────────────────────────────────────────────────────────────
+# After deploy, upload config/prompts.json to the bucket, then use
+# PromptsEndpoint in the iOS and Android apps.
+
+Outputs:
+  BucketName:
+    Value: !Ref ConfigBucket
+    Description: S3 bucket — upload config/prompts.json here
+
+  DistributionId:
+    Value: !Ref ConfigDistribution
+    Description: CloudFront distribution ID — use this to issue cache invalidations
+
+  DistributionDomain:
+    Value: !GetAtt ConfigDistribution.DomainName
+    Description: CloudFront domain name
+
+  PromptsEndpoint:
+    Value: !Sub 'https://${ConfigDistribution.DomainName}/config/prompts.json'
+    Description: Prompts endpoint — hardcode this URL in iOS and Android apps

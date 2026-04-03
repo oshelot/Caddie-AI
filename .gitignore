@@ -1,12 +1,37 @@
-# Xcode
-build/
-DerivedData/
+# === iOS / Xcode ===
+ios/build/
+ios/DerivedData/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+ios/CaddieAI/Secrets.plist
 
-# Secrets & credentials — never commit these
-CaddieAI/Secrets.plist
+# Vendored frameworks (too large for git — download manually)
+ios/Frameworks/
+GoogleMobileAds.xcframework/
+UserMessagingPlatform.xcframework/
+
+# CocoaPods / SPM caches
+Pods/
+.build/
+
+# === Android ===
+*.iml
+.gradle
+local.properties
+android/.idea/caches
+android/.idea/libraries
+android/.idea/modules.xml
+android/.idea/workspace.xml
+android/.idea/navEditor.xml
+android/.idea/assetWizardSettings.xml
+android/build/
+android/app/build/
+android/captures/
+.externalNativeBuild
+.cxx
+
+# === Secrets & credentials (both platforms) ===
 *.pem
 *.p12
 *.key
@@ -18,27 +43,16 @@ CaddieAI/Secrets.plist
 .env.*.local
 credentials.json
 service-account*.json
-
-# API keys / tokens that might be dropped in the repo
 secrets/
 .secrets/
 
-# CocoaPods / SPM caches
-Pods/
-.build/
+# === Infrastructure build artifacts ===
+infrastructure/llm-proxy/lambda_function.zip
 
-# Vendored frameworks (too large for git — download manually)
-Frameworks/
-GoogleMobileAds.xcframework/
-UserMessagingPlatform.xcframework/
-
-# OS
+# === OS / Editor ===
 .DS_Store
 Thumbs.db
-
-# Editor
 *.swp
 *.swo
 *~
-.idea/
 .vscode/
