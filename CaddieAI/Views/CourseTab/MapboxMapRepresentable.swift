@@ -60,7 +60,13 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         }
 
         context.coordinator.mapView = mapView
+        context.coordinator.mapCreateTime = CFAbsoluteTimeGetCurrent()
         mapView.mapboxMap.onStyleLoaded.observe { _ in
+            if let start = context.coordinator.mapCreateTime {
+                let ms = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+                LoggingService.shared.info(.map, "map_style_load", metadata: ["latencyMs": "\(ms)"])
+                context.coordinator.mapCreateTime = nil
+            }
             if let course = self.course {
                 context.coordinator.addCourseLayers(course: course)
             }
@@ -113,6 +119,7 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         var onHoleTapped: ((Int) -> Void)?
         var course: NormalizedCourse?
         var currentlyZoomedHole: Int?
+        var mapCreateTime: CFAbsoluteTime?
 
         init(onHoleTapped: ((Int) -> Void)?) {
             self.onHoleTapped = onHoleTapped
@@ -121,6 +128,8 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         func addCourseLayers(course: NormalizedCourse) {
             guard let mapView = mapView,
                   let map = mapView.mapboxMap else { return }
+
+            let layerStart = CFAbsoluteTimeGetCurrent()
 
             removeLayers(map: map)
 
@@ -187,6 +196,12 @@ struct MapboxMapRepresentable: UIViewRepresentable {
             try? map.addLayer(labelLayer)
 
             layersAdded = true
+
+            let layerMs = Int((CFAbsoluteTimeGetCurrent() - layerStart) * 1000)
+            LoggingService.shared.info(.map, "layer_render", metadata: [
+                "latencyMs": "\(layerMs)",
+                "holeCount": "\(course.holes.count)",
+            ])
         }
 
         func highlightHole(_ holeNumber: Int?) {

@@ -12,6 +12,9 @@ import GoogleMobileAds
 import AppTrackingTransparency
 #endif
 
+/// Timestamp captured at process init for startup timing.
+nonisolated(unsafe) let appLaunchTime = CFAbsoluteTimeGetCurrent()
+
 @main
 struct CaddieAIApp: App {
     @State private var profileStore = ProfileStore()

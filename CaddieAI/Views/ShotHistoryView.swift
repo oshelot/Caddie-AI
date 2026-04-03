@@ -71,8 +71,8 @@ private struct ShotHistoryRow: View {
             }
             Spacer()
             if let outcome = record.outcome {
-                Text(outcome.emoji)
-                    .font(.title2)
+                Text(verbatim: outcome.emoji)
+                    .font(.system(size: 28))
             } else {
                 Text("—")
                     .foregroundStyle(.tertiary)
@@ -139,8 +139,8 @@ struct ShotDetailView: View {
                                 selectedOutcome = outcome
                             } label: {
                                 VStack(spacing: 2) {
-                                    Text(outcome.emoji)
-                                        .font(.title2)
+                                    Text(verbatim: outcome.emoji)
+                                        .font(.system(size: 28))
                                     Text(outcome.displayName)
                                         .font(.caption2)
                                 }

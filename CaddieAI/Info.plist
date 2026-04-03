@@ -10,6 +10,8 @@
 	<string>CaddieAI uses this to show you relevant ads. Your data is never shared with third parties.</string>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<key>CFBundleIdentifier</key>
+	<string></string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>

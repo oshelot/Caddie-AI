@@ -170,6 +170,8 @@ enum GolfCourseAPIError: LocalizedError {
 extension GolfCourseAPICourse {
 
     /// Extract structured scorecard data from tee boxes.
+    /// Deduplicates male/female tees that share the same name (case-insensitive)
+    /// and identical per-hole yardages.
     func extractScorecardData() -> ScorecardData {
         guard let tees = tees else { return ScorecardData() }
         let allTees = tees.allTees
@@ -180,19 +182,34 @@ extension GolfCourseAPICourse {
         var teeYardages: [String: [Int: Int]] = [:]
         var teeBoxInfos: [TeeBoxInfo] = []
 
+        // Track canonical tee names (case-insensitive) to merge male/female duplicates
+        var canonicalNames: [String: String] = [:]  // lowercased -> first-seen casing
+
         for teeBox in allTees {
             let teeName = teeBox.teeName ?? "Unknown"
+            let key = teeName.lowercased()
 
-            // Collect tee box summary info
-            teeBoxInfos.append(TeeBoxInfo(
-                name: teeName,
-                slopeRating: teeBox.slopeRating.map(Double.init),
-                courseRating: teeBox.courseRating,
-                totalYards: teeBox.totalYards,
-                parTotal: teeBox.parTotal
-            ))
+            // Resolve to canonical (first-seen) casing
+            let canonical: String
+            if let existing = canonicalNames[key] {
+                canonical = existing
+            } else {
+                canonicalNames[key] = teeName
+                canonical = teeName
+            }
 
-            // Per-hole data
+            // Only add tee box info for the first occurrence of this canonical name
+            if !teeBoxInfos.contains(where: { $0.name == canonical }) {
+                teeBoxInfos.append(TeeBoxInfo(
+                    name: canonical,
+                    slopeRating: teeBox.slopeRating.map(Double.init),
+                    courseRating: teeBox.courseRating,
+                    totalYards: teeBox.totalYards,
+                    parTotal: teeBox.parTotal
+                ))
+            }
+
+            // Per-hole data (merged under canonical name)
             guard let holes = teeBox.holes else { continue }
             for (index, hole) in holes.enumerated() {
                 let holeNum = index + 1
@@ -204,7 +221,7 @@ extension GolfCourseAPICourse {
                     strokeIndexes[holeNum] = handicap
                 }
                 if let yardage = hole.yardage {
-                    teeYardages[teeName, default: [:]][holeNum] = yardage
+                    teeYardages[canonical, default: [:]][holeNum] = yardage
                 }
             }
         }

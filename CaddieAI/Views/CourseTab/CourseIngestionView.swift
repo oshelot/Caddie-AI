@@ -49,7 +49,7 @@ struct CourseIngestionView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
 
-                Button("View Satellite Map") {
+                Button("View Course Map") {
                     viewModel.ingestionWarning = nil
                 }
                 .buttonStyle(.borderedProminent)

@@ -85,13 +85,13 @@ struct ProfileView: View {
                     NavigationLink {
                         APISettingsView()
                     } label: {
-                        Label("API Settings & Usage", systemImage: "gearshape.2")
+                        Label("API Settings", systemImage: "gearshape.2")
                     }
 
                     NavigationLink {
                         ContactInfoView()
                     } label: {
-                        Label("Stay in Touch", systemImage: "envelope.fill")
+                        Label("Contact Info", systemImage: "envelope.fill")
                     }
                 }
                 #if DEBUG

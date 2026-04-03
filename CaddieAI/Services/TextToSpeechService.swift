@@ -14,11 +14,22 @@ final class TextToSpeechService {
 
     private let synthesizer = AVSpeechSynthesizer()
     private let delegate = TTSDelegate()
+    private var speakRequestTime: CFAbsoluteTime?
+    private var pendingCharCount: Int = 0
 
     init() {
         synthesizer.delegate = delegate
         delegate.onFinish = { [weak self] in
             self?.isSpeaking = false
+        }
+        delegate.onStart = { [weak self] in
+            guard let self, let start = self.speakRequestTime else { return }
+            let ttsMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            LoggingService.shared.info(.general, "tts_start", metadata: [
+                "latencyMs": "\(ttsMs)",
+                "charCount": "\(self.pendingCharCount)",
+            ])
+            self.speakRequestTime = nil
         }
     }
 
@@ -40,6 +51,8 @@ final class TextToSpeechService {
         utterance.volume = 1.0
         utterance.voice = resolveVoice()
 
+        speakRequestTime = CFAbsoluteTimeGetCurrent()
+        pendingCharCount = text.count
         isSpeaking = true
         synthesizer.speak(utterance)
     }
@@ -82,6 +95,13 @@ final class TextToSpeechService {
 
 private class TTSDelegate: NSObject, AVSpeechSynthesizerDelegate {
     var onFinish: (() -> Void)?
+    var onStart: (() -> Void)?
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            self.onStart?()
+        }
+    }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in

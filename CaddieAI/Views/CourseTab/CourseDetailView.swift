@@ -36,8 +36,9 @@ struct CourseDetailView: View {
                         if let rating = course.courseRating {
                             LabeledContent("Course Rating", value: String(format: "%.1f", rating))
                         }
-                        if let tees = course.teeNames, !tees.isEmpty {
-                            LabeledContent("Tees", value: tees.joined(separator: ", "))
+                        let dedupedTees = CourseViewModel.deduplicatedTees(for: course)
+                        if !dedupedTees.isEmpty {
+                            LabeledContent("Tees", value: dedupedTees.map(\.displayName).joined(separator: ", "))
                         }
                     }
                 }

@@ -44,6 +44,7 @@ enum WeatherService {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
 
+        let fetchStart = CFAbsoluteTimeGetCurrent()
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse,
@@ -52,12 +53,17 @@ enum WeatherService {
         }
 
         let weather = try parseResponse(data)
+        let fetchMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
 
         // Update cache
         cachedWeather = weather
         cachedCoordinate = (latitude, longitude)
 
         TelemetryService.shared.recordWeatherCall()
+        LoggingService.shared.info(.weather, "weather_fetch", metadata: [
+            "latencyMs": "\(fetchMs)",
+            "source": "open_meteo",
+        ])
 
         return weather
     }

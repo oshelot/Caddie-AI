@@ -14,6 +14,8 @@ final class SpeechRecognitionService {
     var errorMessage: String?
     var authorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
 
+    private var recordingStartTime: CFAbsoluteTime?
+
     // nonisolated(unsafe) to avoid @Observable macro conflict — these are only accessed on MainActor
     @ObservationIgnored private var _speechRecognizerBacking: SFSpeechRecognizer?
     @ObservationIgnored private var _audioEngineBacking: AVAudioEngine?
@@ -89,6 +91,7 @@ final class SpeechRecognitionService {
         do {
             try audioEngine.start()
             isRecording = true
+            recordingStartTime = CFAbsoluteTimeGetCurrent()
         } catch {
             errorMessage = "Could not start audio engine."
             return
@@ -99,6 +102,16 @@ final class SpeechRecognitionService {
                 guard let self else { return }
                 if let result {
                     self.transcribedText = result.bestTranscription.formattedString
+                    if result.isFinal, let start = self.recordingStartTime {
+                        let sttMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+                        let wordCount = result.bestTranscription.formattedString
+                            .split(separator: " ").count
+                        LoggingService.shared.info(.llm, "stt_complete", metadata: [
+                            "latencyMs": "\(sttMs)",
+                            "wordCount": "\(wordCount)",
+                        ])
+                        self.recordingStartTime = nil
+                    }
                 }
                 if error != nil || (result?.isFinal ?? false) {
                     self.stopRecording()

@@ -69,7 +69,7 @@ struct CourseMapView: View {
                 }
 
                 // Tee box reminder callout
-                if showTeeReminder, course.teeNames != nil {
+                if showTeeReminder, CourseViewModel.deduplicatedTees(for: course).count > 1 {
                     HStack(spacing: 8) {
                         Image(systemName: "flag.fill")
                             .foregroundStyle(.yellow)
@@ -250,21 +250,23 @@ struct CourseMapView: View {
                 }
             }
         }
+        .navigationTitle("Course Map")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 12) {
-                    if let teeNames = course.teeNames, teeNames.count > 1 {
+                    let dedupedTees = CourseViewModel.deduplicatedTees(for: course)
+                    if dedupedTees.count > 1 {
                         Menu {
-                            ForEach(teeNames, id: \.self) { tee in
+                            ForEach(dedupedTees, id: \.canonicalTee) { entry in
                                 Button {
-                                    viewModel.selectedTee = tee
-                                    cacheService.saveSelectedTee(tee, forCourse: course.id)
+                                    viewModel.selectedTee = entry.canonicalTee
+                                    cacheService.saveSelectedTee(entry.canonicalTee, forCourse: course.id)
                                     showTeeReminder = false
                                 } label: {
                                     HStack {
-                                        Text(tee)
-                                        if viewModel.selectedTee == tee {
+                                        Text(entry.displayName)
+                                        if viewModel.selectedTee == entry.canonicalTee {
                                             Image(systemName: "checkmark")
                                         }
                                     }
@@ -273,7 +275,7 @@ struct CourseMapView: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "flag.fill")
-                                Text(viewModel.selectedTee ?? "Tees")
+                                Text(teePickerLabel(dedupedTees: dedupedTees))
                                     .font(.caption.weight(.semibold))
                             }
                             .foregroundStyle(.white)
@@ -316,16 +318,19 @@ struct CourseMapView: View {
             )
         }
         .task {
-            // Restore saved tee or auto-select the first one
-            if viewModel.selectedTee == nil,
-               let teeNames = course.teeNames,
-               !teeNames.isEmpty {
-                if let saved = cacheService.selectedTee(forCourse: course.id),
-                   teeNames.contains(saved) {
-                    viewModel.selectedTee = saved
-                } else {
-                    viewModel.selectedTee = teeNames.first
-                    showTeeReminder = true
+            // Restore saved tee or auto-select the first one (using deduped canonical names)
+            if viewModel.selectedTee == nil {
+                let dedupedTees = CourseViewModel.deduplicatedTees(for: course)
+                if !dedupedTees.isEmpty {
+                    if let saved = cacheService.selectedTee(forCourse: course.id),
+                       dedupedTees.contains(where: { $0.canonicalTee == saved }) {
+                        viewModel.selectedTee = saved
+                    } else {
+                        viewModel.selectedTee = dedupedTees.first?.canonicalTee
+                        if dedupedTees.count > 1 {
+                            showTeeReminder = true
+                        }
+                    }
                 }
             }
 
@@ -410,6 +415,12 @@ struct CourseMapView: View {
             isDetecting = false
             tabRouter.selectedTab = "caddie"
         }
+    }
+
+    /// Returns the display name for the currently selected tee from the deduped list, or "Tees" as fallback.
+    private func teePickerLabel(dedupedTees: [(displayName: String, canonicalTee: String)]) -> String {
+        guard let selected = viewModel.selectedTee else { return "Tees" }
+        return dedupedTees.first(where: { $0.canonicalTee == selected })?.displayName ?? selected
     }
 
     private func inferShotType(distanceYards: Int, clubDistances: [ClubDistance]) -> ShotType {

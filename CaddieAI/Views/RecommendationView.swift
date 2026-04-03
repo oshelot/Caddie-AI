@@ -204,8 +204,8 @@ struct RecommendationView: View {
                                             selectedOutcome = outcome
                                         } label: {
                                             VStack(spacing: 2) {
-                                                Text(outcome.emoji)
-                                                    .font(.title3)
+                                                Text(verbatim: outcome.emoji)
+                                                    .font(.system(size: 24))
                                                 Text(outcome.displayName)
                                                     .font(.caption2)
                                             }

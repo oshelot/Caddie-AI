@@ -82,7 +82,7 @@ struct ContactInfoView: View {
                 }
             }
         }
-        .navigationTitle("Stay in Touch")
+        .navigationTitle("Contact Info")
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
         .alert("Missing Info", isPresented: $showValidationError) {

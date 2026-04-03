@@ -29,6 +29,11 @@ final class ShotAdvisorViewModel {
     var followUpMessages: [FollowUpMessage] = []
     var isAskingFollowUp = false
 
+    // MARK: - Timing
+
+    /// Set when voice recording starts; used to measure voice-to-result latency.
+    var voiceStartTime: CFAbsoluteTime?
+
     // MARK: - Dependencies
 
     private let llmRouter = LLMRouter.shared
@@ -131,6 +136,15 @@ final class ShotAdvisorViewModel {
                 result.executionPlan = analysis.executionPlan
             }
             recommendation = result
+
+            // Log voice-to-result if this flow started from voice
+            if let vStart = voiceStartTime {
+                let totalMs = Int((CFAbsoluteTimeGetCurrent() - vStart) * 1000)
+                LoggingService.shared.info(.llm, "voice_to_result", metadata: [
+                    "latencyMs": "\(totalMs)",
+                ])
+                voiceStartTime = nil
+            }
 
             // Store conversation history for follow-ups
             let userMessage = OpenAIService.buildUserMessage(

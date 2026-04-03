@@ -35,6 +35,9 @@ struct ShotInputView: View {
                             // Voice recording
                             HStack {
                                 Button {
+                                    if !speechService.isRecording {
+                                        viewModel.voiceStartTime = CFAbsoluteTimeGetCurrent()
+                                    }
                                     speechService.toggleRecording()
                                 } label: {
                                     Label(
@@ -211,7 +214,7 @@ struct ShotInputView: View {
                                     .tint(.white)
                                     .padding(.trailing, 8)
                             }
-                            Text(viewModel.isLoading ? "Analyzing..." : "Get Advice")
+                            Text(viewModel.isLoading ? "Analyzing..." : "Ask Caddie")
                                 .fontWeight(.semibold)
                             Spacer()
                         }

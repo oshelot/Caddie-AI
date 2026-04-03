@@ -234,5 +234,6 @@ enum LogCategory: String, Sendable {
     case course = "course"
     case weather = "weather"
     case subscription = "subscription"
+    case map = "map"
     case general = "general"
 }

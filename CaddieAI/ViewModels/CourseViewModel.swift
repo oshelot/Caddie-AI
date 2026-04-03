@@ -156,15 +156,25 @@ final class CourseViewModel {
         ingestionError = nil
         ingestionWarning = nil
         ingestionStep = "Checking cache…"
+        let totalStart = CFAbsoluteTimeGetCurrent()
 
         // Check cache first (skip if forcing refresh)
+        let cacheStart = CFAbsoluteTimeGetCurrent()
         let courseId = NormalizedCourse.generateId(name: result.name, centroid: result.centroid)
         if !forceRefresh, let cached = cacheService?.load(id: courseId) {
+            let cacheMs = Int((CFAbsoluteTimeGetCurrent() - cacheStart) * 1000)
+            LoggingService.shared.info(.map, "cache_check", metadata: [
+                "latencyMs": "\(cacheMs)", "courseName": result.name, "cacheHit": "true",
+            ])
             selectedCourse = cached
             TelemetryService.shared.recordCoursePlayed(courseName: cached.name)
             isIngesting = false
             return
         }
+        let cacheMs = Int((CFAbsoluteTimeGetCurrent() - cacheStart) * 1000)
+        LoggingService.shared.info(.map, "cache_check", metadata: [
+            "latencyMs": "\(cacheMs)", "courseName": result.name, "cacheHit": "false",
+        ])
 
         guard let bbox = result.boundingBox else {
             ingestionError = "No bounding box available for this course."
@@ -175,16 +185,27 @@ final class CourseViewModel {
         do {
             // Step 1: Fetch features from Overpass
             ingestionStep = "Fetching course features…"
+            var stepStart = CFAbsoluteTimeGetCurrent()
             let response = try await OverpassClient.fetchCourseFeatures(boundingBox: bbox)
             try Task.checkCancellation()
+            LoggingService.shared.info(.map, "overpass_fetch", metadata: [
+                "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
+                "courseName": result.name,
+            ])
 
             // Step 2: Parse OSM data
             ingestionStep = "Parsing geometry…"
+            stepStart = CFAbsoluteTimeGetCurrent()
             let parsed = OSMParser.parse(response)
             try Task.checkCancellation()
+            LoggingService.shared.info(.map, "osm_parse", metadata: [
+                "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
+                "courseName": result.name,
+            ])
 
             // Step 3: Normalize into course model(s)
             ingestionStep = "Building course model…"
+            stepStart = CFAbsoluteTimeGetCurrent()
             let courses = CourseNormalizer.normalizeAll(
                 features: parsed,
                 courseName: result.name,
@@ -193,6 +214,11 @@ final class CourseViewModel {
                 state: result.state
             )
             try Task.checkCancellation()
+            LoggingService.shared.info(.map, "normalize", metadata: [
+                "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
+                "courseName": result.name,
+                "holeCount": "\(courses.first?.holes.count ?? 0)",
+            ])
 
             // Step 4: Enrich with scorecard data from Golf Course API
             let golfApiKey = {
@@ -202,15 +228,25 @@ final class CourseViewModel {
             var enrichedCourses = courses
             if !golfApiKey.isEmpty {
                 ingestionStep = "Fetching scorecard data…"
+                stepStart = CFAbsoluteTimeGetCurrent()
                 enrichedCourses = await enrichWithScorecardData(courses: courses, courseName: result.name, apiKey: golfApiKey)
                 try Task.checkCancellation()
+                LoggingService.shared.info(.map, "scorecard_fetch", metadata: [
+                    "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
+                    "courseName": result.name,
+                ])
             }
 
             // Step 5: Cache all sub-courses
             ingestionStep = "Saving to cache…"
+            stepStart = CFAbsoluteTimeGetCurrent()
             for course in enrichedCourses {
                 cacheService?.save(course)
             }
+            LoggingService.shared.info(.map, "cache_save", metadata: [
+                "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
+                "courseName": result.name,
+            ])
 
             // Step 6: Handle results
             if enrichedCourses.count > 1 {
@@ -227,6 +263,13 @@ final class CourseViewModel {
                 selectedCourse = course
                 TelemetryService.shared.recordCoursePlayed(courseName: course.name)
             }
+
+            // Log total ingestion time
+            LoggingService.shared.info(.map, "total_ingestion", metadata: [
+                "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - totalStart) * 1000))",
+                "courseName": result.name,
+                "holeCount": "\(enrichedCourses.first?.holes.count ?? 0)",
+            ])
         } catch is CancellationError {
             // User cancelled — reset silently
         } catch {
@@ -274,6 +317,37 @@ final class CourseViewModel {
         TelemetryService.shared.recordCoursePlayed(courseName: course.name)
         showSubCoursePicker = false
         availableSubCourses = []
+    }
+
+    // MARK: - Deduplicated Tees
+
+    /// Groups tee names that have identical per-hole yardages into single entries.
+    /// Returns (displayName, canonicalTee) pairs where displayName merges duplicates
+    /// (e.g. "Black / Silver") and canonicalTee is the first name for data lookups.
+    static func deduplicatedTees(for course: NormalizedCourse) -> [(displayName: String, canonicalTee: String)] {
+        guard let teeNames = course.teeNames, !teeNames.isEmpty else { return [] }
+
+        // Build a yardage signature per tee: sorted hole-number → yards array
+        let sortedHoles = course.holes.sorted { $0.number < $1.number }
+        var signatureToTees: [String: [String]] = [:]
+
+        for tee in teeNames {
+            let sig = sortedHoles.map { hole in
+                hole.yardages?[tee].map(String.init) ?? "-"
+            }.joined(separator: ",")
+            signatureToTees[sig, default: []].append(tee)
+        }
+
+        // Preserve original tee ordering based on first tee in each group
+        return signatureToTees.values
+            .sorted { group1, group2 in
+                guard let i1 = teeNames.firstIndex(of: group1[0]),
+                      let i2 = teeNames.firstIndex(of: group2[0]) else { return false }
+                return i1 < i2
+            }
+            .map { group in
+                (displayName: group.joined(separator: " / "), canonicalTee: group[0])
+            }
     }
 
     // MARK: - Clear Selection

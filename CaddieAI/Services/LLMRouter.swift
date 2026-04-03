@@ -170,36 +170,61 @@ final class LLMRouter: Sendable {
         model: LLMModel,
         tier: UserTier = .free
     ) async throws -> (String, OpenAIService.TokenUsage?) {
+        let providerName = tier == .paid ? "proxy" : provider.rawValue
+        let modelName = tier == .paid ? "gpt-4o-mini" : model.rawValue
         LoggingService.shared.info(.llm, "LLM request started", metadata: [
             "method": "askFollowUp",
-            "provider": tier == .paid ? "proxy" : provider.rawValue,
-            "model": tier == .paid ? "gpt-4o-mini" : model.rawValue,
+            "provider": providerName,
+            "model": modelName,
             "tier": tier.rawValue,
         ])
+        let start = CFAbsoluteTimeGetCurrent()
 
-        if tier == .paid {
-            return try await proxyFollowUp(
-                question: question,
-                conversationHistory: conversationHistory
-            )
-        }
+        do {
+            let result: (String, OpenAIService.TokenUsage?)
+            if tier == .paid {
+                result = try await proxyFollowUp(
+                    question: question,
+                    conversationHistory: conversationHistory
+                )
+            } else {
+                switch provider {
+                case .openAI:
+                    result = try await OpenAIService.shared.askFollowUp(
+                        question: question, conversationHistory: conversationHistory,
+                        apiKey: apiKey, model: model.rawValue
+                    )
+                case .claude:
+                    result = try await ClaudeService.shared.askFollowUp(
+                        question: question, conversationHistory: conversationHistory,
+                        apiKey: apiKey, model: model
+                    )
+                case .gemini:
+                    result = try await GeminiService.shared.askFollowUp(
+                        question: question, conversationHistory: conversationHistory,
+                        apiKey: apiKey, model: model
+                    )
+                }
+            }
 
-        switch provider {
-        case .openAI:
-            return try await OpenAIService.shared.askFollowUp(
-                question: question, conversationHistory: conversationHistory,
-                apiKey: apiKey, model: model.rawValue
-            )
-        case .claude:
-            return try await ClaudeService.shared.askFollowUp(
-                question: question, conversationHistory: conversationHistory,
-                apiKey: apiKey, model: model
-            )
-        case .gemini:
-            return try await GeminiService.shared.askFollowUp(
-                question: question, conversationHistory: conversationHistory,
-                apiKey: apiKey, model: model
-            )
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            var meta = ["method": "askFollowUp", "provider": providerName,
+                        "model": modelName, "tier": tier.rawValue,
+                        "latencyMs": "\(latencyMs)"]
+            if let usage = result.1 {
+                meta["promptTokens"] = "\(usage.promptTokens)"
+                meta["completionTokens"] = "\(usage.completionTokens)"
+            }
+            LoggingService.shared.info(.llm, "LLM response received", metadata: meta)
+            return result
+        } catch {
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            LoggingService.shared.error(.llm, "LLM request failed: \(error.localizedDescription)", metadata: [
+                "method": "askFollowUp", "provider": providerName,
+                "model": modelName, "tier": tier.rawValue,
+                "latencyMs": "\(latencyMs)",
+            ])
+            throw error
         }
     }
 
@@ -213,36 +238,61 @@ final class LLMRouter: Sendable {
         model: LLMModel,
         tier: UserTier = .free
     ) async throws -> (String, OpenAIService.TokenUsage?) {
+        let providerName = tier == .paid ? "proxy" : provider.rawValue
+        let modelName = tier == .paid ? "gpt-4o-mini" : model.rawValue
         LoggingService.shared.info(.llm, "LLM request started", metadata: [
             "method": "askHoleFollowUp",
-            "provider": tier == .paid ? "proxy" : provider.rawValue,
-            "model": tier == .paid ? "gpt-4o-mini" : model.rawValue,
+            "provider": providerName,
+            "model": modelName,
             "tier": tier.rawValue,
         ])
+        let start = CFAbsoluteTimeGetCurrent()
 
-        if tier == .paid {
-            return try await proxyFollowUp(
-                question: question,
-                conversationHistory: conversationHistory
-            )
-        }
+        do {
+            let result: (String, OpenAIService.TokenUsage?)
+            if tier == .paid {
+                result = try await proxyFollowUp(
+                    question: question,
+                    conversationHistory: conversationHistory
+                )
+            } else {
+                switch provider {
+                case .openAI:
+                    result = try await OpenAIService.shared.askHoleFollowUp(
+                        question: question, conversationHistory: conversationHistory,
+                        apiKey: apiKey, model: model.rawValue
+                    )
+                case .claude:
+                    result = try await ClaudeService.shared.askHoleFollowUp(
+                        question: question, conversationHistory: conversationHistory,
+                        apiKey: apiKey, model: model
+                    )
+                case .gemini:
+                    result = try await GeminiService.shared.askHoleFollowUp(
+                        question: question, conversationHistory: conversationHistory,
+                        apiKey: apiKey, model: model
+                    )
+                }
+            }
 
-        switch provider {
-        case .openAI:
-            return try await OpenAIService.shared.askHoleFollowUp(
-                question: question, conversationHistory: conversationHistory,
-                apiKey: apiKey, model: model.rawValue
-            )
-        case .claude:
-            return try await ClaudeService.shared.askHoleFollowUp(
-                question: question, conversationHistory: conversationHistory,
-                apiKey: apiKey, model: model
-            )
-        case .gemini:
-            return try await GeminiService.shared.askHoleFollowUp(
-                question: question, conversationHistory: conversationHistory,
-                apiKey: apiKey, model: model
-            )
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            var meta = ["method": "askHoleFollowUp", "provider": providerName,
+                        "model": modelName, "tier": tier.rawValue,
+                        "latencyMs": "\(latencyMs)"]
+            if let usage = result.1 {
+                meta["promptTokens"] = "\(usage.promptTokens)"
+                meta["completionTokens"] = "\(usage.completionTokens)"
+            }
+            LoggingService.shared.info(.llm, "LLM response received", metadata: meta)
+            return result
+        } catch {
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            LoggingService.shared.error(.llm, "LLM request failed: \(error.localizedDescription)", metadata: [
+                "method": "askHoleFollowUp", "provider": providerName,
+                "model": modelName, "tier": tier.rawValue,
+                "latencyMs": "\(latencyMs)",
+            ])
+            throw error
         }
     }
 
