@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "description": "Cross-platform design token mapping: iOS system defaults → Android Material overrides",
+  "colors": {
+    "primary": { "ios": "systemBlue (#007AFF)", "android": "SystemBlue (#1565C0)", "usage": "Links, active elements, primary actions" },
+    "secondary": { "ios": "systemGreen (#34C759)", "android": "SuccessGreen (#2E7D32)", "usage": "Success states, caddie/low-risk" },
+    "background": { "ios": "systemBackground (white/black)", "android": "SecondarySystemBackground (#F2F2F7)", "usage": "Screen background" },
+    "surface": { "ios": "secondarySystemBackground (#F2F2F7)", "android": "SystemBackground (#FFFFFF)", "usage": "Card surfaces" },
+    "surfaceVariant": { "ios": "systemGray6 (#E5E5EA)", "android": "SystemGray6 (#E5E5EA)", "usage": "Input fields, dividers" },
+    "error": { "ios": "systemRed (#FF3B30)", "android": "ErrorRed (#B71C1C)", "usage": "Errors, high risk" },
+    "tertiary": { "ios": "systemPurple (#AF52DE)", "android": "PremiumPurple (#6A1B9A)", "usage": "Pro/premium features" }
+  },
+  "typography": {
+    "displayLarge": { "ios": "largeTitle (34pt bold)", "android": "36sp bold", "usage": "Club recommendation hero" },
+    "displayMedium": { "ios": "largeTitle (34pt bold rounded)", "android": "34sp bold", "usage": "Splash logo" },
+    "headlineLarge": { "ios": "title (28pt bold)", "android": "24sp bold", "usage": "Section headers" },
+    "headlineMedium": { "ios": "headline (17pt semibold)", "android": "20sp semibold", "usage": "Section titles" },
+    "titleLarge": { "ios": "title3 (20pt)", "android": "22sp semibold", "usage": "Card/screen titles" },
+    "bodyLarge": { "ios": "body (17pt)", "android": "16sp regular", "usage": "Default readable content" },
+    "bodyMedium": { "ios": "callout (16pt)", "android": "15sp regular", "usage": "Execution details" },
+    "bodySmall": { "ios": "subheadline (15pt)", "android": "13sp regular", "usage": "Supporting text" },
+    "labelLarge": { "ios": "caption (12pt)", "android": "12sp medium", "usage": "Timestamps, metadata" },
+    "labelMedium": { "ios": "caption2 (11pt)", "android": "11sp regular", "usage": "Smallest labels" }
+  },
+  "spacing": {
+    "xs": { "ios": "4pt", "android": "4dp", "usage": "Tight grouping within component" },
+    "sm": { "ios": "8pt", "android": "8dp", "usage": "Between related components" },
+    "md": { "ios": "12pt", "android": "12dp", "usage": "Inside cards and form fields" },
+    "lg": { "ios": "16pt", "android": "16dp", "usage": "Card-level padding, list items" },
+    "xl": { "ios": "20pt", "android": "20dp", "usage": "Between major sections" },
+    "xxl": { "ios": "24pt", "android": "24dp", "usage": "Top-level screen sections" }
+  },
+  "cornerRadius": {
+    "large": { "ios": "16pt", "android": "16dp", "usage": "Large cards, bottom sheets" },
+    "medium": { "ios": "12pt", "android": "12dp", "usage": "Medium cards, dialogs" },
+    "form": { "ios": "10pt", "android": "10dp", "usage": "Form fields, text inputs" },
+    "small": { "ios": "8pt", "android": "8dp", "usage": "Chips, tags" },
+    "capsule": { "ios": "Capsule", "android": "50% radius", "usage": "Pill buttons, badges" }
+  },
+  "icons": {
+    "caddie_tab": { "ios": "figure.golf (SF Symbol)", "android": "Icons.Filled.SmartToy" },
+    "course_tab": { "ios": "map (SF Symbol)", "android": "Icons.Filled.GolfCourse" },
+    "profile_tab": { "ios": "person (SF Symbol)", "android": "Icons.Filled.Person" },
+    "shot_history": { "ios": "clock.arrow.circlepath (SF Symbol)", "android": "Icons.Filled.History" },
+    "your_bag": { "ios": "bag (SF Symbol)", "android": "Icons.Filled.GolfCourse" },
+    "microphone": { "ios": "mic (SF Symbol)", "android": "Icons.Filled.Mic" },
+    "camera": { "ios": "camera (SF Symbol)", "android": "Icons.Filled.Camera" },
+    "star_favorite": { "ios": "star.fill (SF Symbol)", "android": "Icons.Filled.Star" }
+  }
+}
