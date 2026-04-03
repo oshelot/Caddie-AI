@@ -321,33 +321,47 @@ final class CourseViewModel {
 
     // MARK: - Deduplicated Tees
 
-    /// Groups tee names that have identical per-hole yardages into single entries.
-    /// Returns (displayName, canonicalTee) pairs where displayName merges duplicates
-    /// (e.g. "Black / Silver") and canonicalTee is the first name for data lookups.
+    /// Deduplicates tee names for display in the tee picker.
+    /// 1. Removes combo tees (e.g. "Gold/Black") when a standalone component exists.
+    /// 2. Groups remaining tees that share identical per-hole yardages.
+    /// Returns (displayName, canonicalTee) pairs sorted longest → shortest by total yardage.
     static func deduplicatedTees(for course: NormalizedCourse) -> [(displayName: String, canonicalTee: String)] {
         guard let teeNames = course.teeNames, !teeNames.isEmpty else { return [] }
 
-        // Build a yardage signature per tee: sorted hole-number → yards array
+        let lowercasedNames = Set(teeNames.map { $0.lowercased() })
+
+        // Step 1: Filter out combo tees when a standalone component exists
+        let filtered = teeNames.filter { name in
+            let parts = name.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count > 1 else { return true } // standalone tee, keep it
+            // Drop combo if ANY component exists as a standalone tee
+            return !parts.contains { lowercasedNames.contains($0.lowercased()) }
+        }
+        guard !filtered.isEmpty else { return [] }
+
+        // Step 2: Group by identical yardage signatures
         let sortedHoles = course.holes.sorted { $0.number < $1.number }
         var signatureToTees: [String: [String]] = [:]
 
-        for tee in teeNames {
+        for tee in filtered {
             let sig = sortedHoles.map { hole in
                 hole.yardages?[tee].map(String.init) ?? "-"
             }.joined(separator: ",")
             signatureToTees[sig, default: []].append(tee)
         }
 
-        // Preserve original tee ordering based on first tee in each group
-        return signatureToTees.values
-            .sorted { group1, group2 in
-                guard let i1 = teeNames.firstIndex(of: group1[0]),
-                      let i2 = teeNames.firstIndex(of: group2[0]) else { return false }
-                return i1 < i2
-            }
-            .map { group in
-                (displayName: group.joined(separator: " / "), canonicalTee: group[0])
-            }
+        // Step 3: Sort longest → shortest by total yardage (from teeYardageTotals or summing holes)
+        let results = signatureToTees.values.map { group in
+            (displayName: group.joined(separator: " / "), canonicalTee: group[0])
+        }
+
+        return results.sorted { a, b in
+            let aYards = course.teeYardageTotals?[a.canonicalTee]
+                ?? course.holes.compactMap { $0.yardages?[a.canonicalTee] }.reduce(0, +)
+            let bYards = course.teeYardageTotals?[b.canonicalTee]
+                ?? course.holes.compactMap { $0.yardages?[b.canonicalTee] }.reduce(0, +)
+            return aYards > bYards
+        }
     }
 
     // MARK: - Clear Selection
@@ -407,6 +421,17 @@ final class CourseViewModel {
                 // Course-level metadata
                 enriched.totalPar = scorecard.totalPar
                 enriched.teeNames = scorecard.teeYardages.keys.sorted()
+
+                // Store total yardage per tee for distance-based tee selection
+                var totals: [String: Int] = [:]
+                for info in scorecard.teeBoxInfos {
+                    if let yards = info.totalYards {
+                        totals[info.name] = yards
+                    }
+                }
+                if !totals.isEmpty {
+                    enriched.teeYardageTotals = totals
+                }
 
                 // Pick first tee box with slope/rating data
                 if let teeInfo = scorecard.teeBoxInfos.first(where: { $0.slopeRating != nil }) ?? scorecard.teeBoxInfos.first {

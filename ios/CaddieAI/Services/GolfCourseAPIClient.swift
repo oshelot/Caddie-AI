@@ -169,11 +169,12 @@ enum GolfCourseAPIError: LocalizedError {
 
 extension GolfCourseAPICourse {
 
-    /// Extract structured scorecard data from tee boxes.
-    /// Deduplicates male/female tees that share the same name (case-insensitive)
-    /// and identical per-hole yardages.
+    /// Extract structured scorecard data from all tee boxes.
+    /// Deduplicates tees that share the same name (case-insensitive),
+    /// merging male/female entries under a single canonical name.
     func extractScorecardData() -> ScorecardData {
         guard let tees = tees else { return ScorecardData() }
+
         let allTees = tees.allTees
         guard !allTees.isEmpty else { return ScorecardData() }
 

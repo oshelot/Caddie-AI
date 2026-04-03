@@ -32,6 +32,8 @@ struct NormalizedCourse: Codable, Sendable, Identifiable {
     var slopeRating: Double?
     var courseRating: Double?
     var teeNames: [String]?
+    /// Total yardage per tee box name from Golf Course API (e.g., ["Blue": 6543, "White": 6021])
+    var teeYardageTotals: [String: Int]?
 
     static let currentSchemaVersion = "1.0"
 }

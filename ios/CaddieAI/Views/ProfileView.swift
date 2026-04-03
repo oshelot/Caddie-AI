@@ -83,19 +83,19 @@ struct ProfileView: View {
                     }
 
                     NavigationLink {
+                        TeeBoxPreferenceView()
+                    } label: {
+                        Label("Tee Box Preference", systemImage: "flag.fill")
+                    }
+                }
+
+                Section("Settings") {
+                    NavigationLink {
                         APISettingsView()
                     } label: {
                         Label("API Settings", systemImage: "gearshape.2")
                     }
-
-                    NavigationLink {
-                        ContactInfoView()
-                    } label: {
-                        Label("Contact Info", systemImage: "envelope.fill")
-                    }
-                }
-                #if DEBUG
-                Section("Debug") {
+                    #if DEBUG
                     Toggle("Override: Pro Tier", isOn: Binding(
                         get: { subscriptionManager.debugTierOverride == .paid },
                         set: { subscriptionManager.debugTierOverride = $0 ? .paid : nil }
@@ -107,8 +107,16 @@ struct ProfileView: View {
                         get: { LoggingService.shared.isEnabled },
                         set: { LoggingService.shared.isEnabled = $0 }
                     ))
+                    #endif
                 }
-                #endif
+
+                Section {
+                    NavigationLink {
+                        ContactInfoView()
+                    } label: {
+                        Label("Contact Info", systemImage: "envelope.fill")
+                    }
+                }
             }
             .navigationTitle("Profile")
             .scrollDismissesKeyboard(.interactively)

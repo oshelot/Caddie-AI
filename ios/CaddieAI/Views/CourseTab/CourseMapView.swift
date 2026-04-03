@@ -266,6 +266,9 @@ struct CourseMapView: View {
                                 } label: {
                                     HStack {
                                         Text(entry.displayName)
+                                        if let yards = course.teeYardageTotals?[entry.canonicalTee] {
+                                            Text("(\(yards) yds)")
+                                        }
                                         if viewModel.selectedTee == entry.canonicalTee {
                                             Image(systemName: "checkmark")
                                         }
@@ -284,6 +287,18 @@ struct CourseMapView: View {
                             .background(.blue.opacity(0.8))
                             .clipShape(Capsule())
                         }
+                    } else if let selected = viewModel.selectedTee {
+                        // Single tee — show label without a menu
+                        HStack(spacing: 4) {
+                            Image(systemName: "flag.fill")
+                            Text(dedupedTees.first?.displayName ?? selected)
+                                .font(.caption.weight(.semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.blue.opacity(0.8))
+                        .clipShape(Capsule())
                     }
 
                     Menu {
@@ -318,13 +333,19 @@ struct CourseMapView: View {
             )
         }
         .task {
-            // Restore saved tee or auto-select the first one (using deduped canonical names)
+            // Restore saved tee, match profile preference, or auto-select first
             if viewModel.selectedTee == nil {
                 let dedupedTees = CourseViewModel.deduplicatedTees(for: course)
                 if !dedupedTees.isEmpty {
                     if let saved = cacheService.selectedTee(forCourse: course.id),
                        dedupedTees.contains(where: { $0.canonicalTee == saved }) {
                         viewModel.selectedTee = saved
+                    } else if let match = Self.bestTeeForPreference(
+                        profileStore.profile.preferredTeeBox,
+                        from: dedupedTees
+                    ) {
+                        viewModel.selectedTee = match
+                        cacheService.saveSelectedTee(match, forCourse: course.id)
                     } else {
                         viewModel.selectedTee = dedupedTees.first?.canonicalTee
                         if dedupedTees.count > 1 {
@@ -421,6 +442,36 @@ struct CourseMapView: View {
     private func teePickerLabel(dedupedTees: [(displayName: String, canonicalTee: String)]) -> String {
         guard let selected = viewModel.selectedTee else { return "Tees" }
         return dedupedTees.first(where: { $0.canonicalTee == selected })?.displayName ?? selected
+    }
+
+    /// Matches the user's tee preference against available course tees using keyword matching.
+    /// If no exact tier match is found, walks to the next-closest tier (shorter first, then longer).
+    private static func bestTeeForPreference(
+        _ preference: TeeBoxPreference,
+        from dedupedTees: [(displayName: String, canonicalTee: String)]
+    ) -> String? {
+        // Try matching at the preferred tier, then expand outward
+        let allTiers = TeeBoxPreference.allCases.sorted { $0.rawValue < $1.rawValue }
+        let startIndex = preference.rawValue
+
+        // Build search order: preferred tier first, then alternate shorter/longer
+        var searchOrder: [TeeBoxPreference] = [preference]
+        for offset in 1..<allTiers.count {
+            let shorter = startIndex + offset
+            let longer = startIndex - offset
+            if shorter < allTiers.count { searchOrder.append(allTiers[shorter]) }
+            if longer >= 0 { searchOrder.append(allTiers[longer]) }
+        }
+
+        for tier in searchOrder {
+            for entry in dedupedTees {
+                let name = entry.displayName.lowercased()
+                if tier.matchKeywords.contains(where: { name.contains($0) }) {
+                    return entry.canonicalTee
+                }
+            }
+        }
+        return nil
     }
 
     private func inferShotType(distanceYards: Int, clubDistances: [ClubDistance]) -> ShotType {

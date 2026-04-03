@@ -516,6 +516,42 @@ enum SwingTendency: String, CaseIterable, Codable, Identifiable, Sendable {
     }
 }
 
+// MARK: - Tee Box Preference
+
+/// Tee tier preference ordered longest → shortest.
+/// Each case represents a yardage tier, not a literal color.
+/// Matching uses tier order for fallback when a course doesn't have the exact name.
+enum TeeBoxPreference: Int, CaseIterable, Codable, Identifiable, Sendable {
+    case championship = 0  // Black / Championship — longest
+    case blue = 1
+    case white = 2
+    case senior = 3        // Gold / Silver — forward-middle
+    case forward = 4       // Red / Forward / Ladies — shortest
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .championship: return "Black / Championship"
+        case .blue: return "Blue"
+        case .white: return "White"
+        case .senior: return "Gold / Silver"
+        case .forward: return "Red / Forward"
+        }
+    }
+
+    /// Keywords used to match against actual course tee names (case-insensitive).
+    var matchKeywords: [String] {
+        switch self {
+        case .championship: return ["championship", "black", "tiger"]
+        case .blue: return ["blue"]
+        case .white: return ["white"]
+        case .senior: return ["gold", "silver", "senior"]
+        case .forward: return ["red", "forward", "ladies"]
+        }
+    }
+}
+
 // MARK: - Caddie Voice Gender
 
 enum CaddieVoiceGender: String, CaseIterable, Codable, Identifiable, Sendable {
