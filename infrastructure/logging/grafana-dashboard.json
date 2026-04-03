@@ -48,6 +48,7 @@
         "options": [
           { "text": "All", "value": "$__all", "selected": true },
           { "text": "llm", "value": "llm", "selected": false },
+          { "text": "map", "value": "map", "selected": false },
           { "text": "network", "value": "network", "selected": false },
           { "text": "course", "value": "course", "selected": false },
           { "text": "weather", "value": "weather", "selected": false },
@@ -519,6 +520,322 @@
             }
           ],
           "expression": "fields @timestamp, message, metadata.provider as provider, metadata.statusCode as httpStatus, metadata.latencyMs as latencyMs, metadata.rawResponseSnippet as responseSnippet, @logStream as device\n| filter level = \"error\" and category = \"llm\"\n| sort @timestamp desc\n| limit 30",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Course Load Pipeline (p50/p95 by Phase)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields message as phase, metadata.latencyMs as latency\n| filter category = \"map\" and level = \"info\" and latency > 0\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, pct(latency, 99) as p99_ms, count(*) as calls by phase\n| sort avg_ms desc",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Map Load by Platform",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "datasource": "CloudWatch",
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.latencyMs as latency\n| filter category = \"map\" and message = \"total_ingestion\" and latency > 0\n| parse @logStream \"*/*\" as platform, deviceId\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, count(*) as loads by platform",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Cache Hit Rate",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 60 },
+      "datasource": "CloudWatch",
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "pieType": "donut",
+        "legend": { "displayMode": "list", "placement": "right" }
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.cacheHit as hit\n| filter category = \"map\" and message = \"cache_check\"\n| stats sum(hit = \"true\") as cache_hits, sum(hit = \"false\") as cache_misses",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "title": "Map Render Timing (Style + Layers)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 60 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields message as phase, metadata.latencyMs as latency\n| filter category = \"map\" and (message = \"map_style_load\" or message = \"layer_render\") and latency > 0\n| parse @logStream \"*/*\" as platform, deviceId\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, count(*) as renders by phase, platform",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Recent Map Loads (Detail)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 60 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields @timestamp, message as phase, metadata.latencyMs as latencyMs, metadata.courseName as course, metadata.holeCount as holes, metadata.cacheHit as cacheHit, @logStream as device\n| filter category = \"map\" and level = \"info\"\n| sort @timestamp desc\n| limit 50",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "— UX Performance —",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 68 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 25,
+      "title": "App Startup Time (p50/p95 by Platform)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 69 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.latencyMs as latency\n| filter message = \"app_startup\" and latency > 0\n| parse @logStream \"*/*\" as platform, deviceId\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, count(*) as launches by platform",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "title": "Voice-to-Result Latency (p50/p95)",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 69 },
+      "datasource": "CloudWatch",
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.latencyMs as latency\n| filter message = \"voice_to_result\" and latency > 0\n| parse @logStream \"*/*\" as platform, deviceId\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, count(*) as calls by platform",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "title": "STT Duration (p50/p95)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 69 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.latencyMs as latency, metadata.wordCount as words\n| filter message = \"stt_complete\" and latency > 0\n| parse @logStream \"*/*\" as platform, deviceId\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, avg(words) as avg_words, count(*) as calls by platform",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "title": "Weather API Latency",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 77 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.latencyMs as latency, metadata.source as source\n| filter message = \"weather_fetch\" and latency > 0\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, count(*) as calls by source",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "title": "TTS Time-to-Audio",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 77 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.latencyMs as latency, metadata.charCount as chars\n| filter message = \"tts_start\" and latency > 0\n| parse @logStream \"*/*\" as platform, deviceId\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, avg(chars) as avg_chars, count(*) as calls by platform",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "title": "Follow-up Latency by Method",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 77 },
+      "datasource": "CloudWatch",
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.latencyMs as latency, metadata.method as method, metadata.provider as provider\n| filter category = \"llm\" and message = \"LLM response received\" and (method = \"askFollowUp\" or method = \"askHoleFollowUp\") and latency > 0\n| stats avg(latency) as avg_ms, pct(latency, 50) as p50_ms, pct(latency, 95) as p95_ms, count(*) as calls by method, provider",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "Tab Dwell Time (avg seconds)",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 85 },
+      "datasource": "CloudWatch",
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient"
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.dwellMs as dwell, metadata.tab as tab\n| filter message = \"tab_dwell\" and dwell > 0\n| stats avg(dwell / 1000) as avg_seconds, pct(dwell / 1000, 50) as p50_sec, count(*) as switches by tab\n| sort avg_seconds desc",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "UX Latency Trends (5m bins)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 85 },
+      "datasource": "CloudWatch",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "pointSize": 5
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "CloudWatch",
+          "queryMode": "Logs",
+          "logGroups": [
+            {
+              "arn": "arn:aws:logs:us-east-2:736255088782:log-group:/caddieai/client-logs",
+              "name": "/caddieai/client-logs"
+            }
+          ],
+          "expression": "fields metadata.latencyMs as latency, message\n| filter (message = \"app_startup\" or message = \"voice_to_result\" or message = \"stt_complete\" or message = \"weather_fetch\" or message = \"tts_start\") and latency > 0\n| stats avg(latency) as avg_ms by bin(5m), message",
           "refId": "A"
         }
       ]
