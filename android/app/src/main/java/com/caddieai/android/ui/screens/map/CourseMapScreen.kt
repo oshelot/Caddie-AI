@@ -24,6 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GolfCourse
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -93,6 +96,7 @@ fun CourseMapScreen(
     course: NormalizedCourse,
     hasLocationPermission: Boolean,
     onBack: () -> Unit,
+    onNavigateToCaddie: () -> Unit = {},
     viewModel: HoleAnalysisViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -102,9 +106,19 @@ fun CourseMapScreen(
     val centroid = remember(course) { computeCourseCentroid(course) }
     val mapView = remember { MapView(context) }
 
-    // Initialize tee selection; re-runs if teeNames are refreshed in background
+    // Initialize tee selection and fetch weather
     LaunchedEffect(course.id, course.teeNames) {
         viewModel.initTeeSelection(course)
+        viewModel.fetchWeatherForBadge(course)
+    }
+
+    // Navigate to Caddie tab when Ask Caddie finishes
+    var wasAskingCaddie by remember { mutableStateOf(false) }
+    LaunchedEffect(state.isAskingCaddie) {
+        if (wasAskingCaddie && !state.isAskingCaddie) {
+            onNavigateToCaddie()
+        }
+        wasAskingCaddie = state.isAskingCaddie
     }
 
     // Setup map layers once when course is available
@@ -169,19 +183,19 @@ fun CourseMapScreen(
 
             if (!state.isAnalyzed) {
                 // Peek row — shown before analysis
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             if (state.selectedHoleNumber != null) "Hole ${state.selectedHoleNumber}" else course.name,
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.primary,
                         )
                         hole?.let {
+                            Spacer(Modifier.width(12.dp))
                             Text(
                                 "Par ${it.par} • ${teeYardage ?: it.yardage} yds${state.selectedTee?.let { t -> " ($t)" } ?: ""}",
                                 style = MaterialTheme.typography.bodyMedium,
@@ -189,20 +203,44 @@ fun CourseMapScreen(
                             )
                         }
                     }
-                    Button(
-                        onClick = { state.selectedHoleNumber?.let { viewModel.analyzeHole(course, it) } },
-                        enabled = state.selectedHoleNumber != null,
-                    ) {
-                        if (state.isLoadingLLM) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        } else {
-                            Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Analyze")
+                    if (state.selectedHoleNumber != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            // Ask Caddie (green)
+                            Button(
+                                onClick = { state.selectedHoleNumber?.let { viewModel.askCaddie(course, it) } },
+                                enabled = !state.isAskingCaddie,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF2E7D32),
+                                ),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                if (state.isAskingCaddie) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp,
+                                        color = Color.White)
+                                } else {
+                                    Icon(Icons.Default.GolfCourse, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Ask Caddie")
+                                }
+                            }
+                            // Analyze (blue)
+                            Button(
+                                onClick = { state.selectedHoleNumber?.let { viewModel.analyzeHole(course, it) } },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                if (state.isLoadingLLM) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onPrimary)
+                                } else {
+                                    Icon(Icons.Default.Star, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Analyze")
+                                }
+                            }
                         }
                     }
                 }
@@ -230,15 +268,15 @@ fun CourseMapScreen(
                     }
                 },
                 actions = {
-                    if (course.teeNames.size > 1) {
+                    if (state.dedupedTees.size > 1) {
                         var expanded by remember { mutableStateOf(false) }
+                        val currentDisplay = state.dedupedTees.firstOrNull { it.canonicalTee == state.selectedTee }?.displayName
+                            ?: state.selectedTee ?: ""
                         Box {
                             FilterChip(
                                 selected = false,
                                 onClick = { expanded = true },
-                                label = {
-                                    Text(state.selectedTee ?: course.teeNames.firstOrNull() ?: "")
-                                },
+                                label = { Text(currentDisplay) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Default.Flag,
@@ -251,14 +289,14 @@ fun CourseMapScreen(
                                 expanded = expanded,
                                 onDismissRequest = { expanded = false },
                             ) {
-                                course.teeNames.forEach { tee ->
+                                state.dedupedTees.forEach { deduped ->
                                     DropdownMenuItem(
-                                        text = { Text(tee) },
+                                        text = { Text(deduped.displayName) },
                                         onClick = {
-                                            viewModel.selectTee(course, tee)
+                                            viewModel.selectTee(course, deduped.canonicalTee)
                                             expanded = false
                                         },
-                                        trailingIcon = if (tee == state.selectedTee) {
+                                        trailingIcon = if (deduped.canonicalTee == state.selectedTee) {
                                             { Icon(Icons.Default.Check, contentDescription = null) }
                                         } else null,
                                     )
@@ -274,12 +312,37 @@ fun CourseMapScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            AndroidView(
-                factory = { mapView },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            )
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                AndroidView(
+                    factory = { mapView },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // Weather badge overlay
+                state.weatherBadge?.let { weather ->
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Black.copy(alpha = 0.6f),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(start = 8.dp, top = 8.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text("${weather.tempF}°F", color = Color.White,
+                                style = MaterialTheme.typography.labelSmall)
+                            if (weather.windMph >= 5) {
+                                Text("💨", style = MaterialTheme.typography.labelSmall)
+                                Text("${weather.windMph}mph ${weather.windCompass}",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
 
             // Tee reminder callout
             AnimatedVisibility(

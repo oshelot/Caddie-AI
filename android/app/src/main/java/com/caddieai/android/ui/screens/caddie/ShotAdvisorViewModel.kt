@@ -84,6 +84,18 @@ class ShotAdvisorViewModel @Inject constructor(
     private val _autoDetectState = MutableStateFlow<AutoDetectState>(AutoDetectState.Idle)
     val autoDetectState: StateFlow<AutoDetectState> = _autoDetectState.asStateFlow()
 
+    init {
+        // Consume pending shot context from Course Map "Ask Caddie"
+        viewModelScope.launch {
+            activeRoundStore.pendingShotContext.collect { pending ->
+                if (pending != null) {
+                    _shotContext.value = pending
+                    activeRoundStore.consumePendingShotContext()
+                }
+            }
+        }
+    }
+
     fun setActiveHole(number: Int) { activeRoundStore.setActiveHole(number) }
 
     fun triggerAutoDetect() {

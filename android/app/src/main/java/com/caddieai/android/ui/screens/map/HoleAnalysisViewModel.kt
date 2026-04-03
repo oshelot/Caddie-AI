@@ -26,6 +26,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+data class WeatherBadgeData(
+    val tempF: Int = 0,
+    val windMph: Int = 0,
+    val windCompass: String = "",
+)
+
+data class DedupedTee(val displayName: String, val canonicalTee: String)
+
 data class HoleAnalysisState(
     val selectedHoleNumber: Int? = null,
     val analysis: HoleAnalysis? = null,
@@ -35,9 +43,12 @@ data class HoleAnalysisState(
     val showOffTopicDialog: Boolean = false,
     val selectedTee: String? = null,
     val availableTees: List<String> = emptyList(),
+    val dedupedTees: List<DedupedTee> = emptyList(),
     val showTeeReminder: Boolean = false,
     val isAnalyzed: Boolean = false,
     val isSpeaking: Boolean = false,
+    val isAskingCaddie: Boolean = false,
+    val weatherBadge: WeatherBadgeData? = null,
 )
 
 data class ConversationMessage(
@@ -55,6 +66,8 @@ class HoleAnalysisViewModel @Inject constructor(
     private val ttsService: TextToSpeechService,
     private val weatherService: WeatherService,
     private val courseCacheService: CourseCacheService,
+    private val locationService: com.caddieai.android.data.location.LocationService,
+    private val activeRoundStore: com.caddieai.android.data.store.ActiveRoundStore,
     private val logger: DiagnosticLogger,
 ) : ViewModel() {
 
@@ -85,26 +98,157 @@ class HoleAnalysisViewModel @Inject constructor(
         ))
     }
 
+    /** Fetch weather for badge display on map load. */
+    fun fetchWeatherForBadge(course: com.caddieai.android.data.model.NormalizedCourse) {
+        val pts = course.holes.flatMap { listOfNotNull(it.teeBox, it.pin) }
+        if (pts.isEmpty()) return
+        val lat = pts.map { it.latitude }.average()
+        val lon = pts.map { it.longitude }.average()
+        viewModelScope.launch {
+            weatherService.getWeather(lat, lon).onSuccess { wd ->
+                _state.update { it.copy(weatherBadge = WeatherBadgeData(
+                    tempF = wd.temperatureFahrenheit.toInt(),
+                    windMph = wd.windSpeedMph.toInt(),
+                    windCompass = compassDirection(wd.windDirectionDegrees),
+                )) }
+            }
+        }
+    }
+
+    /** "Ask Caddie" from Course Map — calculate GPS distance, build context, navigate to Caddie. */
+    fun askCaddie(course: com.caddieai.android.data.model.NormalizedCourse, holeNumber: Int) {
+        _state.update { it.copy(isAskingCaddie = true) }
+        viewModelScope.launch {
+            val profile = profileStore.getProfile()
+            val hole = course.holes.firstOrNull { it.number == holeNumber }
+            if (hole == null) { _state.update { it.copy(isAskingCaddie = false) }; return@launch }
+
+            // Get GPS distance to green
+            val distanceYards = locationService.getCurrentLocation().getOrNull()?.let { loc ->
+                val greenCenter = hole.green?.let { g ->
+                    val pts = g.outerRing
+                    if (pts.isNotEmpty()) com.caddieai.android.data.model.GeoPoint(
+                        pts.map { it.latitude }.average(), pts.map { it.longitude }.average()
+                    ) else null
+                } ?: hole.pin ?: hole.teeBox
+                greenCenter?.let { gc ->
+                    val distMeters = haversineMeters(loc.latitude, loc.longitude, gc.latitude, gc.longitude)
+                    (distMeters / 0.9144).toInt()
+                }
+            } ?: _state.value.selectedTee?.let { tee ->
+                course.holeYardagesByTee[tee]?.get(holeNumber.toString())
+            } ?: hole.yardage
+
+            // Infer shot type
+            val clubDistances = profile.clubDistances
+            val maxCarry = clubDistances.values.maxOrNull() ?: 250
+            val minWedge = clubDistances.filterKeys { it.name.contains("WEDGE", ignoreCase = true) }
+                .values.minOrNull() ?: 80
+            val shotType = when {
+                distanceYards > maxCarry -> com.caddieai.android.data.model.ShotType.FULL_SWING
+                distanceYards <= 40 -> com.caddieai.android.data.model.ShotType.CHIP
+                distanceYards <= minWedge -> com.caddieai.android.data.model.ShotType.PITCH
+                else -> com.caddieai.android.data.model.ShotType.APPROACH
+            }
+
+            // Weather context
+            val teePts = course.holes.mapNotNull { it.teeBox }
+            val lat = if (teePts.isNotEmpty()) teePts.map { it.latitude }.average() else 0.0
+            val lon = if (teePts.isNotEmpty()) teePts.map { it.longitude }.average() else 0.0
+            val weather = if (teePts.isNotEmpty()) weatherService.getWeather(lat, lon).getOrNull() else null
+
+            var windStr = com.caddieai.android.data.model.WindStrength.CALM
+            var windDir = com.caddieai.android.data.model.WindDirection.NONE
+            if (weather != null && weather.windSpeedMph >= 5) {
+                windStr = weather.windStrength
+                val holeBearing = if (hole.teeBox != null && hole.pin != null)
+                    forwardBearing(hole.teeBox, hole.pin) else 0.0
+                val relDir = computeRelativeWindDir(holeBearing, weather.windDirectionDegrees.toDouble())
+                windDir = when {
+                    relDir.contains("headwind") || relDir.contains("into") -> com.caddieai.android.data.model.WindDirection.HEADWIND
+                    relDir.contains("tailwind") || relDir.contains("helping") -> com.caddieai.android.data.model.WindDirection.TAILWIND
+                    relDir.contains("left-to-right") -> com.caddieai.android.data.model.WindDirection.LEFT_TO_RIGHT
+                    relDir.contains("right-to-left") -> com.caddieai.android.data.model.WindDirection.RIGHT_TO_LEFT
+                    else -> com.caddieai.android.data.model.WindDirection.NONE
+                }
+            }
+
+            // Auto-detect hazards
+            val hazards = mutableListOf<String>()
+            if (hole.hazards.any { it.type.name.contains("WATER") }) hazards.add("Water in play")
+            val bunkerCount = hole.hazards.count { it.type == com.caddieai.android.data.model.HazardType.BUNKER }
+            if (bunkerCount > 0) hazards.add("$bunkerCount bunker(s)")
+
+            val ctx = com.caddieai.android.data.model.ShotContext(
+                distanceToPin = distanceYards,
+                shotType = shotType,
+                lie = com.caddieai.android.data.model.LieType.FAIRWAY,
+                slope = com.caddieai.android.data.model.Slope.FLAT,
+                windStrength = windStr,
+                windDirection = windDir,
+                hazardNotes = hazards.joinToString(". "),
+                holeNumber = holeNumber,
+                par = hole.par,
+            )
+
+            activeRoundStore.setPendingShotContext(ctx)
+            _state.update { it.copy(isAskingCaddie = false) }
+        }
+    }
+
+    private fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6_371_000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2).let { it * it } +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2).let { it * it }
+        return 2 * r * Math.asin(Math.sqrt(a))
+    }
+
     /** Initialize tee selection for a course — call once when course is first shown. */
     fun initTeeSelection(course: NormalizedCourse) {
         android.util.Log.d("CaddieAI/Tee", "initTeeSelection: courseId=${course.id} teeNames=${course.teeNames}")
         val savedTee = courseCacheService.getSelectedTee(course.id)
         val teeNames = course.teeNames
+        val deduped = deduplicateTees(teeNames, course)
 
+        val canonicalTees = deduped.map { it.canonicalTee }
         val (selectedTee, showReminder) = when {
-            savedTee != null && savedTee in teeNames -> Pair(savedTee, false)
-            teeNames.size > 1 -> Pair(teeNames.firstOrNull(), true)
-            teeNames.size == 1 -> Pair(teeNames.first(), false)
+            savedTee != null && savedTee in canonicalTees -> Pair(savedTee, false)
+            deduped.size > 1 -> Pair(deduped.firstOrNull()?.canonicalTee, true)
+            deduped.size == 1 -> Pair(deduped.first().canonicalTee, false)
             else -> Pair(null, false)
         }
 
         _state.update {
             it.copy(
                 availableTees = teeNames,
+                dedupedTees = deduped,
                 selectedTee = selectedTee,
                 showTeeReminder = showReminder,
             )
         }
+    }
+
+    private fun deduplicateTees(teeNames: List<String>, course: NormalizedCourse): List<DedupedTee> {
+        if (teeNames.isEmpty()) return emptyList()
+        val sortedHoles = course.holes.sortedBy { it.number }
+        val signatureToTees = mutableMapOf<String, MutableList<String>>()
+        for (tee in teeNames) {
+            val sig = sortedHoles.joinToString(",") { hole ->
+                course.holeYardagesByTee[tee]?.get(hole.number.toString())?.toString() ?: "-"
+            }
+            signatureToTees.getOrPut(sig) { mutableListOf() }.add(tee)
+        }
+        return signatureToTees.values
+            .sortedBy { group -> teeNames.indexOf(group.first()) }
+            .map { group ->
+                DedupedTee(
+                    displayName = group.joinToString(" / "),
+                    canonicalTee = group.first(),
+                )
+            }
     }
 
     /** Deselect all holes and zoom out to full course view. */

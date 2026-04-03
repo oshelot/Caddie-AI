@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GolfCourse
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
@@ -39,6 +42,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -60,7 +66,7 @@ import com.caddieai.android.ui.screens.map.CourseMapScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CourseScreen(viewModel: CourseViewModel = hiltViewModel()) {
+fun CourseScreen(viewModel: CourseViewModel = hiltViewModel(), onNavigateToCaddie: () -> Unit = {}) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -89,6 +95,7 @@ fun CourseScreen(viewModel: CourseViewModel = hiltViewModel()) {
                 course = state.selectedCourse!!,
                 hasLocationPermission = hasLocationPermission,
                 onBack = { viewModel.clearSelectedCourse() },
+                onNavigateToCaddie = onNavigateToCaddie,
             )
         } else {
             CourseListScreen(
@@ -100,6 +107,7 @@ fun CourseScreen(viewModel: CourseViewModel = hiltViewModel()) {
                 onSelectCourse = viewModel::selectAndIngestCourse,
                 onToggleFavorite = viewModel::toggleFavorite,
                 onSelectCachedCourse = viewModel::selectCachedCourse,
+                onDeleteCourse = viewModel::deleteCachedCourse,
             )
         }
     }
@@ -116,6 +124,7 @@ private fun CourseListScreen(
     onSelectCourse: (com.caddieai.android.data.course.NominatimResult) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onSelectCachedCourse: (com.caddieai.android.data.model.NormalizedCourse) -> Unit,
+    onDeleteCourse: (String) -> Unit = {},
 ) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("Courses") }) }
@@ -135,6 +144,11 @@ private fun CourseListScreen(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("Golf course name") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = if (state.courseName.isNotBlank()) {
+                        { IconButton(onClick = { onCourseNameChange("") }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear")
+                        } }
+                    } else null,
                     singleLine = true,
                     label = { Text("Course Name") },
                 )
@@ -145,12 +159,17 @@ private fun CourseListScreen(
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("City or region (optional)") },
                         leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                        trailingIcon = if (state.locationQuery.isNotBlank()) {
+                            { IconButton(onClick = { onLocationQueryChange("") }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                            } }
+                        } else null,
                         singleLine = true,
                         label = { Text("Location") },
                     )
                     DropdownMenu(
                         expanded = state.locationSuggestions.isNotEmpty(),
-                        onDismissRequest = { },
+                        onDismissRequest = { onLocationSelected(state.locationQuery) },
                     ) {
                         state.locationSuggestions.forEach { suggestion ->
                             DropdownMenuItem(
@@ -161,7 +180,10 @@ private fun CourseListScreen(
                     }
                 }
                 Button(
-                    onClick = onSearch,
+                    onClick = {
+                        android.util.Log.d("CaddieAI/Search", "Search tapped! courseName='${state.courseName}' isSearching=${state.isSearching}")
+                        onSearch()
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = state.courseName.isNotBlank() && !state.isSearching,
                 ) {
@@ -221,32 +243,65 @@ private fun CourseListScreen(
                     }
                     items(state.cachedCourses, key = { it.id }) { course ->
                         val isFav = course.id in state.favoriteIds
-                        ListItem(
-                            headlineContent = { Text(course.name, fontWeight = FontWeight.Medium) },
-                            supportingContent = {
-                                Text("${course.city}, ${course.state} • Par ${course.par} • ${course.totalYardage} yds")
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.GolfCourse, contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary)
-                            },
-                            trailingContent = {
-                                IconButton(onClick = { onToggleFavorite(course.id) }) {
-                                    Icon(
-                                        if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                        contentDescription = "Favorite",
-                                        tint = if (isFav) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                if (value == SwipeToDismissBoxValue.EndToStart) {
+                                    onDeleteCourse(course.id)
+                                    true
+                                } else false
+                            }
+                        )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            enableDismissFromStartToEnd = false,
+                            backgroundContent = {
+                                Box(
+                                    Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(end = 16.dp),
+                                    contentAlignment = Alignment.CenterEnd,
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete",
+                                        tint = MaterialTheme.colorScheme.onErrorContainer)
                                 }
                             },
-                            modifier = Modifier.clickable { onSelectCachedCourse(course) }
-                        )
+                        ) {
+                            ListItem(
+                                headlineContent = { Text(course.name, fontWeight = FontWeight.Medium) },
+                                supportingContent = {
+                                    Text("${course.city}, ${course.state} • Par ${course.par} • ${course.totalYardage} yds")
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.GolfCourse, contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary)
+                                },
+                                trailingContent = {
+                                    IconButton(onClick = { onToggleFavorite(course.id) }) {
+                                        Icon(
+                                            if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                            contentDescription = "Favorite",
+                                            tint = if (isFav) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.clickable { onSelectCachedCourse(course) }
+                            )
+                        }
                         Divider()
                     }
                 }
 
-                if (state.cachedCourses.isEmpty() && state.nominatimResults.isEmpty() && state.courseName.isBlank()) {
+                if (state.hasSearched && state.nominatimResults.isEmpty() && !state.isSearching) {
+                    item {
+                        Text(
+                            "No golf courses found. Try a different name or location.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+
+                if (state.cachedCourses.isEmpty() && state.nominatimResults.isEmpty() && state.courseName.isBlank() && !state.hasSearched) {
                     item { EmptyCoursesPlaceholder() }
                 }
             }

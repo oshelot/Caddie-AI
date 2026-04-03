@@ -5,6 +5,8 @@ import com.caddieai.android.data.diagnostics.LogCategory
 import com.caddieai.android.data.diagnostics.LogLevel
 import com.caddieai.android.data.model.WindDirection
 import com.caddieai.android.data.model.WindStrength
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -45,7 +47,7 @@ class WeatherService @Inject constructor(
         }
 
         val fetchStart = System.currentTimeMillis()
-        return try {
+        return withContext(Dispatchers.IO) { try {
             val url = "https://api.open-meteo.com/v1/forecast" +
                     "?latitude=$lat&longitude=$lon" +
                     "&current=temperature_2m,wind_speed_10m,wind_direction_10m,weather_code" +
@@ -91,7 +93,7 @@ class WeatherService @Inject constructor(
         } catch (e: Exception) {
             logger.log(LogLevel.ERROR, LogCategory.API, "weather_fetch_failed", mapOf("error" to (e.message ?: "unknown")))
             Result.failure(e)
-        }
+        } }
     }
 
     fun clearCache() { cache = null }

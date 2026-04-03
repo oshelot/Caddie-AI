@@ -71,7 +71,7 @@ fun MainScreen(
         ) {
             when (selectedIndex) {
                 0 -> CaddieScreen()
-                1 -> CourseScreen()
+                1 -> CourseScreen(onNavigateToCaddie = { selectedIndex = 0 })
                 2 -> HistoryNavHost()
                 3 -> ProfileNavHost()
             }

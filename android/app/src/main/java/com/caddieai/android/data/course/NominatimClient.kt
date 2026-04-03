@@ -22,7 +22,7 @@ data class NominatimResult(
     val lat: String,
     val lon: String,
     val type: String = "",
-    val extratags: Map<String, String> = emptyMap(),
+    val extratags: Map<String, String>? = null,
     val address: Map<String, String> = emptyMap(),
 ) {
     val latitude: Double get() = lat.toDoubleOrNull() ?: 0.0
@@ -48,38 +48,49 @@ class NominatimClient @Inject constructor(
 
     /** Search for golf courses by name. */
     suspend fun searchGolfCourses(query: String, limit: Int = 15): List<NominatimResult> =
-        withContext(Dispatchers.IO) { runCatching {
-            logger.log(LogLevel.INFO, LogCategory.API, "nominatim_search_courses")
-            val url = "$BASE_URL/search" +
-                    "?q=${"golf course $query".urlEncode()}" +
-                    "&format=json" +
-                    "&limit=$limit" +
-                    "&addressdetails=1" +
-                    "&extratags=1"
+        withContext(Dispatchers.IO) {
+            try {
+                logger.log(LogLevel.INFO, LogCategory.API, "nominatim_search_courses", mapOf("query" to query))
 
-            val request = Request.Builder()
-                .url(url)
-                .addHeader("User-Agent", "CaddieAI/1.0 (golf caddie app)")
-                .build()
+                // Single request with "golf course" prefix — most reliable for Nominatim
+                val url = "$BASE_URL/search" +
+                        "?q=${"golf course $query".urlEncode()}" +
+                        "&format=json&limit=$limit&addressdetails=1&extratags=1&countrycodes=us"
 
-            val body = httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    logger.log(LogLevel.WARN, LogCategory.API, "nominatim_search_failed", mapOf("status" to response.code))
-                    return@runCatching emptyList()
+                val request = Request.Builder().url(url)
+                    .addHeader("User-Agent", "CaddieAI/1.0 (golf caddie app)").build()
+
+                val response = httpClient.newCall(request).execute()
+                val code = response.code
+                val body = response.body?.string() ?: ""
+                response.close()
+
+                if (code != 200 || body.isBlank()) {
+                    logger.log(LogLevel.WARN, LogCategory.API, "nominatim_search_failed",
+                        mapOf("status" to code, "query" to query))
+                    return@withContext emptyList()
                 }
-                response.body?.string() ?: return@runCatching emptyList()
-            }
 
-            val results = lenientJson.decodeFromString<List<NominatimResult>>(body)
-                .filter { result ->
+                val allResults = lenientJson.decodeFromString<List<NominatimResult>>(body)
+
+                // Filter for golf-related, but fall back to all results if none match
+                val golfResults = allResults.filter { result ->
                     result.type == "golf_course" ||
                         result.display_name.lowercase().let { name ->
-                            name.contains("golf course") || name.contains("golf club") || name.contains("golf links")
+                            name.contains("golf") || name.contains("country club")
                         }
                 }
-            logger.log(LogLevel.INFO, LogCategory.API, "nominatim_search_success", mapOf("result_count" to results.size))
-            results
-        }.getOrDefault(emptyList()) }
+                val results = golfResults.ifEmpty { allResults }
+                logger.log(LogLevel.INFO, LogCategory.API, "nominatim_search_success",
+                    mapOf("result_count" to results.size, "query" to query))
+                results
+            } catch (e: Exception) {
+                logger.log(LogLevel.ERROR, LogCategory.API, "nominatim_search_exception",
+                    mapOf("error" to (e.message ?: "unknown"), "query" to query))
+                android.util.Log.e("CaddieAI/Search", "Search failed: ${e.message}", e)
+                emptyList()
+            }
+        }
 
     /** Autocomplete city/region names for the location filter. */
     suspend fun searchCities(query: String, limit: Int = 5): List<String> =
@@ -89,17 +100,19 @@ class NominatimClient @Inject constructor(
                     "&format=json" +
                     "&limit=$limit" +
                     "&addressdetails=1" +
-                    "&featuretype=city"
+                    "&featuretype=city" +
+                    "&countrycodes=us"
 
             val request = Request.Builder()
                 .url(url)
                 .addHeader("User-Agent", "CaddieAI Android/1.0 (contact@caddieai.app)")
                 .build()
 
-            val body = httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@runCatching emptyList()
-                response.body?.string() ?: return@runCatching emptyList()
-            }
+            val response = httpClient.newCall(request).execute()
+            val code = response.code
+            val body = response.body?.string() ?: ""
+            response.close()
+            if (code != 200 || body.isBlank()) return@runCatching emptyList()
 
             lenientJson.decodeFromString<List<NominatimResult>>(body)
                 .mapNotNull { result ->

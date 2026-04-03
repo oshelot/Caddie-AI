@@ -50,32 +50,39 @@ class GolfCourseAPIClient @Inject constructor(
 ) {
     companion object {
         private const val BASE_URL = "https://api.golfcourseapi.com/v1"
-        private val lenientJson = Json { ignoreUnknownKeys = true }
+        private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
     }
 
     /** Search for a course by name. Returns a list of matching courses. */
     suspend fun searchCourses(query: String, apiKey: String): List<CourseScorecard> {
         if (apiKey.isBlank()) return emptyList()
-        return withContext(Dispatchers.IO) { runCatching {
-            logger.log(LogLevel.INFO, LogCategory.API, "golf_api_search", mapOf("query_len" to query.length))
-            val url = "$BASE_URL/search?search_query=${query.urlEncode()}"
-            val request = Request.Builder()
-                .url(url)
-                .addHeader("Authorization", "Key $apiKey")
-                .build()
+        return withContext(Dispatchers.IO) {
+            try {
+                logger.log(LogLevel.INFO, LogCategory.API, "golf_api_search", mapOf("query_len" to query.length))
+                val url = "$BASE_URL/search?search_query=${query.urlEncode()}"
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("Authorization", "Key $apiKey")
+                    .build()
 
-            val body = httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    logger.log(LogLevel.WARN, LogCategory.API, "golf_api_search_failed", mapOf("status" to response.code))
-                    return@runCatching emptyList()
+                val response = httpClient.newCall(request).execute()
+                val code = response.code
+                val body = response.body?.string() ?: ""
+                response.close()
+                if (code != 200 || body.isBlank()) {
+                    logger.log(LogLevel.WARN, LogCategory.API, "golf_api_search_failed", mapOf("status" to code))
+                    return@withContext emptyList()
                 }
-                response.body?.string() ?: return@runCatching emptyList()
-            }
 
-            val results = lenientJson.decodeFromString<GolfAPISearchResponse>(body).courses.map { it.toScorecard() }
-            logger.log(LogLevel.INFO, LogCategory.API, "golf_api_search_success", mapOf("result_count" to results.size))
-            results
-        }.getOrDefault(emptyList()) }
+                val results = lenientJson.decodeFromString<GolfAPISearchResponse>(body).courses.map { it.toScorecard() }
+                android.util.Log.d("CaddieAI/GolfAPI", "Parsed ${results.size} results: ${results.map { it.name }}")
+                logger.log(LogLevel.INFO, LogCategory.API, "golf_api_search_success", mapOf("result_count" to results.size))
+                results
+            } catch (e: Exception) {
+                android.util.Log.e("CaddieAI/GolfAPI", "Search failed: ${e.message}", e)
+                emptyList()
+            }
+        }
     }
 
     /** Fetch detailed scorecard for a course by its ID. */
@@ -89,16 +96,17 @@ class GolfCourseAPIClient @Inject constructor(
                 .addHeader("Authorization", "Key $apiKey")
                 .build()
 
-            val body = httpClient.newCall(request).execute().use { response ->
-                if (response.code == 404) {
-                    logger.log(LogLevel.WARN, LogCategory.API, "golf_api_course_not_found")
-                    return@runCatching null
-                }
-                if (!response.isSuccessful) {
-                    logger.log(LogLevel.ERROR, LogCategory.API, "golf_api_get_failed", mapOf("status" to response.code))
-                    return@runCatching null
-                }
-                response.body?.string() ?: return@runCatching null
+            val response = httpClient.newCall(request).execute()
+            val code = response.code
+            val body = response.body?.string() ?: ""
+            response.close()
+            if (code == 404) {
+                logger.log(LogLevel.WARN, LogCategory.API, "golf_api_course_not_found")
+                return@runCatching null
+            }
+            if (code != 200 || body.isBlank()) {
+                logger.log(LogLevel.ERROR, LogCategory.API, "golf_api_get_failed", mapOf("status" to code))
+                return@runCatching null
             }
 
             val scorecard = lenientJson.decodeFromString<GolfAPICourseDetailResponse>(body).course.toScorecard()
@@ -122,7 +130,7 @@ private data class GolfAPICourseDetailResponse(
 
 @Serializable
 private data class GolfAPIDetailResponse(
-    val id: String = "",
+    val id: Int = 0,
     val club_name: String = "",
     val location: GolfAPILocation = GolfAPILocation(),
     val tees: GolfAPITees = GolfAPITees(),
@@ -158,7 +166,7 @@ private data class GolfAPIDetailResponse(
             }
 
         return CourseScorecard(
-            id = id,
+            id = id.toString(),
             name = club_name,
             city = location.city,
             state = location.state,
