@@ -30,6 +30,7 @@ import com.caddieai.android.ui.screens.profile.ApiSettingsScreen
 import com.caddieai.android.ui.screens.profile.FeedbackScreen
 import com.caddieai.android.ui.screens.profile.ProfileScreen
 import com.caddieai.android.ui.screens.profile.SwingInfoScreen
+import com.caddieai.android.ui.screens.profile.TeeBoxPreferenceScreen
 import com.caddieai.android.ui.screens.profile.YourBagScreen
 
 @Composable
@@ -129,6 +130,7 @@ private fun ProfileNavHost() {
             ProfileScreen(
                 onNavigateToYourBag = { navController.navigate(ProfileScreen.YourBag.route) },
                 onNavigateToSwingInfo = { navController.navigate(ProfileScreen.SwingInfo.route) },
+                onNavigateToTeePreference = { navController.navigate(ProfileScreen.TeePreference.route) },
                 onNavigateToApiSettings = { navController.navigate(ProfileScreen.ApiSettings.route) },
                 onNavigateToStayInTouch = { navController.navigate(ProfileScreen.StayInTouch.route) },
             )
@@ -138,6 +140,9 @@ private fun ProfileNavHost() {
         }
         composable(ProfileScreen.SwingInfo.route) {
             SwingInfoScreen(onBack = { navController.popBackStack() })
+        }
+        composable(ProfileScreen.TeePreference.route) {
+            TeeBoxPreferenceScreen(onBack = { navController.popBackStack() })
         }
         composable(ProfileScreen.ApiSettings.route) {
             ApiSettingsScreen(onBack = { navController.popBackStack() })

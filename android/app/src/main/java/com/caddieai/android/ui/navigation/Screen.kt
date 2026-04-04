@@ -28,6 +28,7 @@ sealed class ProfileScreen(val route: String) {
     data object Root : ProfileScreen("profile_root")
     data object YourBag : ProfileScreen("profile_your_bag")
     data object SwingInfo : ProfileScreen("profile_swing_info")
+    data object TeePreference : ProfileScreen("profile_tee_preference")
     data object ApiSettings : ProfileScreen("profile_api_settings")
     data object StayInTouch : ProfileScreen("profile_stay_in_touch")
 }

@@ -57,6 +57,7 @@ class ProfileViewModel @Inject constructor(
     fun setGoogleApiKey(v: String) = update { it.copy(googleApiKey = v).withUpdatedAt() }
     fun setUsesMetric(v: Boolean) = update { it.copy(usesMetric = v).withUpdatedAt() }
     fun setImageAnalysisBetaEnabled(v: Boolean) = update { it.copy(imageAnalysisBetaEnabled = v).withUpdatedAt() }
+    fun setPreferredTeeBox(v: com.caddieai.android.data.model.TeeBoxPreference) = update { it.copy(preferredTeeBox = v).withUpdatedAt() }
     fun setDebugTierOverride(isPro: Boolean) = update {
         it.copy(debugTierOverride = if (isPro) UserTier.PRO else null).withUpdatedAt()
     }

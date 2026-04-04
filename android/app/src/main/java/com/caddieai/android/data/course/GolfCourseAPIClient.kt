@@ -136,7 +136,7 @@ private data class GolfAPIDetailResponse(
     val tees: GolfAPITees = GolfAPITees(),
 ) {
     fun toScorecard(): CourseScorecard {
-        val primaryTeeSet = tees.male?.firstOrNull()
+        val primaryTeeSet = tees.male?.firstOrNull() ?: tees.female?.firstOrNull()
         val holes = primaryTeeSet?.holes?.mapIndexed { idx, box ->
             HoleScorecard(
                 number = idx + 1,
@@ -146,6 +146,7 @@ private data class GolfAPIDetailResponse(
             )
         } ?: emptyList()
 
+        // Use all tees, deduplicate by canonical name (first occurrence wins)
         val allTeeSets: List<GolfAPITeeSet> = buildList {
             tees.male?.let { addAll(it) }
             tees.female?.let { addAll(it) }
@@ -162,7 +163,8 @@ private data class GolfAPIDetailResponse(
             .groupBy { it.tee_name }
             .mapValues { (_, teeSets) ->
                 val teeSet = teeSets.first()
-                teeSet.holes.associate { h -> h.hole_number.toString() to h.yardage }
+                // API doesn't include hole_number — use array index + 1
+                teeSet.holes.mapIndexed { idx, h -> (idx + 1).toString() to h.yardage }.toMap()
             }
 
         return CourseScorecard(

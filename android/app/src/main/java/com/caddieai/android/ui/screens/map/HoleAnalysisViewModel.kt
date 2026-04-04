@@ -32,7 +32,7 @@ data class WeatherBadgeData(
     val windCompass: String = "",
 )
 
-data class DedupedTee(val displayName: String, val canonicalTee: String)
+data class DedupedTee(val displayName: String, val canonicalTee: String, val totalYards: Int = 0)
 
 data class HoleAnalysisState(
     val selectedHoleNumber: Int? = null,
@@ -209,26 +209,60 @@ class HoleAnalysisViewModel @Inject constructor(
     /** Initialize tee selection for a course — call once when course is first shown. */
     fun initTeeSelection(course: NormalizedCourse) {
         android.util.Log.d("CaddieAI/Tee", "initTeeSelection: courseId=${course.id} teeNames=${course.teeNames}")
-        val savedTee = courseCacheService.getSelectedTee(course.id)
-        val teeNames = course.teeNames
-        val deduped = deduplicateTees(teeNames, course)
+        viewModelScope.launch {
+            val profile = profileStore.getProfile()
+            val savedTee = courseCacheService.getSelectedTee(course.id)
+            val teeNames = course.teeNames
+            val deduped = deduplicateTees(teeNames, course)
+            val canonicalTees = deduped.map { it.canonicalTee }
 
-        val canonicalTees = deduped.map { it.canonicalTee }
-        val (selectedTee, showReminder) = when {
-            savedTee != null && savedTee in canonicalTees -> Pair(savedTee, false)
-            deduped.size > 1 -> Pair(deduped.firstOrNull()?.canonicalTee, true)
-            deduped.size == 1 -> Pair(deduped.first().canonicalTee, false)
-            else -> Pair(null, false)
-        }
+            val (selectedTee, showReminder) = when {
+                // Priority 1: per-course saved override
+                savedTee != null && savedTee in canonicalTees -> Pair(savedTee, false)
+                // Priority 2: bestTeeForPreference with tier fallback
+                deduped.isNotEmpty() -> {
+                    val match = bestTeeForPreference(profile.preferredTeeBox, deduped)
+                    if (match != null) Pair(match, deduped.size > 1)
+                    // Priority 3: first available
+                    else Pair(deduped.first().canonicalTee, deduped.size > 1)
+                }
+                else -> Pair(null, false)
+            }
 
-        _state.update {
-            it.copy(
-                availableTees = teeNames,
-                dedupedTees = deduped,
-                selectedTee = selectedTee,
-                showTeeReminder = showReminder,
-            )
+            _state.update {
+                it.copy(
+                    availableTees = teeNames,
+                    dedupedTees = deduped,
+                    selectedTee = selectedTee,
+                    showTeeReminder = showReminder,
+                )
+            }
         }
+    }
+
+    private fun bestTeeForPreference(
+        preference: com.caddieai.android.data.model.TeeBoxPreference,
+        dedupedTees: List<DedupedTee>,
+    ): String? {
+        val allTiers = com.caddieai.android.data.model.TeeBoxPreference.entries.sortedBy { it.ordinal }
+        val startIndex = preference.ordinal
+        // Build search order: preferred tier first, then walk outward (shorter first, then longer)
+        val searchOrder = mutableListOf(preference)
+        for (offset in 1 until allTiers.size) {
+            val shorter = startIndex + offset
+            val longer = startIndex - offset
+            if (shorter < allTiers.size) searchOrder.add(allTiers[shorter])
+            if (longer >= 0) searchOrder.add(allTiers[longer])
+        }
+        for (tier in searchOrder) {
+            for (deduped in dedupedTees) {
+                val name = deduped.displayName.lowercase()
+                if (tier.matchKeywords.any { name.contains(it) }) {
+                    return deduped.canonicalTee
+                }
+            }
+        }
+        return null
     }
 
     private fun deduplicateTees(teeNames: List<String>, course: NormalizedCourse): List<DedupedTee> {
@@ -244,9 +278,12 @@ class HoleAnalysisViewModel @Inject constructor(
         return signatureToTees.values
             .sortedBy { group -> teeNames.indexOf(group.first()) }
             .map { group ->
+                val canonical = group.first()
+                val totalYds = course.holeYardagesByTee[canonical]?.values?.sum() ?: 0
                 DedupedTee(
                     displayName = group.joinToString(" / "),
-                    canonicalTee = group.first(),
+                    canonicalTee = canonical,
+                    totalYards = totalYds,
                 )
             }
     }

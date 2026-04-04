@@ -199,7 +199,9 @@ class CourseViewModel @Inject constructor(
             val cacheStart = System.currentTimeMillis()
             val cached = cacheService.getCourse(existingId)
             val cacheMs = System.currentTimeMillis() - cacheStart
-            val cacheHit = cached != null && cached.teeNames.isNotEmpty()
+            // Cache is valid only if we have real tee data (not just fallback "Standard")
+            val cacheHit = cached != null && cached.teeNames.isNotEmpty() &&
+                    !(cached.teeNames.size == 1 && cached.teeNames.first() == "Standard")
             logger.log(LogLevel.INFO, LogCategory.MAP, "cache_check", mapOf(
                 "latencyMs" to cacheMs.toString(),
                 "courseName" to result.name,
@@ -225,7 +227,7 @@ class CourseViewModel @Inject constructor(
         val scorecardStart = System.currentTimeMillis()
         val scorecard = if (com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY.isNotBlank()) {
             val apiKey = com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY
-            val searchResult = golfApiClient.searchCourses(result.display_name, apiKey).firstOrNull()
+            val searchResult = golfApiClient.searchCourses(courseName, apiKey).firstOrNull()
             android.util.Log.d("CaddieAI/Tee", "search result: id='${searchResult?.id}' teeNames=${searchResult?.teeNames}")
             val detail = if (searchResult != null && searchResult.id.isNotBlank()) {
                 golfApiClient.getCourse(searchResult.id, apiKey)
@@ -307,11 +309,13 @@ class CourseViewModel @Inject constructor(
     fun selectCachedCourse(course: NormalizedCourse) {
         _state.update { it.copy(selectedCourse = course, ingestionState = IngestionState.Success(course)) }
         activeRoundStore.setActiveCourse(course)
-        // If tee data is missing (pre-KAN-102 cache entry), fetch it in the background
-        if (course.teeNames.isEmpty() && com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY.isNotBlank()) {
+        // If tee data is missing or only fallback "Standard", fetch from Golf API
+        val needsTeeRefresh = course.teeNames.isEmpty() ||
+                (course.teeNames.size == 1 && course.teeNames.first() == "Standard")
+        if (needsTeeRefresh && com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY.isNotBlank()) {
             viewModelScope.launch {
                 val apiKey = com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY
-                val detail = golfApiClient.searchCourses("${course.name} ${course.city}", apiKey)
+                val detail = golfApiClient.searchCourses(course.name, apiKey)
                     .firstOrNull()
                     ?.id?.takeIf { it.isNotBlank() }
                     ?.let { golfApiClient.getCourse(it, apiKey) }

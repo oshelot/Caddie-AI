@@ -61,6 +61,9 @@ data class PlayerProfile(
     val lastContactPromptMs: Long = 0L,
     val contactOptedIn: Boolean = false,
 
+    // Tee box preference
+    val preferredTeeBox: TeeBoxPreference = TeeBoxPreference.WHITE,
+
     // Debug overrides (debug builds only — never synced)
     val debugTierOverride: UserTier? = null,
     val debugLoggingEnabled: Boolean = false,

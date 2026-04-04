@@ -211,3 +211,12 @@ enum class CaddiePersona(val rawValue: String, val displayName: String) {
     DRILL_SERGEANT("drillSergeant", "Drill Sergeant"),
     CHILL_SURFER("chillSurfer", "Chill Surfer"),
 }
+
+@Serializable
+enum class TeeBoxPreference(val displayName: String, val matchKeywords: List<String>) {
+    CHAMPIONSHIP("Black / Championship", listOf("championship", "black", "tiger")),
+    BLUE("Blue", listOf("blue")),
+    WHITE("White", listOf("white")),
+    SENIOR("Gold / Silver", listOf("gold", "silver", "senior")),
+    FORWARD("Red / Forward", listOf("red", "forward", "ladies")),
+}

@@ -161,14 +161,29 @@ fun CourseMapScreen(
             )
         } else {
             val hole = course.holes.firstOrNull { it.number == state.selectedHoleNumber }
-            val target = hole?.teeBox ?: hole?.pin ?: return@LaunchedEffect
-            mapView.mapboxMap.flyTo(
-                CameraOptions.Builder()
-                    .center(Point.fromLngLat(target.longitude, target.latitude))
-                    .zoom(17.0)
-                    .build(),
-                MapAnimationOptions.mapAnimationOptions { duration(900L) }
-            )
+            val tee = hole?.teeBox
+            val green = hole?.pin
+            if (tee != null && green != null) {
+                // Center on midpoint between tee and green, zoom to fit whole hole
+                val midLat = (tee.latitude + green.latitude) / 2
+                val midLon = (tee.longitude + green.longitude) / 2
+                mapView.mapboxMap.flyTo(
+                    CameraOptions.Builder()
+                        .center(Point.fromLngLat(midLon, midLat))
+                        .zoom(16.0)
+                        .build(),
+                    MapAnimationOptions.mapAnimationOptions { duration(900L) }
+                )
+            } else {
+                val target = tee ?: green ?: return@LaunchedEffect
+                mapView.mapboxMap.flyTo(
+                    CameraOptions.Builder()
+                        .center(Point.fromLngLat(target.longitude, target.latitude))
+                        .zoom(16.5)
+                        .build(),
+                    MapAnimationOptions.mapAnimationOptions { duration(900L) }
+                )
+            }
         }
     }
 
@@ -178,7 +193,9 @@ fun CourseMapScreen(
         sheetContent = {
             val hole = course.holes.firstOrNull { it.number == state.selectedHoleNumber }
             val teeYardage = state.selectedTee?.let { tee ->
-                state.analysis?.yardagesByTee?.get(tee)
+                // Look up yardage for selected tee from course data (not just analysis)
+                course.holeYardagesByTee[tee]?.get(state.selectedHoleNumber.toString())
+                    ?: state.analysis?.yardagesByTee?.get(tee)
             } ?: hole?.yardage
 
             if (!state.isAnalyzed) {
@@ -291,7 +308,10 @@ fun CourseMapScreen(
                             ) {
                                 state.dedupedTees.forEach { deduped ->
                                     DropdownMenuItem(
-                                        text = { Text(deduped.displayName) },
+                                        text = {
+                                            val ydsText = if (deduped.totalYards > 0) " ${String.format("%,d", deduped.totalYards)} yds" else ""
+                                            Text("${deduped.displayName}$ydsText")
+                                        },
                                         onClick = {
                                             viewModel.selectTee(course, deduped.canonicalTee)
                                             expanded = false
@@ -324,20 +344,20 @@ fun CourseMapScreen(
                         color = Color.Black.copy(alpha = 0.6f),
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(start = 8.dp, top = 8.dp),
+                            .padding(start = 8.dp, top = 42.dp),
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Text("${weather.tempF}°F", color = Color.White,
-                                style = MaterialTheme.typography.labelSmall)
+                                style = MaterialTheme.typography.bodySmall)
                             if (weather.windMph >= 5) {
-                                Text("💨", style = MaterialTheme.typography.labelSmall)
+                                Text("💨", style = MaterialTheme.typography.bodySmall)
                                 Text("${weather.windMph}mph ${weather.windCompass}",
                                     color = Color.White,
-                                    style = MaterialTheme.typography.labelSmall)
+                                    style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }

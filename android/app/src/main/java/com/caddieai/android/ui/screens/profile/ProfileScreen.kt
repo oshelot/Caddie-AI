@@ -15,12 +15,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.GolfCourse
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsGolf
 import androidx.compose.material.icons.filled.Support
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,6 +64,7 @@ fun ProfileScreen(
     subscriptionViewModel: SubscriptionViewModel = hiltViewModel(),
     onNavigateToYourBag: () -> Unit = {},
     onNavigateToSwingInfo: () -> Unit = {},
+    onNavigateToTeePreference: () -> Unit = {},
     onNavigateToApiSettings: () -> Unit = {},
     onNavigateToStayInTouch: () -> Unit = {},
 ) {
@@ -80,106 +83,73 @@ fun ProfileScreen(
         ) {
             item { Spacer(Modifier.height(4.dp)) }
 
-            // ── Section 1: Player Info ──────────────────────────────────────
-            item { SectionHeader("Player Info") }
-
+            // ── Player Info (ElevatedCard) ──────────────────────────────────
             item {
-                var handicapText by remember(profile.handicap) {
-                    mutableStateOf(String.format("%.1f", profile.handicap))
-                }
-                OutlinedTextField(
-                    value = handicapText,
-                    onValueChange = { v ->
-                        handicapText = v
-                        v.toFloatOrNull()?.coerceIn(0f, 54f)?.let(viewModel::setHandicap)
-                    },
-                    label = { Text("Handicap") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-            }
-
-            item {
-                ProfileDropdown(
-                    label = "Miss Tendency",
-                    selected = profile.missTendency,
-                    options = MissTendency.entries,
-                    displayName = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
-                    onSelect = viewModel::setMissTendency,
-                )
-            }
-
-            item {
-                ProfileDropdown(
-                    label = "Default Aggressiveness",
-                    selected = profile.aggressiveness,
-                    options = Aggressiveness.entries,
-                    displayName = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
-                    onSelect = viewModel::setAggressiveness,
-                )
-            }
-
-            // ── Section 2: Caddie Voice & Personality ──────────────────────
-            item { SectionHeader("Caddie Voice & Personality") }
-
-            item {
-                ProfileDropdown(
-                    label = "Accent",
-                    selected = profile.caddieAccent,
-                    options = CaddieAccent.entries,
-                    displayName = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
-                    onSelect = viewModel::setCaddieAccent,
-                )
-            }
-
-            item {
-                ProfileDropdown(
-                    label = "Voice",
-                    selected = profile.caddieGender,
-                    options = CaddieGender.entries,
-                    displayName = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
-                    onSelect = viewModel::setCaddieGender,
-                )
-            }
-
-            item {
-                PersonaDropdown(
-                    selected = profile.caddiePersona,
-                    onSelect = viewModel::setCaddiePersona,
-                )
-            }
-
-            // ── Section 3: Beta Features (Pro only) ────────────────────────
-            if (profile.effectiveTier == UserTier.PRO) {
-                item { SectionHeader("Beta Features") }
-                item {
-                    Card(
-                        shape = CaddieShape.medium,
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            SwitchRow(
-                                label = "Image Analysis",
-                                checked = profile.imageAnalysisBetaEnabled,
-                                onCheckedChange = viewModel::setImageAnalysisBetaEnabled,
-                            )
-                            Text(
-                                "Attach a photo of your lie and get AI-powered analysis. Experimental — accuracy may vary.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                ElevatedCard(shape = CaddieShape.large, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Player Info", style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        var handicapText by remember(profile.handicap) {
+                            mutableStateOf(String.format("%.1f", profile.handicap))
                         }
+                        OutlinedTextField(
+                            value = handicapText,
+                            onValueChange = { v ->
+                                handicapText = v
+                                v.toFloatOrNull()?.coerceIn(0f, 54f)?.let(viewModel::setHandicap)
+                            },
+                            label = { Text("Handicap") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        ProfileDropdown(
+                            label = "Miss Tendency",
+                            selected = profile.missTendency,
+                            options = MissTendency.entries,
+                            displayName = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
+                            onSelect = viewModel::setMissTendency,
+                        )
+                        ProfileDropdown(
+                            label = "Default Aggressiveness",
+                            selected = profile.aggressiveness,
+                            options = Aggressiveness.entries,
+                            displayName = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
+                            onSelect = viewModel::setAggressiveness,
+                        )
+                    }
+                }
+            }
+
+            // ── Caddie Voice & Personality (ElevatedCard) ──────────────────
+            item {
+                ElevatedCard(shape = CaddieShape.large, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Caddie Voice & Personality", style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        ProfileDropdown(
+                            label = "Accent",
+                            selected = profile.caddieAccent,
+                            options = CaddieAccent.entries,
+                            displayName = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
+                            onSelect = viewModel::setCaddieAccent,
+                        )
+                        ProfileDropdown(
+                            label = "Voice",
+                            selected = profile.caddieGender,
+                            options = CaddieGender.entries,
+                            displayName = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
+                            onSelect = viewModel::setCaddieGender,
+                        )
+                        PersonaDropdown(
+                            selected = profile.caddiePersona,
+                            onSelect = viewModel::setCaddiePersona,
+                        )
                     }
                 }
             }
 
             // ── Section 4: Navigation Links ────────────────────────────────
-            item { SectionHeader("Navigation Links") }
-
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     NavLinkRow(
@@ -195,32 +165,42 @@ fun ProfileScreen(
                         onClick = onNavigateToSwingInfo,
                     )
                     NavLinkRow(
-                        icon = Icons.Default.Settings,
-                        title = "API Settings",
-                        subtitle = "Configure your AI provider and key",
-                        onClick = onNavigateToApiSettings,
-                    )
-                    NavLinkRow(
-                        icon = Icons.Default.Support,
-                        title = "Contact Info",
-                        subtitle = "Send feedback or report an issue",
-                        onClick = onNavigateToStayInTouch,
+                        icon = Icons.Default.Flag,
+                        title = "Tee Box Preference",
+                        subtitle = profile.preferredTeeBox.displayName,
+                        onClick = onNavigateToTeePreference,
                     )
                 }
             }
 
-            // ── Section 5: Debug (debug builds only) ───────────────────────
-            if (BuildConfig.DEBUG) {
-                item { SectionHeader("Debug") }
-                item {
-                    Card(
-                        shape = CaddieShape.medium,
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(Modifier.padding(16.dp)) {
+            // ── Settings (ElevatedCard) ────────────────────────────────────
+            item {
+                ElevatedCard(shape = CaddieShape.large, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Settings", style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        NavLinkRow(
+                            icon = Icons.Default.Settings,
+                            title = "API Settings",
+                            subtitle = "Configure your AI provider and key",
+                            onClick = onNavigateToApiSettings,
+                        )
+                        if (profile.effectiveTier == UserTier.PRO) {
+                            SwitchRow(
+                                label = "Image Analysis (Beta)",
+                                checked = profile.imageAnalysisBetaEnabled,
+                                onCheckedChange = viewModel::setImageAnalysisBetaEnabled,
+                            )
+                            Text(
+                                "Attach a photo of your lie for AI analysis. Experimental.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (BuildConfig.DEBUG) {
+                            HorizontalDivider()
+                            Text("Debug", style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.error)
                             SwitchRow(
                                 label = "Override Tier → Pro",
                                 checked = profile.debugTierOverride == UserTier.PRO,
@@ -231,7 +211,6 @@ fun ProfileScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Spacer(Modifier.height(8.dp))
                             SwitchRow(
                                 label = "Remote Logging",
                                 checked = profile.debugLoggingEnabled,
@@ -240,6 +219,16 @@ fun ProfileScreen(
                         }
                     }
                 }
+            }
+
+            // ── Section 6: Contact Info (standalone) ───────────────────────
+            item {
+                NavLinkRow(
+                    icon = Icons.Default.Support,
+                    title = "Contact Info",
+                    subtitle = "Send feedback or report an issue",
+                    onClick = onNavigateToStayInTouch,
+                )
             }
 
             item { Spacer(Modifier.height(24.dp)) }
