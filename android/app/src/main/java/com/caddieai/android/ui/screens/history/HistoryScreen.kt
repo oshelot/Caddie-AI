@@ -71,7 +71,8 @@ fun HistoryScreen(
                     }
                 }
             )
-        }
+        },
+        bottomBar = { com.caddieai.android.ui.components.AdBannerView() },
     ) { padding ->
         if (state.shots.isEmpty()) {
             EmptyHistory(Modifier.padding(padding))

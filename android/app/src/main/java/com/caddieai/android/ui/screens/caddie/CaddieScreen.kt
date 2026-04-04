@@ -113,7 +113,6 @@ import java.io.ByteArrayOutputStream
 fun CaddieScreen(
     viewModel: ShotAdvisorViewModel = hiltViewModel(),
     voiceViewModel: VoiceViewModel = hiltViewModel(),
-    adManager: AdManager? = null,
 ) {
     val context = LocalContext.current
     val shotContext by viewModel.shotContext.collectAsStateWithLifecycle()
@@ -205,7 +204,7 @@ fun CaddieScreen(
             )
         },
         bottomBar = {
-            adManager?.let { AdBannerView(shouldShow = it.shouldShowAds) }
+            AdBannerView()
         }
     ) { padding ->
         LazyColumn(

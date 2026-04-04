@@ -24,11 +24,17 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var reviewPromptManager: ReviewPromptManager
     @Inject lateinit var diagnosticLogger: DiagnosticLogger
+    @Inject lateinit var umpConsentManager: com.caddieai.android.data.billing.UmpConsentManager
+    @Inject lateinit var adManager: com.caddieai.android.data.billing.AdManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Initialize ads and request UMP consent
+        adManager.initialize()
+        umpConsentManager.requestConsentInfo(this)
 
         lifecycleScope.launch {
             reviewPromptManager.recordLaunch()

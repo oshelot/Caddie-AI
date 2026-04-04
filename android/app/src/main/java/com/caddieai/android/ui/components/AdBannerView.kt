@@ -6,20 +6,38 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import com.caddieai.android.data.billing.AdManager
+import com.caddieai.android.data.billing.BANNER_AD_UNIT_ID
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
-import com.caddieai.android.data.billing.BANNER_AD_UNIT_ID
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+
+@HiltViewModel
+class AdViewModel @Inject constructor(
+    private val adManager: AdManager,
+) : ViewModel() {
+    val shouldShowAds: Boolean get() = adManager.shouldShowAds
+
+    /** Show interstitial ad. Returns true if shown. onDismissed called when ad closes. */
+    fun showInterstitial(activity: android.app.Activity, onDismissed: () -> Unit): Boolean {
+        return adManager.showInterstitial(activity, onDismissed)
+    }
+
+    fun preloadInterstitial() = adManager.preloadInterstitial()
+}
 
 /**
- * Adaptive banner ad. Only render when shouldShow = true (i.e. free tier).
+ * Self-contained banner ad. Injects AdManager via Hilt.
+ * Only renders for free-tier users.
  */
 @Composable
-fun AdBannerView(
-    shouldShow: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    if (!shouldShow) return
+fun AdBannerView(modifier: Modifier = Modifier) {
+    val viewModel: AdViewModel = hiltViewModel()
+    if (!viewModel.shouldShowAds) return
 
     AndroidView(
         modifier = modifier
@@ -32,8 +50,5 @@ fun AdBannerView(
                 loadAd(AdRequest.Builder().build())
             }
         },
-        update = { adView ->
-            adView.loadAd(AdRequest.Builder().build())
-        }
     )
 }

@@ -72,7 +72,8 @@ fun ProfileScreen(
     val subStatus by subscriptionViewModel.subscriptionStatus.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Profile") }) }
+        topBar = { TopAppBar(title = { Text("Profile") }) },
+        bottomBar = { com.caddieai.android.ui.components.AdBannerView() },
     ) { padding ->
         LazyColumn(
             modifier = Modifier

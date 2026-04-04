@@ -50,7 +50,8 @@ fun ApiSettingsScreen(
                     }
                 }
             )
-        }
+        },
+        bottomBar = { com.caddieai.android.ui.components.AdBannerView() },
     ) { padding ->
         LazyColumn(
             modifier = Modifier
