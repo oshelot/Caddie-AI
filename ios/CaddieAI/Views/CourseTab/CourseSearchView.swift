@@ -13,6 +13,7 @@ struct CourseSearchView: View {
     @Environment(CourseViewModel.self) private var viewModel
     @Environment(CourseCacheService.self) private var cacheService
     @Environment(LocationManager.self) private var locationManager
+    @Environment(AdManager.self) private var adManager
     @State private var nearbyCourseSuggestion: CourseCacheEntry?
     @State private var showNearbyPrompt = false
     @State private var courseToDelete: CourseCacheEntry?
@@ -281,6 +282,7 @@ struct CourseSearchView: View {
                     .environment(viewModel)
             }
             .task {
+                adManager.loadInterstitialAd()
                 await checkForNearbyCourse()
             }
             .alert(

@@ -60,15 +60,6 @@ struct ProfileView: View {
                     }
                 }
 
-                if subscriptionManager.tier == .paid {
-                    Section("Beta Features") {
-                        Toggle("Image Analysis", isOn: $store.profile.betaImageAnalysis)
-                        Text("Attach photos of your lie for AI-powered shot analysis.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 Section {
                     NavigationLink {
                         YourBagView()
@@ -108,6 +99,10 @@ struct ProfileView: View {
                         set: { LoggingService.shared.isEnabled = $0 }
                     ))
                     #endif
+
+                    if subscriptionManager.tier == .paid {
+                        Toggle("Image Analysis (BETA)", isOn: $store.profile.betaImageAnalysis)
+                    }
                 }
 
                 Section {

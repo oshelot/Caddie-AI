@@ -38,6 +38,19 @@ final class CourseViewModel {
     var selectedHole: Int?
     var selectedTee: String?
 
+    // MARK: - Interstitial Ad Dual-Gate
+
+    /// When true, the interstitial ad has finished (dismissed, failed, or skipped).
+    var adCompleted = true
+    /// When true, ingestion finished while an ad was still showing.
+    var ingestionCompleted = false
+    /// Holds the ingested course until both ad and ingestion are done.
+    var pendingCourse: NormalizedCourse?
+    /// Holds the pending warning message until transition.
+    var pendingWarning: String?
+    /// Whether an interstitial ad is currently being shown.
+    var isShowingInterstitialAd = false
+
     // Injected via environment
     var cacheService: CourseCacheService?
     var profileStore: ProfileStore?
@@ -250,18 +263,34 @@ final class CourseViewModel {
 
             // Step 6: Handle results
             if enrichedCourses.count > 1 {
-                // Multiple sub-courses — let user pick
+                // Multiple sub-courses — let user pick (no ad for this flow)
                 availableSubCourses = enrichedCourses
                 showSubCoursePicker = true
+                adCompleted = true
+                isIngesting = false
             } else if let course = enrichedCourses.first {
-                // Single course
+                var warning: String?
                 if course.holes.isEmpty {
-                    ingestionWarning = "This course hasn't been mapped in OpenStreetMap yet. The satellite map will show the area, but hole layouts, greens, and hazards aren't available."
+                    warning = "This course hasn't been mapped in OpenStreetMap yet. The satellite map will show the area, but hole layouts, greens, and hazards aren't available."
                 } else if course.stats.overallConfidence < 0.3 {
-                    ingestionWarning = "This course has limited map data. Some holes, greens, or hazards may be missing."
+                    warning = "This course has limited map data. Some holes, greens, or hazards may be missing."
                 }
-                selectedCourse = course
-                TelemetryService.shared.recordCoursePlayed(courseName: course.name)
+
+                // If an interstitial ad is showing, stage the result for dual-gate
+                if isShowingInterstitialAd {
+                    pendingCourse = course
+                    pendingWarning = warning
+                    ingestionCompleted = true
+                    completeTransitionIfReady()
+                } else {
+                    // No ad showing — transition immediately
+                    if let warning { ingestionWarning = warning }
+                    selectedCourse = course
+                    TelemetryService.shared.recordCoursePlayed(courseName: course.name)
+                    isIngesting = false
+                }
+            } else {
+                isIngesting = false
             }
 
             // Log total ingestion time
@@ -270,11 +299,13 @@ final class CourseViewModel {
                 "courseName": result.name,
                 "holeCount": "\(enrichedCourses.first?.holes.count ?? 0)",
             ])
+            return
         } catch is CancellationError {
             // User cancelled — reset silently
         } catch {
             ingestionError = error.localizedDescription
             LoggingService.shared.error(.course, "Course ingestion failed: \(error.localizedDescription)")
+            isShowingInterstitialAd = false
         }
 
         isIngesting = false
@@ -283,6 +314,12 @@ final class CourseViewModel {
     /// Starts ingestion in a trackable, cancellable task.
     func startIngestion(_ result: CourseSearchResult, forceRefresh: Bool = false) {
         ingestionTask?.cancel()
+        // Reset dual-gate state
+        adCompleted = true
+        ingestionCompleted = false
+        pendingCourse = nil
+        pendingWarning = nil
+        isShowingInterstitialAd = false
         ingestionTask = Task { await ingestCourse(result, forceRefresh: forceRefresh) }
     }
 
@@ -292,6 +329,46 @@ final class CourseViewModel {
         ingestionTask = nil
         isIngesting = false
         ingestionStep = ""
+        isShowingInterstitialAd = false
+        adCompleted = true
+        ingestionCompleted = false
+        pendingCourse = nil
+        pendingWarning = nil
+    }
+
+    // MARK: - Interstitial Ad Coordination
+
+    /// Called when the interstitial ad is about to be presented.
+    /// Sets the dual-gate: ingestion must also complete before transitioning.
+    func willShowInterstitialAd() {
+        adCompleted = false
+        ingestionCompleted = false
+        isShowingInterstitialAd = true
+    }
+
+    /// Called when the interstitial ad finishes (dismissed by user or completed).
+    func didCompleteInterstitialAd() {
+        adCompleted = true
+        isShowingInterstitialAd = false
+        TelemetryService.shared.recordInterstitialCompleted()
+        completeTransitionIfReady()
+    }
+
+    /// Transitions to the course map when both ad and ingestion are done.
+    private func completeTransitionIfReady() {
+        guard adCompleted, ingestionCompleted, let course = pendingCourse else { return }
+
+        if let warning = pendingWarning {
+            ingestionWarning = warning
+        }
+        selectedCourse = course
+        TelemetryService.shared.recordCoursePlayed(courseName: course.name)
+        isIngesting = false
+
+        // Clean up
+        pendingCourse = nil
+        pendingWarning = nil
+        ingestionCompleted = false
     }
 
     // MARK: - Load from Cache
@@ -362,6 +439,37 @@ final class CourseViewModel {
                 ?? course.holes.compactMap { $0.yardages?[b.canonicalTee] }.reduce(0, +)
             return aYards > bYards
         }
+    }
+
+    // MARK: - Tee Preference Matching
+
+    /// Matches the user's tee preference against available course tees using keyword matching.
+    /// If no exact tier match is found, walks to the next-closest tier (shorter first, then longer).
+    static func bestTeeForPreference(
+        _ preference: TeeBoxPreference,
+        from dedupedTees: [(displayName: String, canonicalTee: String)]
+    ) -> String? {
+        let allTiers = TeeBoxPreference.allCases.sorted { $0.rawValue < $1.rawValue }
+        let startIndex = preference.rawValue
+
+        // Build search order: preferred tier first, then alternate shorter/longer
+        var searchOrder: [TeeBoxPreference] = [preference]
+        for offset in 1..<allTiers.count {
+            let shorter = startIndex + offset
+            let longer = startIndex - offset
+            if shorter < allTiers.count { searchOrder.append(allTiers[shorter]) }
+            if longer >= 0 { searchOrder.append(allTiers[longer]) }
+        }
+
+        for tier in searchOrder {
+            for entry in dedupedTees {
+                let name = entry.displayName.lowercased()
+                if tier.matchKeywords.contains(where: { name.contains($0) }) {
+                    return entry.canonicalTee
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - Clear Selection

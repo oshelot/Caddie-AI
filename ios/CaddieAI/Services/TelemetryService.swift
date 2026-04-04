@@ -137,6 +137,20 @@ final class TelemetryService {
         ])
     }
 
+    func recordInterstitialShown() {
+        record(.adInterstitialShown)
+    }
+
+    func recordInterstitialCompleted() {
+        record(.adInterstitialCompleted)
+    }
+
+    func recordInterstitialSkipped(reason: String) {
+        record(.adInterstitialSkipped, properties: [
+            "reason": reason,
+        ])
+    }
+
     func recordContactInfoSubmitted(name: String, email: String?, phone: String?) {
         var props: [String: Any] = ["name": name]
         if let email, !email.isEmpty { props["email"] = email }
@@ -228,5 +242,8 @@ enum TelemetryEventType: String {
     case adImpression = "ad_impression"
     case adClick = "ad_click"
     case adLoadFailure = "ad_load_failure"
+    case adInterstitialShown = "ad_interstitial_shown"
+    case adInterstitialCompleted = "ad_interstitial_completed"
+    case adInterstitialSkipped = "ad_interstitial_skipped"
     case contactInfoSubmitted = "contact_info_submitted"
 }
