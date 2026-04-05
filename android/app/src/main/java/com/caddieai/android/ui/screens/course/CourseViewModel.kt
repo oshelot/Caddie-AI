@@ -9,6 +9,7 @@ import com.caddieai.android.data.course.GooglePlacesClient
 import com.caddieai.android.data.course.NominatimClient
 import com.caddieai.android.data.course.NominatimResult
 import com.caddieai.android.data.course.OverpassClient
+import com.caddieai.android.data.course.ServerCacheClient
 import com.caddieai.android.data.course.PlacesSuggestion
 import com.caddieai.android.data.model.NormalizedCourse
 import com.caddieai.android.data.diagnostics.DiagnosticLogger
@@ -19,6 +20,7 @@ import com.caddieai.android.data.store.ProfileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,6 +63,7 @@ class CourseViewModel @Inject constructor(
     private val placesClient: GooglePlacesClient,
     private val golfApiClient: GolfCourseAPIClient,
     private val overpassClient: OverpassClient,
+    private val serverCacheClient: ServerCacheClient,
     private val normalizer: CourseNormalizer,
     private val cacheService: CourseCacheService,
     private val activeRoundStore: ActiveRoundStore,
@@ -200,8 +203,10 @@ class CourseViewModel @Inject constructor(
             val cached = cacheService.getCourse(existingId)
             val cacheMs = System.currentTimeMillis() - cacheStart
             // Cache is valid only if we have real tee data (not just fallback "Standard")
+            // Also bypass cache if hole count is incomplete (9-17 holes — iOS KAN-212 parity)
             val cacheHit = cached != null && cached.teeNames.isNotEmpty() &&
-                    !(cached.teeNames.size == 1 && cached.teeNames.first() == "Standard")
+                    !(cached.teeNames.size == 1 && cached.teeNames.first() == "Standard") &&
+                    cached.holes.size !in 9..17
             logger.log(LogLevel.INFO, LogCategory.MAP, "cache_check", mapOf(
                 "latencyMs" to cacheMs.toString(),
                 "courseName" to result.name,
@@ -213,29 +218,59 @@ class CourseViewModel @Inject constructor(
                 return@launch
             }
 
+            // Server cache check — fast path before full ingestion
+            if (serverCacheClient.isEnabled) {
+                val serverCached = serverCacheClient.getCourse(existingId)
+                if (serverCached != null && serverCached.teeNames.isNotEmpty() &&
+                    !(serverCached.teeNames.size == 1 && serverCached.teeNames.first() == "Standard") &&
+                    serverCached.holes.size !in 9..17
+                ) {
+                    cacheService.saveCourse(serverCached)
+                    _state.update { it.copy(
+                        selectedCourse = serverCached,
+                        ingestionState = IngestionState.Success(serverCached),
+                        cachedCourses = cacheService.listCachedCourses().mapNotNull { e -> cacheService.getCourse(e.id) },
+                    )}
+                    activeRoundStore.setActiveCourse(serverCached)
+                    return@launch
+                }
+            }
+
             ingestCourse(result)
         }
     }
 
-    private suspend fun ingestCourse(result: NominatimResult) {
+    private suspend fun ingestCourse(result: NominatimResult) = coroutineScope {
         val profile = profileStore.getProfile()
         val ingestionStart = System.currentTimeMillis()
         val courseName = result.name.ifBlank { result.display_name.substringBefore(",") }
 
-        // Step 1: Fetch scorecard
         _state.update { it.copy(ingestionState = IngestionState.InProgress(IngestionStep.FETCHING_SCORECARD, 0.1f)) }
-        val scorecardStart = System.currentTimeMillis()
-        val scorecard = if (com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY.isNotBlank()) {
-            val apiKey = com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY
-            val searchResult = golfApiClient.searchCourses(courseName, apiKey).firstOrNull()
-            android.util.Log.d("CaddieAI/Tee", "search result: id='${searchResult?.id}' teeNames=${searchResult?.teeNames}")
-            val detail = if (searchResult != null && searchResult.id.isNotBlank()) {
-                golfApiClient.getCourse(searchResult.id, apiKey)
+
+        // Parallelize Overpass + Golf Course API calls (independent network requests)
+        val overpassStart = System.currentTimeMillis()
+        val bbox = buildBbox(result.latitude, result.longitude, radiusDegrees = 0.02)
+        val overpassDeferred = async {
+            overpassClient.fetchGolfCourseData(
+                name = result.name,
+                osmId = result.osm_id.takeIf { it > 0 },
+                bbox = bbox,
+            )
+        }
+        val scorecardDeferred = async {
+            if (com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY.isNotBlank()) {
+                val apiKey = com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY
+                val searchResult = golfApiClient.searchCourses(courseName, apiKey).firstOrNull()
+                val detail = if (searchResult != null && searchResult.id.isNotBlank()) {
+                    golfApiClient.getCourse(searchResult.id, apiKey)
+                } else null
+                detail ?: searchResult
             } else null
-            android.util.Log.d("CaddieAI/Tee", "detail result: id='${detail?.id}' teeNames=${detail?.teeNames}")
-            detail ?: searchResult
-        } else null
-        android.util.Log.d("CaddieAI/Tee", "final scorecard: id='${scorecard?.id}' teeNames=${scorecard?.teeNames}")
+        }
+
+        val scorecardStart = System.currentTimeMillis()
+        val scorecard = scorecardDeferred.await()
+        android.util.Log.d("CaddieAI/Tee", "scorecard: id='${scorecard?.id}' teeNames=${scorecard?.teeNames}")
         logger.log(LogLevel.INFO, LogCategory.MAP, "scorecard_fetch", mapOf(
             "latencyMs" to (System.currentTimeMillis() - scorecardStart).toString(),
             "courseName" to courseName,
@@ -254,15 +289,8 @@ class CourseViewModel @Inject constructor(
         )
         val finalScorecard = scorecard ?: fallbackScorecard
 
-        // Step 2: Fetch OSM geometry (osm_parse logged inside OverpassClient)
         _state.update { it.copy(ingestionState = IngestionState.InProgress(IngestionStep.FETCHING_GEOMETRY, 0.35f)) }
-        val overpassStart = System.currentTimeMillis()
-        val bbox = buildBbox(result.latitude, result.longitude, radiusDegrees = 0.02)
-        val osmElements = overpassClient.fetchGolfCourseData(
-            name = result.name,
-            osmId = result.osm_id.takeIf { it > 0 },
-            bbox = bbox,
-        )
+        var osmElements = overpassDeferred.await()
         logger.log(LogLevel.INFO, LogCategory.MAP, "overpass_fetch", mapOf(
             "latencyMs" to (System.currentTimeMillis() - overpassStart).toString(),
             "courseName" to courseName,
@@ -271,7 +299,20 @@ class CourseViewModel @Inject constructor(
         // Step 3: Normalize
         _state.update { it.copy(ingestionState = IngestionState.InProgress(IngestionStep.NORMALIZING, 0.75f)) }
         val normalizeStart = System.currentTimeMillis()
-        val course = normalizer.normalize(finalScorecard, osmElements)
+        var course = normalizer.normalize(finalScorecard, osmElements)
+
+        // Retry with wider bbox if hole count is incomplete (9-17 holes — iOS KAN-212 parity)
+        if (course.holes.size in 9..17) {
+            logger.log(LogLevel.WARN, LogCategory.MAP, "overpass_retry_wider_bbox",
+                mapOf("courseName" to courseName, "initialHoles" to course.holes.size))
+            val widerBbox = buildBbox(result.latitude, result.longitude, radiusDegrees = 0.028)
+            osmElements = overpassClient.fetchGolfCourseData(
+                name = result.name,
+                osmId = result.osm_id.takeIf { it > 0 },
+                bbox = widerBbox,
+            )
+            course = normalizer.normalize(finalScorecard, osmElements)
+        }
         logger.log(LogLevel.INFO, LogCategory.MAP, "normalize", mapOf(
             "latencyMs" to (System.currentTimeMillis() - normalizeStart).toString(),
             "courseName" to courseName,
@@ -286,6 +327,11 @@ class CourseViewModel @Inject constructor(
             "latencyMs" to (System.currentTimeMillis() - saveStart).toString(),
             "courseName" to courseName,
         ))
+
+        // Fire-and-forget upload to server cache (only if course has complete data)
+        if (course.holes.size !in 9..17 && course.teeNames.isNotEmpty()) {
+            viewModelScope.launch { serverCacheClient.putCourse(course) }
+        }
 
         logger.log(LogLevel.INFO, LogCategory.MAP, "total_ingestion", mapOf(
             "latencyMs" to (System.currentTimeMillis() - ingestionStart).toString(),

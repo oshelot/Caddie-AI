@@ -31,6 +31,8 @@ android {
         buildConfigField("String", "LLM_PROXY_API_KEY", "\"${localProps.getProperty("LLM_PROXY_API_KEY", "")}\"")
         buildConfigField("String", "LOGGING_ENDPOINT", "\"${localProps.getProperty("LOGGING_ENDPOINT", "")}\"")
         buildConfigField("String", "LOGGING_API_KEY", "\"${localProps.getProperty("LOGGING_API_KEY", "")}\"")
+        buildConfigField("String", "COURSE_CACHE_ENDPOINT", "\"${localProps.getProperty("COURSE_CACHE_ENDPOINT", "")}\"")
+        buildConfigField("String", "COURSE_CACHE_API_KEY", "\"${localProps.getProperty("COURSE_CACHE_API_KEY", "")}\"")
     }
 
     buildTypes {

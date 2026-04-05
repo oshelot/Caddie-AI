@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -88,6 +89,7 @@ import com.mapbox.maps.extension.style.sources.addSource
 import com.mapbox.maps.extension.style.sources.generated.geoJsonSource
 import com.mapbox.maps.plugin.animation.MapAnimationOptions
 import com.mapbox.maps.plugin.animation.flyTo
+import com.mapbox.maps.plugin.gestures.addOnMapClickListener
 import com.mapbox.maps.plugin.locationcomponent.location
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -119,6 +121,21 @@ fun CourseMapScreen(
             onNavigateToCaddie()
         }
         wasAskingCaddie = state.isAskingCaddie
+    }
+
+    // Tap-to-distance: listen for map taps
+    LaunchedEffect(mapView) {
+        mapView.mapboxMap.addOnMapClickListener { point ->
+            viewModel.onMapTap(course, point.latitude(), point.longitude())
+            true
+        }
+    }
+
+    // Render tap-to-distance overlay
+    LaunchedEffect(state.tappedPoint, state.selectedHoleNumber) {
+        mapView.mapboxMap.getStyle { style ->
+            renderTapDistanceOverlay(style, course, state.tappedPoint, state.selectedHoleNumber)
+        }
     }
 
     // Setup map layers once when course is available
@@ -362,6 +379,45 @@ fun CourseMapScreen(
                         }
                     }
                 }
+
+                // Tap-to-distance card
+                state.tapDistanceYds?.let { yds ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.Black.copy(alpha = 0.75f),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = 8.dp, top = 42.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("$yds yds to green", color = Color.White,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                Spacer(Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = { viewModel.clearTapDistance() },
+                                    modifier = Modifier.size(20.dp),
+                                ) {
+                                    Icon(Icons.Default.Close, "Clear", tint = Color.White,
+                                        modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            state.tapRecommendedClub?.let { club ->
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    club.name.replace('_', ' '),
+                                    color = Color(0xFFFFEB3B),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // Tee reminder callout
@@ -421,6 +477,41 @@ fun CourseMapScreen(
             }
         }
     }
+}
+
+private fun renderTapDistanceOverlay(
+    style: com.mapbox.maps.Style,
+    course: NormalizedCourse,
+    tapped: GeoPoint?,
+    holeNumber: Int?,
+) {
+    val srcId = "tap-distance-source"
+    val lineLayerId = "layer-tap-distance-line"
+    // Remove existing
+    if (style.styleLayerExists(lineLayerId)) style.removeStyleLayer(lineLayerId)
+    if (style.styleSourceExists(srcId)) style.removeStyleSource(srcId)
+    if (tapped == null || holeNumber == null) return
+
+    val hole = course.holes.firstOrNull { it.number == holeNumber } ?: return
+    val target = hole.green?.outerRing?.takeIf { it.isNotEmpty() }?.let { ring ->
+        GeoPoint(ring.map { it.latitude }.average(), ring.map { it.longitude }.average())
+    } ?: hole.pin ?: hole.teeBox ?: return
+
+    val linePoints = listOf(
+        Point.fromLngLat(tapped.longitude, tapped.latitude),
+        Point.fromLngLat(target.longitude, target.latitude),
+    )
+    val feat = com.mapbox.geojson.Feature.fromGeometry(
+        com.mapbox.geojson.LineString.fromLngLats(linePoints)
+    )
+    style.addSource(geoJsonSource(srcId) {
+        featureCollection(com.mapbox.geojson.FeatureCollection.fromFeature(feat))
+    })
+    style.addLayer(lineLayer(lineLayerId, srcId) {
+        lineColor("#FFEB3B")
+        lineWidth(4.0)
+        lineOpacity(0.9)
+    })
 }
 
 private fun computeCourseCentroid(course: NormalizedCourse): GeoPoint {

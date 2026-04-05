@@ -64,6 +64,9 @@ data class PlayerProfile(
     // Tee box preference
     val preferredTeeBox: TeeBoxPreference = TeeBoxPreference.WHITE,
 
+    // Scoring
+    val scoringEnabled: Boolean = false,
+
     // Debug overrides (debug builds only — never synced)
     val debugTierOverride: UserTier? = null,
     val debugLoggingEnabled: Boolean = false,

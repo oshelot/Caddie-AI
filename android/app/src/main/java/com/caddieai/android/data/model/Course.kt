@@ -16,6 +16,7 @@ data class NormalizedCourse(
     val teeNames: List<String> = emptyList(),
     // Outer key: tee name, inner key: hole number as string, value: yardage
     val holeYardagesByTee: Map<String, Map<String, Int>> = emptyMap(),
+    val schemaVersion: Int = 1,
 ) {
     val par: Int get() = holes.sumOf { it.par }
     val totalYardage: Int get() = holes.sumOf { it.yardage }

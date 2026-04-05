@@ -49,6 +49,9 @@ data class HoleAnalysisState(
     val isSpeaking: Boolean = false,
     val isAskingCaddie: Boolean = false,
     val weatherBadge: WeatherBadgeData? = null,
+    val tappedPoint: com.caddieai.android.data.model.GeoPoint? = null,
+    val tapDistanceYds: Int? = null,
+    val tapRecommendedClub: com.caddieai.android.data.model.Club? = null,
 )
 
 data class ConversationMessage(
@@ -99,6 +102,119 @@ class HoleAnalysisViewModel @Inject constructor(
     }
 
     /** Fetch weather for badge display on map load. */
+    /** User tapped a point on the map — compute distance to green centroid. */
+    fun onMapTap(
+        course: com.caddieai.android.data.model.NormalizedCourse,
+        lat: Double,
+        lon: Double,
+    ) {
+        val holeNum = _state.value.selectedHoleNumber ?: return
+        val hole = course.holes.firstOrNull { it.number == holeNum } ?: return
+        // Use green centroid if available, else pin, else teeBox
+        val target = hole.green?.outerRing?.takeIf { it.isNotEmpty() }?.let { ring ->
+            com.caddieai.android.data.model.GeoPoint(
+                ring.map { it.latitude }.average(),
+                ring.map { it.longitude }.average(),
+            )
+        } ?: hole.pin ?: hole.teeBox ?: return
+
+        val distMeters = haversineMeters(lat, lon, target.latitude, target.longitude)
+        val distYds = (distMeters / 0.9144).toInt()
+        viewModelScope.launch {
+            val profile = profileStore.getProfile()
+            val club = recommendClubForDistance(distYds, profile)
+            _state.update { it.copy(
+                tappedPoint = com.caddieai.android.data.model.GeoPoint(lat, lon),
+                tapDistanceYds = distYds,
+                tapRecommendedClub = club,
+            )}
+        }
+    }
+
+    fun clearTapDistance() {
+        _state.update { it.copy(tappedPoint = null, tapDistanceYds = null, tapRecommendedClub = null) }
+    }
+
+    /** Find the club whose carry distance is closest to (or just above) the target. */
+    private fun recommendClubForDistance(
+        targetYds: Int,
+        profile: com.caddieai.android.data.model.PlayerProfile,
+    ): com.caddieai.android.data.model.Club? {
+        val bagDistances = profile.clubDistances
+            .filterKeys { it in profile.bagClubs.ifEmpty { profile.clubDistances.keys } }
+        if (bagDistances.isEmpty()) return null
+        // Find shortest club that can still reach the target; else longest club
+        val sorted = bagDistances.entries.sortedBy { it.value }
+        return sorted.firstOrNull { it.value >= targetYds }?.key
+            ?: sorted.last().key
+    }
+
+    /** "Ask Caddie" from tap-to-distance — uses the tapped distance directly. */
+    fun askCaddieFromTap(course: com.caddieai.android.data.model.NormalizedCourse) {
+        val holeNum = _state.value.selectedHoleNumber ?: return
+        val dist = _state.value.tapDistanceYds ?: return
+        _state.update { it.copy(isAskingCaddie = true) }
+        viewModelScope.launch {
+            val profile = profileStore.getProfile()
+            val hole = course.holes.firstOrNull { it.number == holeNum }
+            if (hole == null) { _state.update { it.copy(isAskingCaddie = false) }; return@launch }
+
+            val clubDistances = profile.clubDistances
+            val maxCarry = clubDistances.values.maxOrNull() ?: 250
+            val minWedge = clubDistances.filterKeys { it.name.contains("WEDGE", ignoreCase = true) }
+                .values.minOrNull() ?: 80
+            val shotType = when {
+                dist > maxCarry -> com.caddieai.android.data.model.ShotType.FULL_SWING
+                dist <= 40 -> com.caddieai.android.data.model.ShotType.CHIP
+                dist <= minWedge -> com.caddieai.android.data.model.ShotType.PITCH
+                else -> com.caddieai.android.data.model.ShotType.APPROACH
+            }
+
+            // Weather
+            val teePts = course.holes.mapNotNull { it.teeBox }
+            val lat = if (teePts.isNotEmpty()) teePts.map { it.latitude }.average() else 0.0
+            val lon = if (teePts.isNotEmpty()) teePts.map { it.longitude }.average() else 0.0
+            val weather = if (teePts.isNotEmpty()) weatherService.getWeather(lat, lon).getOrNull() else null
+
+            var windStr = com.caddieai.android.data.model.WindStrength.CALM
+            var windDir = com.caddieai.android.data.model.WindDirection.NONE
+            if (weather != null && weather.windSpeedMph >= 5) {
+                windStr = weather.windStrength
+                val holeBearing = if (hole.teeBox != null && hole.pin != null)
+                    forwardBearing(hole.teeBox, hole.pin) else 0.0
+                val relDir = computeRelativeWindDir(holeBearing, weather.windDirectionDegrees.toDouble())
+                windDir = when {
+                    relDir.contains("headwind") || relDir.contains("into") -> com.caddieai.android.data.model.WindDirection.HEADWIND
+                    relDir.contains("tailwind") || relDir.contains("helping") -> com.caddieai.android.data.model.WindDirection.TAILWIND
+                    relDir.contains("left-to-right") -> com.caddieai.android.data.model.WindDirection.LEFT_TO_RIGHT
+                    relDir.contains("right-to-left") -> com.caddieai.android.data.model.WindDirection.RIGHT_TO_LEFT
+                    else -> com.caddieai.android.data.model.WindDirection.NONE
+                }
+            }
+
+            // Hazards
+            val hazards = mutableListOf<String>()
+            if (hole.hazards.any { it.type.name.contains("WATER") }) hazards.add("Water in play")
+            val bunkerCount = hole.hazards.count { it.type == com.caddieai.android.data.model.HazardType.BUNKER }
+            if (bunkerCount > 0) hazards.add("$bunkerCount bunker(s)")
+
+            val ctx = com.caddieai.android.data.model.ShotContext(
+                distanceToPin = dist,
+                shotType = shotType,
+                lie = com.caddieai.android.data.model.LieType.FAIRWAY,
+                slope = com.caddieai.android.data.model.Slope.FLAT,
+                windStrength = windStr,
+                windDirection = windDir,
+                hazardNotes = hazards.joinToString(". "),
+                holeNumber = holeNum,
+                par = hole.par,
+            )
+
+            activeRoundStore.setPendingShotContext(ctx)
+            _state.update { it.copy(isAskingCaddie = false) }
+        }
+    }
+
     fun fetchWeatherForBadge(course: com.caddieai.android.data.model.NormalizedCourse) {
         val pts = course.holes.flatMap { listOfNotNull(it.teeBox, it.pin) }
         if (pts.isEmpty()) return

@@ -186,6 +186,66 @@ fun ProfileScreen(
                             subtitle = "Configure your AI provider and key",
                             onClick = onNavigateToApiSettings,
                         )
+                        // Scoring toggle — binds scorecards to phone/email identity (KAN-225)
+                        var showContactPrompt by remember { mutableStateOf(false) }
+                        SwitchRow(
+                            label = "Scoring",
+                            checked = profile.scoringEnabled,
+                            onCheckedChange = { enabled ->
+                                if (enabled && profile.phone.isBlank() && profile.email.isBlank()) {
+                                    showContactPrompt = true
+                                } else {
+                                    viewModel.setScoringEnabled(enabled)
+                                }
+                            },
+                        )
+                        Text(
+                            "Track scores hole-by-hole during your round. Scorecards are tied to your contact info.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (showContactPrompt) {
+                            var emailInput by remember { mutableStateOf("") }
+                            var phoneInput by remember { mutableStateOf("") }
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { showContactPrompt = false },
+                                title = { Text("Add Contact Info") },
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Scorecards need to be tied to a phone or email. Add one below:",
+                                            style = MaterialTheme.typography.bodySmall)
+                                        OutlinedTextField(
+                                            value = phoneInput, onValueChange = { phoneInput = it },
+                                            label = { Text("Phone") }, singleLine = true,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                        OutlinedTextField(
+                                            value = emailInput, onValueChange = { emailInput = it },
+                                            label = { Text("Email") }, singleLine = true,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                    }
+                                },
+                                confirmButton = {
+                                    androidx.compose.material3.TextButton(
+                                        onClick = {
+                                            if (phoneInput.isNotBlank()) viewModel.setPhone(phoneInput)
+                                            if (emailInput.isNotBlank()) viewModel.setEmail(emailInput)
+                                            if (phoneInput.isNotBlank() || emailInput.isNotBlank()) {
+                                                viewModel.setScoringEnabled(true)
+                                            }
+                                            showContactPrompt = false
+                                        },
+                                        enabled = phoneInput.isNotBlank() || emailInput.isNotBlank(),
+                                    ) { Text("Save") }
+                                },
+                                dismissButton = {
+                                    androidx.compose.material3.TextButton(
+                                        onClick = { showContactPrompt = false }
+                                    ) { Text("Cancel") }
+                                },
+                            )
+                        }
                         if (profile.effectiveTier == UserTier.PRO) {
                             SwitchRow(
                                 label = "Image Analysis (Beta)",

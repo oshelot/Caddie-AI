@@ -81,7 +81,9 @@ class OverpassClient @Inject constructor(
         bbox: String? = null, // "south,west,north,east"
     ): List<OverpassElement> = withContext(Dispatchers.IO) { runCatching {
         logger.log(LogLevel.INFO, LogCategory.API, "overpass_fetch_start", mapOf("name" to name))
-        val query = buildOverpassQuery(name, osmId, bbox)
+        // Add ~200m (0.002 deg) buffer to bbox — matches iOS KAN-212 fix for incomplete hole geometry
+        val bufferedBbox = bbox?.let { expandBbox(it, 0.002) } ?: bbox
+        val query = buildOverpassQuery(name, osmId, bufferedBbox)
         val formBody = FormBody.Builder().add("data", query).build()
 
         val urls = listOf(OVERPASS_PRIMARY_URL, OVERPASS_PRIMARY_URL, OVERPASS_FALLBACK_URL)
@@ -115,6 +117,14 @@ class OverpassClient @Inject constructor(
         logger.log(LogLevel.ERROR, LogCategory.API, "overpass_fetch_exception", mapOf("error" to (e.message ?: "unknown")))
         emptyList()
     } }
+
+    /** Expand a "south,west,north,east" bbox by the given delta degrees on each side. */
+    private fun expandBbox(bbox: String, deltaDeg: Double): String {
+        val parts = bbox.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+        if (parts.size != 4) return bbox
+        val (s, w, n, e) = listOf(parts[0] - deltaDeg, parts[1] - deltaDeg, parts[2] + deltaDeg, parts[3] + deltaDeg)
+        return "$s,$w,$n,$e"
+    }
 
     private fun buildOverpassQuery(name: String, osmId: Long?, bbox: String?): String {
         val areaQuery = when {
