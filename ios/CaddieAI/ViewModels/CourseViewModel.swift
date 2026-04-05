@@ -176,6 +176,33 @@ final class CourseViewModel {
         let courseId = NormalizedCourse.generateId(name: result.name, centroid: result.centroid)
         if !forceRefresh, let cached = cacheService?.load(id: courseId) {
             let cacheMs = Int((CFAbsoluteTimeGetCurrent() - cacheStart) * 1000)
+
+            // If the cached course is missing tee/yardage data and we have an API key,
+            // try to enrich it before serving. This handles stale caches from before
+            // the Golf Course API was configured.
+            let golfApiKey = {
+                let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
+                return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
+            }()
+            let needsEnrichment = cached.teeNames == nil && !cached.holes.isEmpty && !golfApiKey.isEmpty
+            if needsEnrichment {
+                LoggingService.shared.info(.map, "cache_check", metadata: [
+                    "latencyMs": "\(cacheMs)", "courseName": result.name,
+                    "cacheHit": "true", "reEnriching": "true",
+                ])
+                ingestionStep = "Fetching scorecard data…"
+                let enriched = await enrichWithScorecardData(
+                    courses: [cached], courseName: result.name, apiKey: golfApiKey
+                )
+                if let course = enriched.first {
+                    cacheService?.save(course)
+                    selectedCourse = course
+                    TelemetryService.shared.recordCoursePlayed(courseName: course.name)
+                    isIngesting = false
+                    return
+                }
+            }
+
             LoggingService.shared.info(.map, "cache_check", metadata: [
                 "latencyMs": "\(cacheMs)", "courseName": result.name, "cacheHit": "true",
             ])
@@ -374,11 +401,35 @@ final class CourseViewModel {
     // MARK: - Load from Cache
 
     func loadCachedCourse(id: String) {
-        if let course = cacheService?.load(id: id) {
-            selectedCourse = course
-            selectedTee = cacheService?.selectedTee(forCourse: id)
-            TelemetryService.shared.recordCoursePlayed(courseName: course.name)
+        guard var course = cacheService?.load(id: id) else { return }
+
+        // Re-enrich stale cached courses that are missing tee/yardage data
+        let golfApiKey = {
+            let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
+            return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
+        }()
+        if course.teeNames == nil && !course.holes.isEmpty && !golfApiKey.isEmpty {
+            isIngesting = true
+            ingestionStep = "Fetching scorecard data…"
+            Task {
+                let enriched = await enrichWithScorecardData(
+                    courses: [course], courseName: course.name, apiKey: golfApiKey
+                )
+                if let updated = enriched.first {
+                    course = updated
+                    cacheService?.save(updated)
+                }
+                selectedCourse = course
+                selectedTee = cacheService?.selectedTee(forCourse: id)
+                TelemetryService.shared.recordCoursePlayed(courseName: course.name)
+                isIngesting = false
+            }
+            return
         }
+
+        selectedCourse = course
+        selectedTee = cacheService?.selectedTee(forCourse: id)
+        TelemetryService.shared.recordCoursePlayed(courseName: course.name)
     }
 
     // MARK: - Cached Courses List
@@ -528,7 +579,11 @@ final class CourseViewModel {
 
                 // Course-level metadata
                 enriched.totalPar = scorecard.totalPar
-                enriched.teeNames = scorecard.teeYardages.keys.sorted()
+                // Use all tee box names (not just those with per-hole yardage)
+                let allTeeNames = Set(
+                    scorecard.teeBoxInfos.map(\.name) + Array(scorecard.teeYardages.keys)
+                )
+                enriched.teeNames = allTeeNames.sorted()
 
                 // Store total yardage per tee for distance-based tee selection
                 var totals: [String: Int] = [:]

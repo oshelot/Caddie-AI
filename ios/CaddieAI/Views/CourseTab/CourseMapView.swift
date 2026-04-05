@@ -126,13 +126,11 @@ struct CourseMapView: View {
                                     Text("Par \(par)")
                                         .foregroundStyle(.white.opacity(0.7))
                                 }
-                                if let yardages = hole.yardages {
-                                    let yards = viewModel.selectedTee.flatMap { yardages[$0] }
-                                        ?? yardages.values.max()
-                                    if let yards {
-                                        Text("\(yards) yds")
-                                            .foregroundStyle(.white.opacity(0.7))
-                                    }
+                                if let yardages = hole.yardages,
+                                   let yards = viewModel.selectedTee.flatMap({ yardages[$0] })
+                                        ?? yardages.values.max() {
+                                    Text("\(yards) yds")
+                                        .foregroundStyle(.white.opacity(0.7))
                                 }
                                 if let si = hole.strokeIndex {
                                     Text("SI \(si)")
@@ -141,9 +139,14 @@ struct CourseMapView: View {
                             }
                             .font(.caption)
                         } else {
+                            let teeYards: String = {
+                                guard let tee = viewModel.selectedTee,
+                                      let yards = course.teeYardageTotals?[tee] else { return "" }
+                                return " \u{2022} \(yards) yds"
+                            }()
                             Text(course.holes.isEmpty
                                  ? "No hole data available"
-                                 : "\(course.stats.holesDetected) holes\(course.totalPar.map { " \u{2022} Par \($0)" } ?? "")")
+                                 : "\(course.stats.holesDetected) holes\(course.totalPar.map { " \u{2022} Par \($0)" } ?? "")\(teeYards)")
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.7))
                         }
@@ -337,6 +340,7 @@ struct CourseMapView: View {
             if viewModel.selectedTee == nil {
                 let dedupedTees = CourseViewModel.deduplicatedTees(for: course)
                 if !dedupedTees.isEmpty {
+                    let hasSavedTee = cacheService.selectedTee(forCourse: course.id) != nil
                     if let saved = cacheService.selectedTee(forCourse: course.id),
                        dedupedTees.contains(where: { $0.canonicalTee == saved }) {
                         viewModel.selectedTee = saved
@@ -346,6 +350,10 @@ struct CourseMapView: View {
                     ) {
                         viewModel.selectedTee = match
                         cacheService.saveSelectedTee(match, forCourse: course.id)
+                        // Show reminder so user knows which tee was auto-selected
+                        if !hasSavedTee && dedupedTees.count > 1 {
+                            showTeeReminder = true
+                        }
                     } else {
                         viewModel.selectedTee = dedupedTees.first?.canonicalTee
                         if dedupedTees.count > 1 {

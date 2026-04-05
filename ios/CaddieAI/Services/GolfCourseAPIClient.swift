@@ -251,7 +251,7 @@ struct ScorecardData {
     var teeYardages: [String: [Int: Int]] = [:]
     var teeBoxInfos: [TeeBoxInfo] = []
 
-    var isEmpty: Bool { pars.isEmpty && teeYardages.isEmpty }
+    var isEmpty: Bool { pars.isEmpty && teeYardages.isEmpty && teeBoxInfos.isEmpty }
 
     var totalPar: Int? {
         // Prefer tee box parTotal, fallback to summing hole pars
