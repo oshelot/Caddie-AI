@@ -19,7 +19,12 @@ final class SubscriptionManager {
     }
 
     /// Debug-only override. When non-nil, `tier` returns this value instead of the real entitlement.
+    /// Defaults to `.paid` in DEBUG builds so Pro features are available during development.
+    #if DEBUG
+    var debugTierOverride: UserTier? = .paid
+    #else
     var debugTierOverride: UserTier?
+    #endif
 
     private var _tier: UserTier = .free
 

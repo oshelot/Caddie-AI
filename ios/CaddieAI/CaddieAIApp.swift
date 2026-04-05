@@ -29,6 +29,7 @@ struct CaddieAIApp: App {
     @State private var adManager = AdManager()
     @State private var locationManager = LocationManager()
     @State private var tabRouter = TabRouter()
+    @State private var scorecardStore = ScorecardStore()
     @State private var showSplash = true
     @AppStorage("hasSeenSetupNotice") private var hasSeenSetupNotice = false
     @State private var showSetupNotice = false
@@ -135,6 +136,7 @@ struct CaddieAIApp: App {
             .environment(adManager)
             .environment(locationManager)
             .environment(tabRouter)
+            .environment(scorecardStore)
             .task {
                 // Log app launch
                 LoggingService.shared.info(.general, "App launched")

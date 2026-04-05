@@ -10,11 +10,26 @@ import SwiftUI
 import MapboxMaps
 import CoreLocation
 
+/// Lightweight struct for the tap-to-distance line overlay.
+struct TapLineData: Equatable {
+    let from: CLLocationCoordinate2D
+    let to: CLLocationCoordinate2D
+
+    static func == (lhs: TapLineData, rhs: TapLineData) -> Bool {
+        lhs.from.latitude == rhs.from.latitude &&
+        lhs.from.longitude == rhs.from.longitude &&
+        lhs.to.latitude == rhs.to.latitude &&
+        lhs.to.longitude == rhs.to.longitude
+    }
+}
+
 struct MapboxMapRepresentable: UIViewRepresentable {
     let course: NormalizedCourse?
     var selectedHole: Int?
     var showUserLocation: Bool = false
     var onHoleTapped: ((Int) -> Void)?
+    var onMapTapped: ((CLLocationCoordinate2D) -> Void)?
+    var tapLine: TapLineData?
 
     // MARK: - Layer & Source IDs
 
@@ -27,6 +42,8 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         static let greens = "layer-greens"
         static let tees = "layer-tees"
         static let holeLabels = "layer-hole-labels"
+        static let tapLineSource = "tap-line-source"
+        static let tapLineLayer = "layer-tap-line"
     }
 
     // MARK: - Make
@@ -70,6 +87,7 @@ struct MapboxMapRepresentable: UIViewRepresentable {
             if let course = self.course {
                 context.coordinator.addCourseLayers(course: course)
             }
+            context.coordinator.setupTapGesture()
         }.store(in: &context.coordinator.cancelBag)
 
         return mapView
@@ -103,12 +121,19 @@ struct MapboxMapRepresentable: UIViewRepresentable {
 
         context.coordinator.highlightHole(selectedHole)
         context.coordinator.zoomToHole(selectedHole)
+
+        // Update tap line overlay
+        if let tapLine {
+            context.coordinator.updateTapLine(from: tapLine.from, to: tapLine.to)
+        } else {
+            context.coordinator.removeTapLine()
+        }
     }
 
     // MARK: - Coordinator
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onHoleTapped: onHoleTapped)
+        Coordinator(onHoleTapped: onHoleTapped, onMapTapped: onMapTapped)
     }
 
     class Coordinator {
@@ -117,12 +142,69 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         var cancelBag: [AnyCancelable] = []
         var layersAdded = false
         var onHoleTapped: ((Int) -> Void)?
+        var onMapTapped: ((CLLocationCoordinate2D) -> Void)?
         var course: NormalizedCourse?
         var currentlyZoomedHole: Int?
         var mapCreateTime: CFAbsoluteTime?
+        private var tapLineAdded = false
 
-        init(onHoleTapped: ((Int) -> Void)?) {
+        init(onHoleTapped: ((Int) -> Void)?, onMapTapped: ((CLLocationCoordinate2D) -> Void)?) {
             self.onHoleTapped = onHoleTapped
+            self.onMapTapped = onMapTapped
+        }
+
+        // MARK: - Tap Gesture
+
+        func setupTapGesture() {
+            guard let mapView else { return }
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handleMapTap(_:)))
+            tap.numberOfTapsRequired = 1
+            mapView.addGestureRecognizer(tap)
+        }
+
+        @objc func handleMapTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended,
+                  let mapView else { return }
+            let screenPoint = gesture.location(in: mapView)
+            let coordinate = mapView.mapboxMap.coordinate(for: screenPoint)
+            onMapTapped?(coordinate)
+        }
+
+        // MARK: - Tap Line Overlay
+
+        func updateTapLine(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) {
+            guard let mapView, let map = mapView.mapboxMap else { return }
+
+            let lineFeature = Feature(geometry: .lineString(LineString([from, to])))
+            let featureCollection = FeatureCollection(features: [lineFeature])
+
+            if tapLineAdded {
+                // Update existing source
+                map.updateGeoJSONSource(
+                    withId: LayerID.tapLineSource,
+                    geoJSON: .featureCollection(featureCollection)
+                )
+            } else {
+                // Create source + layer
+                var source = GeoJSONSource(id: LayerID.tapLineSource)
+                source.data = .featureCollection(featureCollection)
+                try? map.addSource(source)
+
+                var lineLayer = LineLayer(id: LayerID.tapLineLayer, source: LayerID.tapLineSource)
+                lineLayer.lineColor = .constant(StyleColor(rawValue: "#FFD700"))
+                lineLayer.lineWidth = .constant(3.0)
+                lineLayer.lineDasharray = .constant([2.0, 2.0])
+                lineLayer.lineOpacity = .constant(0.9)
+                try? map.addLayer(lineLayer)
+                tapLineAdded = true
+            }
+        }
+
+        func removeTapLine() {
+            guard let mapView, let map = mapView.mapboxMap, tapLineAdded else { return }
+            try? map.removeLayer(withId: LayerID.tapLineLayer)
+            try? map.removeSource(withId: LayerID.tapLineSource)
+            tapLineAdded = false
         }
 
         func addCourseLayers(course: NormalizedCourse) {
@@ -318,13 +400,16 @@ struct MapboxMapRepresentable: UIViewRepresentable {
         private func removeLayers(map: MapboxMap) {
             let layerIds = [
                 LayerID.holeLabels, LayerID.tees, LayerID.greens,
-                LayerID.holeLines, LayerID.bunkers, LayerID.water, LayerID.boundary
+                LayerID.holeLines, LayerID.bunkers, LayerID.water, LayerID.boundary,
+                LayerID.tapLineLayer,
             ]
             for id in layerIds {
                 try? map.removeLayer(withId: id)
             }
             try? map.removeSource(withId: LayerID.source)
+            try? map.removeSource(withId: LayerID.tapLineSource)
             layersAdded = false
+            tapLineAdded = false
         }
     }
 }

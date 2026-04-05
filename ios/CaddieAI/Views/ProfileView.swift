@@ -80,6 +80,20 @@ struct ProfileView: View {
                     }
                 }
 
+                Section("Scoring") {
+                    Toggle("Enable Scorecard", isOn: $store.profile.scoringEnabled)
+                    if store.profile.scoringEnabled
+                        && store.profile.contactEmail.isEmpty
+                        && store.profile.contactPhone.isEmpty {
+                        Label(
+                            "Add a phone or email in Contact Info to identify your scorecards.",
+                            systemImage: "info.circle"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section("Settings") {
                     NavigationLink {
                         APISettingsView()
@@ -87,7 +101,7 @@ struct ProfileView: View {
                         Label("API Settings", systemImage: "gearshape.2")
                     }
                     #if DEBUG
-                    Toggle("Override: Pro Tier", isOn: Binding(
+                    Toggle("Pro Tier (Debug)", isOn: Binding(
                         get: { subscriptionManager.debugTierOverride == .paid },
                         set: { subscriptionManager.debugTierOverride = $0 ? .paid : nil }
                     ))

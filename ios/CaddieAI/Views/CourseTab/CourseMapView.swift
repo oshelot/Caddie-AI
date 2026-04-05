@@ -8,6 +8,14 @@
 import CoreLocation
 import SwiftUI
 
+/// Info displayed when the user taps a point on the course map.
+struct TapDistanceInfo {
+    let tapPoint: CLLocationCoordinate2D
+    let greenCenter: CLLocationCoordinate2D
+    let distanceYards: Int
+    let recommendedClub: String?
+}
+
 struct CourseMapView: View {
     let course: NormalizedCourse
     @Environment(CourseViewModel.self) private var viewModel
@@ -26,6 +34,7 @@ struct CourseMapView: View {
     @State private var locationManager = LocationManager()
     @State private var showUserLocation = false
     @State private var showTeeReminder = false
+    @State private var tapDistanceInfo: TapDistanceInfo?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -36,6 +45,12 @@ struct CourseMapView: View {
                 showUserLocation: showUserLocation,
                 onHoleTapped: { hole in
                     viewModel.selectedHole = hole
+                },
+                onMapTapped: { coordinate in
+                    handleMapTap(coordinate)
+                },
+                tapLine: tapDistanceInfo.map {
+                    TapLineData(from: $0.tapPoint, to: $0.greenCenter)
                 }
             )
             .ignoresSafeArea()
@@ -96,6 +111,37 @@ struct CourseMapView: View {
 
             // Bottom overlay
             VStack(spacing: 0) {
+                // Tap-to-distance label
+                if let info = tapDistanceInfo {
+                    HStack(spacing: 8) {
+                        Image(systemName: "ruler")
+                            .font(.caption)
+                        Text("\(info.distanceYards) yds")
+                            .font(.subheadline.weight(.bold))
+                        if let club = info.recommendedClub {
+                            Text("•")
+                                .foregroundStyle(.white.opacity(0.5))
+                            Text(club)
+                                .font(.subheadline)
+                        }
+                        Spacer()
+                        Button {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                tapDistanceInfo = nil
+                            }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.body)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.75))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 // No holes banner
                 if course.holes.isEmpty {
                     HStack(spacing: 8) {
@@ -372,6 +418,9 @@ struct CourseMapView: View {
                 // Weather is optional — silently fail
             }
         }
+        .onChange(of: viewModel.selectedHole) {
+            tapDistanceInfo = nil
+        }
     }
 
     // MARK: - Auto Detect
@@ -468,6 +517,48 @@ struct CourseMapView: View {
         } else {
             return .approach
         }
+    }
+
+    // MARK: - Tap to Distance
+
+    private func handleMapTap(_ coordinate: CLLocationCoordinate2D) {
+        // Require a selected hole so we know which green to measure to
+        guard let sel = viewModel.selectedHole,
+              let hole = course.holes.first(where: { $0.number == sel })
+        else { return }
+
+        let greenTarget: GeoJSONPoint? = hole.green?.centroid ?? hole.lineOfPlay?.endPoint
+        guard let target = greenTarget else { return }
+
+        let tapPoint = GeoJSONPoint(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let distMeters = tapPoint.distance(to: target)
+        let distYards = Int(distMeters / 0.9144)
+
+        let club = recommendClub(
+            distanceYards: distYards,
+            clubDistances: profileStore.profile.clubDistances
+        )
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            tapDistanceInfo = TapDistanceInfo(
+                tapPoint: coordinate,
+                greenCenter: CLLocationCoordinate2D(
+                    latitude: target.latitude,
+                    longitude: target.longitude
+                ),
+                distanceYards: distYards,
+                recommendedClub: club
+            )
+        }
+    }
+
+    private func recommendClub(distanceYards: Int, clubDistances: [ClubDistance]) -> String? {
+        guard !clubDistances.isEmpty else { return nil }
+        let sorted = clubDistances.sorted { $0.carryYards > $1.carryYards }
+        guard let best = sorted.min(by: {
+            abs($0.carryYards - distanceYards) < abs($1.carryYards - distanceYards)
+        }) else { return nil }
+        return best.club.displayName
     }
 }
 

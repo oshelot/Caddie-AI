@@ -137,8 +137,11 @@ final class CourseViewModel {
                 guard let name = item.name else { return nil }
                 let coord = item.placemark.coordinate
 
-                // Synthesize a bounding box (~1km buffer)
-                let buffer = 0.009
+                // Synthesize a bounding box (~1.7km buffer each side, ~3.4km total span).
+                // Must be large enough for courses that extend far from the centroid—
+                // e.g. Broadlands GC spans ~2km E-W and the MapKit centroid is
+                // offset toward the clubhouse. Overpass adds another ~200m buffer.
+                let buffer = 0.015
                 let bbox = CourseBoundingBox(
                     south: coord.latitude - buffer,
                     west: coord.longitude - buffer,
@@ -177,44 +180,93 @@ final class CourseViewModel {
         if !forceRefresh, let cached = cacheService?.load(id: courseId) {
             let cacheMs = Int((CFAbsoluteTimeGetCurrent() - cacheStart) * 1000)
 
-            // If the cached course is missing tee/yardage data and we have an API key,
-            // try to enrich it before serving. This handles stale caches from before
-            // the Golf Course API was configured.
-            let golfApiKey = {
-                let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
-                return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
-            }()
-            let needsEnrichment = cached.teeNames == nil && !cached.holes.isEmpty && !golfApiKey.isEmpty
-            if needsEnrichment {
+            // If the cached course has suspiciously few holes (9-17), it may have been
+            // ingested with a bbox that was too tight. Re-ingest with the current
+            // (wider) bbox to pick up missing holes.
+            let holeCount = cached.holes.count
+            if holeCount >= 9 && holeCount < 18 {
                 LoggingService.shared.info(.map, "cache_check", metadata: [
                     "latencyMs": "\(cacheMs)", "courseName": result.name,
-                    "cacheHit": "true", "reEnriching": "true",
+                    "cacheHit": "true", "reIngesting": "true",
+                    "reason": "incompleteHoles", "holeCount": "\(holeCount)",
                 ])
-                ingestionStep = "Fetching scorecard data…"
-                let enriched = await enrichWithScorecardData(
-                    courses: [cached], courseName: result.name, apiKey: golfApiKey
-                )
-                if let course = enriched.first {
-                    cacheService?.save(course)
-                    selectedCourse = course
-                    TelemetryService.shared.recordCoursePlayed(courseName: course.name)
-                    isIngesting = false
-                    return
+                // Fall through to re-ingest with current bbox
+            } else {
+                // If the cached course is missing tee/yardage data and we have an API key,
+                // try to enrich it before serving. This handles stale caches from before
+                // the Golf Course API was configured.
+                let golfApiKey = {
+                    let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
+                    return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
+                }()
+                let needsEnrichment = cached.teeNames == nil && !cached.holes.isEmpty && !golfApiKey.isEmpty
+                if needsEnrichment {
+                    LoggingService.shared.info(.map, "cache_check", metadata: [
+                        "latencyMs": "\(cacheMs)", "courseName": result.name,
+                        "cacheHit": "true", "reEnriching": "true",
+                    ])
+                    ingestionStep = "Fetching scorecard data…"
+                    let enriched = await enrichWithScorecardData(
+                        courses: [cached], courseName: result.name, apiKey: golfApiKey
+                    )
+                    if let course = enriched.first {
+                        cacheService?.save(course)
+                        selectedCourse = course
+                        TelemetryService.shared.recordCoursePlayed(courseName: course.name)
+                        isIngesting = false
+                        return
+                    }
                 }
-            }
 
-            LoggingService.shared.info(.map, "cache_check", metadata: [
-                "latencyMs": "\(cacheMs)", "courseName": result.name, "cacheHit": "true",
-            ])
-            selectedCourse = cached
-            TelemetryService.shared.recordCoursePlayed(courseName: cached.name)
-            isIngesting = false
-            return
+                LoggingService.shared.info(.map, "cache_check", metadata: [
+                    "latencyMs": "\(cacheMs)", "courseName": result.name, "cacheHit": "true",
+                ])
+                selectedCourse = cached
+                TelemetryService.shared.recordCoursePlayed(courseName: cached.name)
+                isIngesting = false
+                return
+            }
         }
         let cacheMs = Int((CFAbsoluteTimeGetCurrent() - cacheStart) * 1000)
         LoggingService.shared.info(.map, "cache_check", metadata: [
             "latencyMs": "\(cacheMs)", "courseName": result.name, "cacheHit": "false",
         ])
+
+        // Step 1b: Check server cache before hitting Overpass
+        if Secrets.courseCacheEndpoint != nil {
+            ingestionStep = "Checking server cache…"
+            let serverStart = CFAbsoluteTimeGetCurrent()
+            do {
+                if let serverCached = try await CourseCacheAPIClient.getCourse(id: courseId) {
+                    guard !Task.isCancelled else {
+                        isIngesting = false
+                        return
+                    }
+                    let serverMs = Int((CFAbsoluteTimeGetCurrent() - serverStart) * 1000)
+                    LoggingService.shared.info(.map, "server_cache_check", metadata: [
+                        "latencyMs": "\(serverMs)", "courseName": result.name, "cacheHit": "true",
+                    ])
+                    // Save to local cache for offline access
+                    cacheService?.save(serverCached)
+                    selectedCourse = serverCached
+                    TelemetryService.shared.recordCoursePlayed(courseName: serverCached.name)
+                    isIngesting = false
+                    return
+                }
+                LoggingService.shared.info(.map, "server_cache_check", metadata: [
+                    "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - serverStart) * 1000))",
+                    "courseName": result.name, "cacheHit": "false",
+                ])
+            } catch is CancellationError {
+                isIngesting = false
+                return
+            } catch {
+                // Server cache failure is non-fatal — fall through to Overpass
+                LoggingService.shared.warning(.map, "server_cache_error", metadata: [
+                    "courseName": result.name, "error": error.localizedDescription,
+                ])
+            }
+        }
 
         guard let bbox = result.boundingBox else {
             ingestionError = "No bounding box available for this course."
@@ -226,7 +278,7 @@ final class CourseViewModel {
             // Step 1: Fetch features from Overpass
             ingestionStep = "Fetching course features…"
             var stepStart = CFAbsoluteTimeGetCurrent()
-            let response = try await OverpassClient.fetchCourseFeatures(boundingBox: bbox)
+            var response = try await OverpassClient.fetchCourseFeatures(boundingBox: bbox)
             try Task.checkCancellation()
             LoggingService.shared.info(.map, "overpass_fetch", metadata: [
                 "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
@@ -236,12 +288,38 @@ final class CourseViewModel {
             // Step 2: Parse OSM data
             ingestionStep = "Parsing geometry…"
             stepStart = CFAbsoluteTimeGetCurrent()
-            let parsed = OSMParser.parse(response)
+            var parsed = OSMParser.parse(response)
             try Task.checkCancellation()
             LoggingService.shared.info(.map, "osm_parse", metadata: [
                 "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
                 "courseName": result.name,
             ])
+
+            // Step 2b: If we got a suspiciously low hole count from a synthetic
+            // (MapKit) bbox, retry with a wider search area. The centroid-based
+            // bbox can miss peripheral holes on courses that extend far from center.
+            if parsed.holeLines.count >= 9 && parsed.holeLines.count < 18
+                && result.source == .appleMapKit {
+                let widerBbox = bbox.buffered(by: 0.008) // ~900m extra each side
+                LoggingService.shared.info(.map, "bbox_expand_retry", metadata: [
+                    "courseName": result.name,
+                    "initialHoles": "\(parsed.holeLines.count)",
+                ])
+                ingestionStep = "Expanding search area…"
+                stepStart = CFAbsoluteTimeGetCurrent()
+                let widerResponse = try await OverpassClient.fetchCourseFeatures(boundingBox: widerBbox)
+                try Task.checkCancellation()
+                let widerParsed = OSMParser.parse(widerResponse)
+                if widerParsed.holeLines.count > parsed.holeLines.count {
+                    response = widerResponse
+                    parsed = widerParsed
+                    LoggingService.shared.info(.map, "bbox_expand_success", metadata: [
+                        "courseName": result.name,
+                        "expandedHoles": "\(widerParsed.holeLines.count)",
+                        "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
+                    ])
+                }
+            }
 
             // Step 3: Normalize into course model(s)
             ingestionStep = "Building course model…"
@@ -287,6 +365,24 @@ final class CourseViewModel {
                 "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
                 "courseName": result.name,
             ])
+
+            // Step 5b: Upload to server cache (fire-and-forget, non-blocking)
+            if Secrets.courseCacheEndpoint != nil {
+                for course in enrichedCourses {
+                    Task {
+                        do {
+                            try await CourseCacheAPIClient.putCourse(course)
+                            LoggingService.shared.info(.map, "server_cache_upload", metadata: [
+                                "courseName": course.name, "courseId": course.id,
+                            ])
+                        } catch {
+                            LoggingService.shared.warning(.map, "server_cache_upload_error", metadata: [
+                                "courseName": course.name, "error": error.localizedDescription,
+                            ])
+                        }
+                    }
+                }
+            }
 
             // Step 6: Handle results
             if enrichedCourses.count > 1 {

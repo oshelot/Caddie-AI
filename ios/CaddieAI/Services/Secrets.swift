@@ -48,6 +48,18 @@ enum Secrets {
         secrets?["TelemetryApiKey"] as? String
     }
 
+    /// Server-side course cache endpoint URL
+    static var courseCacheEndpoint: String? {
+        let value = secrets?["CourseCacheEndpoint"] as? String
+        return (value?.isEmpty ?? true) ? nil : value
+    }
+
+    /// Server-side course cache API key (x-api-key header)
+    static var courseCacheApiKey: String? {
+        let value = secrets?["CourseCacheApiKey"] as? String
+        return (value?.isEmpty ?? true) ? nil : value
+    }
+
     /// Remote diagnostic logging endpoint URL
     static var loggingEndpoint: String? {
         let value = secrets?["LoggingEndpoint"] as? String
