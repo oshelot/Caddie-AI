@@ -33,8 +33,8 @@ struct GolfLogicEngine {
         context: ShotContext,
         profile: PlayerProfile
     ) -> DeterministicAnalysis {
-        let effectiveDistance = calculateEffectiveDistance(context: context)
-        let clubLimit = maxClubForLie(context.lieType)
+        let effectiveDistance = calculateEffectiveDistance(context: context, ironType: profile.ironType)
+        let clubLimit = maxClubForLie(context.lieType, ironType: profile.ironType)
         let recommendedClub = selectClub(
             effectiveDistance: effectiveDistance,
             clubDistances: profile.clubDistances,
@@ -51,7 +51,7 @@ struct GolfLogicEngine {
             profile: profile,
             recommendedClub: recommendedClub
         )
-        let adjustments = describeAdjustments(context: context)
+        let adjustments = describeAdjustments(context: context, ironType: profile.ironType)
 
         let executionPlan = ExecutionEngine.generateExecutionPlan(
             context: context,
@@ -73,7 +73,7 @@ struct GolfLogicEngine {
 
     // MARK: - Effective Distance Calculation
 
-    static func calculateEffectiveDistance(context: ShotContext) -> Int {
+    static func calculateEffectiveDistance(context: ShotContext, ironType: IronType? = nil) -> Int {
         var distance = Double(context.distanceYards)
 
         distance += windAdjustment(
@@ -88,6 +88,11 @@ struct GolfLogicEngine {
             slope: context.slope,
             baseDistance: context.distanceYards
         )
+
+        // GI/SGI irons lose distance from challenging lies due to wide soles
+        if let ironType {
+            distance += ironTypeLieAdjustment(lieType: context.lieType, ironType: ironType)
+        }
 
         return max(1, Int(distance.rounded()))
     }
@@ -143,6 +148,23 @@ struct GolfLogicEngine {
         case .downhill: return -(base * 0.05)
         case .ballAboveFeet: return 3
         case .ballBelowFeet: return 3
+        }
+    }
+
+    // MARK: - Iron Type Lie Adjustment
+
+    /// Additional distance penalty for GI/SGI irons from challenging lies.
+    /// Wide soles and high offset make these irons less effective from
+    /// bunkers, tight lies, and thick rough.
+    static func ironTypeLieAdjustment(lieType: LieType, ironType: IronType) -> Double {
+        let multiplier: Double = ironType == .superGameImprovement ? 1.5 : 1.0
+        switch lieType {
+        case .fairwayBunker:    return 8 * multiplier   // wide sole digs, poor contact
+        case .greensideBunker:  return 5 * multiplier   // harder to open face with offset
+        case .hardpan:          return 5 * multiplier   // wide sole bounces off hardpan
+        case .rough:            return 3 * multiplier   // grass grabs wide sole
+        case .deepRough:        return 5 * multiplier   // even worse in heavy rough
+        default:                return 0
         }
     }
 
@@ -212,15 +234,33 @@ struct GolfLogicEngine {
 
     // MARK: - Club Restrictions by Lie
 
-    static func maxClubForLie(_ lieType: LieType) -> Club? {
+    static func maxClubForLie(_ lieType: LieType, ironType: IronType? = nil) -> Club? {
+        // Base limits
+        var limit: Club?
         switch lieType {
-        case .deepRough: return .iron7
-        case .greensideBunker: return .sandWedge
-        case .fairwayBunker: return .iron6
-        case .treesObstructed: return .iron7
-        case .pineStraw: return .iron5
-        default: return nil
+        case .deepRough: limit = .iron7
+        case .greensideBunker: limit = .sandWedge
+        case .fairwayBunker: limit = .iron6
+        case .treesObstructed: limit = .iron7
+        case .pineStraw: limit = .iron5
+        default: limit = nil
         }
+
+        // GI/SGI irons need tighter limits from challenging lies
+        if let ironType {
+            switch lieType {
+            case .fairwayBunker:
+                // Wide sole makes long irons from bunkers very difficult
+                limit = ironType == .superGameImprovement ? .iron8 : .iron7
+            case .hardpan:
+                // Wide sole bounces — restrict to shorter irons
+                limit = ironType == .superGameImprovement ? .iron8 : .iron7
+            default:
+                break
+            }
+        }
+
+        return limit
     }
 
     static func isClubAllowed(_ club: Club, maxAllowed: Club?) -> Bool {
@@ -340,7 +380,7 @@ struct GolfLogicEngine {
 
     // MARK: - Describe Adjustments
 
-    static func describeAdjustments(context: ShotContext) -> [String] {
+    static func describeAdjustments(context: ShotContext, ironType: IronType? = nil) -> [String] {
         var adjustments: [String] = []
 
         let windAdj = windAdjustment(
@@ -363,6 +403,13 @@ struct GolfLogicEngine {
         if abs(slopeAdj) > 0.5 {
             let sign = slopeAdj > 0 ? "+" : ""
             adjustments.append("Slope (\(context.slope.displayName)): \(sign)\(Int(slopeAdj.rounded())) yards")
+        }
+
+        if let ironType {
+            let giAdj = ironTypeLieAdjustment(lieType: context.lieType, ironType: ironType)
+            if abs(giAdj) > 0.5 {
+                adjustments.append("\(ironType.shortName) iron penalty (\(context.lieType.displayName)): +\(Int(giAdj.rounded())) yards")
+            }
         }
 
         if adjustments.isEmpty {

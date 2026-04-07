@@ -552,6 +552,31 @@ enum TeeBoxPreference: Int, CaseIterable, Codable, Identifiable, Sendable {
     }
 }
 
+// MARK: - Iron Type
+
+/// Describes the player's iron construction type, which affects
+/// performance from bunkers, tight lies, rough, and in wind.
+enum IronType: String, CaseIterable, Codable, Identifiable, Sendable {
+    case gameImprovement
+    case superGameImprovement
+
+    var id: Self { self }
+
+    var displayName: String {
+        switch self {
+        case .gameImprovement: return "Game Improvement"
+        case .superGameImprovement: return "Super Game Improvement"
+        }
+    }
+
+    var shortName: String {
+        switch self {
+        case .gameImprovement: return "GI"
+        case .superGameImprovement: return "SGI"
+        }
+    }
+}
+
 // MARK: - Caddie Voice Gender
 
 enum CaddieVoiceGender: String, CaseIterable, Codable, Identifiable, Sendable {

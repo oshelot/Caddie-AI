@@ -10,6 +10,7 @@ import SwiftUI
 struct YourBagView: View {
     @Environment(ProfileStore.self) private var profileStore
     @State private var showingAddClub = false
+    @State private var showingIronTypePicker = false
 
     private static let maxClubs = 13
 
@@ -64,6 +65,30 @@ struct YourBagView: View {
                     }
                 }
             }
+
+            Section {
+                Toggle(isOn: Binding(
+                    get: { profileStore.profile.ironType != nil },
+                    set: { isOn in
+                        if isOn {
+                            showingIronTypePicker = true
+                        } else {
+                            profileStore.profile.ironType = nil
+                        }
+                    }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Game Improvement Irons")
+                        if let ironType = profileStore.profile.ironType {
+                            Text(ironType.displayName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } footer: {
+                Text("GI/SGI irons have wider soles and higher offset. The caddie will account for reduced versatility from bunkers, tight lies, and rough.")
+            }
         }
         .navigationTitle("Your Bag")
         .scrollDismissesKeyboard(.interactively)
@@ -71,6 +96,19 @@ struct YourBagView: View {
             AddClubSheet(availableClubs: availableClubs) { club, yards in
                 addClub(club, carryYards: yards)
             }
+        }
+        .confirmationDialog(
+            "What type of game improvement irons?",
+            isPresented: $showingIronTypePicker,
+            titleVisibility: .visible
+        ) {
+            Button("Game Improvement") {
+                profileStore.profile.ironType = .gameImprovement
+            }
+            Button("Super Game Improvement") {
+                profileStore.profile.ironType = .superGameImprovement
+            }
+            Button("Cancel", role: .cancel) {}
         }
         .onChange(of: profileStore.profile.clubDistances.map(\.carryYards)) {
             sortBag()

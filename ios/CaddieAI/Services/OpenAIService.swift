@@ -332,6 +332,13 @@ final class OpenAIService: Sendable {
             .map { "\($0.club.shortName): \($0.carryYards) yards" }
             .joined(separator: ", ")
 
+        let ironTypeLine: String
+        if let ironType = profile.ironType {
+            ironTypeLine = "\n            Iron type: \(ironType.displayName) — wide sole, high offset irons that struggle from bunkers, hardpan, and tight lies. Factor this into club selection and execution advice for those lies."
+        } else {
+            ironTypeLine = ""
+        }
+
         let profileSummary = """
             Handicap: \(profile.handicap)
             Stock shape (woods): \(profile.woodsStockShape.displayName)
@@ -343,7 +350,7 @@ final class OpenAIService: Sendable {
             Wedge confidence: \(profile.wedgeConfidence.displayName)
             Preferred chip style: \(profile.preferredChipStyle.displayName)
             Swing tendency: \(profile.swingTendency.displayName)
-            Club distances: \(clubList)
+            Club distances: \(clubList)\(ironTypeLine)
             """
 
         let executionJSON = (try? String(data: encoder.encode(analysis.executionPlan), encoding: .utf8)) ?? "{}"
@@ -401,6 +408,13 @@ final class OpenAIService: Sendable {
             .map { "\($0.club.shortName): \($0.carryYards) yards" }
             .joined(separator: ", ")
 
+        let holeIronTypeLine: String
+        if let ironType = profile.ironType {
+            holeIronTypeLine = "\n            Iron type: \(ironType.displayName) (GI/SGI — limited from bunkers and tight lies)"
+        } else {
+            holeIronTypeLine = ""
+        }
+
         let profileSummary = """
             Handicap: \(profile.handicap)
             Stock shape (woods): \(profile.woodsStockShape.displayName)
@@ -408,7 +422,7 @@ final class OpenAIService: Sendable {
             Stock shape (hybrids): \(profile.hybridsStockShape.displayName)
             Miss tendency: \(profile.missTendency.displayName)
             Aggressiveness: \(profile.defaultAggressiveness.displayName)
-            Club distances: \(clubList)
+            Club distances: \(clubList)\(holeIronTypeLine)
             """
 
         var message = """

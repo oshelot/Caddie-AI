@@ -76,11 +76,16 @@ struct ProfileView: View {
                     NavigationLink {
                         TeeBoxPreferenceView()
                     } label: {
-                        Label("Tee Box Preference", systemImage: "flag.fill")
+                        HStack {
+                            Label("Tee Box Preference", systemImage: "flag.fill")
+                            Spacer()
+                            Text(profileStore.profile.preferredTeeBox.displayName)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
-                Section("Scoring") {
+                Section("Features") {
                     Toggle("Enable Scorecard", isOn: $store.profile.scoringEnabled)
                     if store.profile.scoringEnabled
                         && store.profile.contactEmail.isEmpty
@@ -91,6 +96,9 @@ struct ProfileView: View {
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    }
+                    if subscriptionManager.tier == .paid {
+                        Toggle("Image Analysis (BETA)", isOn: $store.profile.betaImageAnalysis)
                     }
                 }
 
@@ -113,10 +121,6 @@ struct ProfileView: View {
                         set: { LoggingService.shared.isEnabled = $0 }
                     ))
                     #endif
-
-                    if subscriptionManager.tier == .paid {
-                        Toggle("Image Analysis (BETA)", isOn: $store.profile.betaImageAnalysis)
-                    }
                 }
 
                 Section {

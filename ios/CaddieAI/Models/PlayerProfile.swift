@@ -66,6 +66,9 @@ struct PlayerProfile: Codable, Sendable {
     // Tee box preference
     var preferredTeeBox: TeeBoxPreference
 
+    // Iron type (game improvement / super game improvement)
+    var ironType: IronType?
+
     // Scoring
     var scoringEnabled: Bool
 
@@ -112,12 +115,13 @@ struct PlayerProfile: Codable, Sendable {
         hasConfiguredBag = try container.decodeIfPresent(Bool.self, forKey: .hasConfiguredBag) ?? true
         betaImageAnalysis = try container.decodeIfPresent(Bool.self, forKey: .betaImageAnalysis) ?? false
         preferredTeeBox = try container.decodeIfPresent(TeeBoxPreference.self, forKey: .preferredTeeBox) ?? .white
+        ironType = try container.decodeIfPresent(IronType.self, forKey: .ironType)
         scoringEnabled = try container.decodeIfPresent(Bool.self, forKey: .scoringEnabled) ?? false
         contactPromptSkipCount = try container.decodeIfPresent(Int.self, forKey: .contactPromptSkipCount) ?? 0
         contactPromptLastShown = try container.decodeIfPresent(Date.self, forKey: .contactPromptLastShown)
     }
 
-    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", llmProvider: LLMProvider = .openAI, llmModel: LLMModel = .gpt4o, claudeApiKey: String = "", geminiApiKey: String = "", telemetryEnabled: Bool = true, caddieVoiceGender: CaddieVoiceGender = .female, caddieVoiceAccent: CaddieVoiceAccent = .american, caddiePersona: CaddiePersona = .professional, bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral, woodsStockShape: StockShape = .straight, ironsStockShape: StockShape = .straight, hybridsStockShape: StockShape = .straight, hasCompletedSwingOnboarding: Bool = false, hasConfiguredBag: Bool = false, contactName: String = "", contactEmail: String = "", contactPhone: String = "", betaImageAnalysis: Bool = false, preferredTeeBox: TeeBoxPreference = .white, scoringEnabled: Bool = false, contactPromptSkipCount: Int = 0, contactPromptLastShown: Date? = nil) {
+    init(handicap: Double, stockShape: StockShape, missTendency: MissTendency, clubDistances: [ClubDistance], defaultAggressiveness: Aggressiveness, apiKey: String, golfCourseApiKey: String = "", mapboxAccessToken: String = "", llmProvider: LLMProvider = .openAI, llmModel: LLMModel = .gpt4o, claudeApiKey: String = "", geminiApiKey: String = "", telemetryEnabled: Bool = true, caddieVoiceGender: CaddieVoiceGender = .female, caddieVoiceAccent: CaddieVoiceAccent = .american, caddiePersona: CaddiePersona = .professional, bunkerConfidence: SelfConfidence = .average, wedgeConfidence: SelfConfidence = .average, preferredChipStyle: ChipStyle = .noPreference, swingTendency: SwingTendency = .neutral, woodsStockShape: StockShape = .straight, ironsStockShape: StockShape = .straight, hybridsStockShape: StockShape = .straight, hasCompletedSwingOnboarding: Bool = false, hasConfiguredBag: Bool = false, contactName: String = "", contactEmail: String = "", contactPhone: String = "", betaImageAnalysis: Bool = false, preferredTeeBox: TeeBoxPreference = .white, ironType: IronType? = nil, scoringEnabled: Bool = false, contactPromptSkipCount: Int = 0, contactPromptLastShown: Date? = nil) {
         self.handicap = handicap
         self.stockShape = stockShape
         self.missTendency = missTendency
@@ -148,6 +152,7 @@ struct PlayerProfile: Codable, Sendable {
         self.contactPhone = contactPhone
         self.betaImageAnalysis = betaImageAnalysis
         self.preferredTeeBox = preferredTeeBox
+        self.ironType = ironType
         self.scoringEnabled = scoringEnabled
         self.contactPromptSkipCount = contactPromptSkipCount
         self.contactPromptLastShown = contactPromptLastShown

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct SplashScreenView: View {
     @State private var logoScale: CGFloat = 0.6
@@ -13,9 +14,20 @@ struct SplashScreenView: View {
     @State private var textOpacity: Double = 0
     @State private var brandOpacity: Double = 0
 
+    /// Orbitron ExtraBold (weight 800) for the CaddieAI wordmark.
+    private static let orbitronFont: Font = {
+        let size: CGFloat = 38
+        if let uiFont = UIFont(name: "Orbitron-ExtraBold", size: size) {
+            return Font(uiFont)
+        }
+        return .system(size: size, weight: .heavy, design: .rounded)
+    }()
+
+    private static let navyColor = Color(red: 11/255, green: 34/255, blue: 101/255) // #0B2265
+
     var body: some View {
         ZStack {
-            Color.white
+            Color(red: 232/255, green: 233/255, blue: 235/255) // #E8E9EB
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -32,10 +44,11 @@ struct SplashScreenView: View {
 
                 Spacer().frame(height: 32)
 
-                // App name
+                // App name — Orbitron ExtraBold wordmark
                 Text("CaddieAI")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .foregroundStyle(.black)
+                    .font(Self.orbitronFont)
+                    .tracking(0.5)
+                    .foregroundStyle(Self.navyColor)
                     .opacity(textOpacity)
 
                 Spacer()
