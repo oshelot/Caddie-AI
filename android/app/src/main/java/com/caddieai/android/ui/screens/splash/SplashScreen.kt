@@ -28,7 +28,13 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.caddieai.android.R
 import com.caddieai.android.ui.screens.onboarding.OnboardingViewModel
@@ -74,10 +80,14 @@ fun SplashScreen(
         onReadyToNavigate(showSetup, showContact)
     }
 
+    val orbitronFamily = FontFamily(Font(R.font.orbitron_extrabold, FontWeight.ExtraBold))
+    val brandNavy = Color(0xFF0B2265)
+    val splashBg = Color(0xFFE8E9EB)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(splashBg)
             .padding(bottom = 60.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -99,11 +109,16 @@ fun SplashScreen(
         // 3. Fixed 32dp spacer
         Spacer(modifier = Modifier.height(32.dp))
 
-        // 4. "CaddieAI" text — 34sp, bold, black
+        // 4. "CaddieAI" wordmark — Orbitron ExtraBold, brand navy
         Text(
             text = "CaddieAI",
-            style = MaterialTheme.typography.displayMedium,
-            color = Color.Black,
+            style = TextStyle(
+                fontFamily = orbitronFamily,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 44.sp,
+                letterSpacing = 0.02.em,
+            ),
+            color = brandNavy,
             modifier = Modifier.alpha(textAlpha.value)
         )
 

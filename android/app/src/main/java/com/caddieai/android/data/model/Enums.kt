@@ -220,3 +220,9 @@ enum class TeeBoxPreference(val displayName: String, val matchKeywords: List<Str
     SENIOR("Gold / Silver", listOf("gold", "silver", "senior")),
     FORWARD("Red / Forward", listOf("red", "forward", "ladies")),
 }
+
+@Serializable
+enum class IronType(val displayName: String) {
+    GAME_IMPROVEMENT("Regular"),
+    SUPER_GAME_IMPROVEMENT("Super"),
+}

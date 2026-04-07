@@ -103,6 +103,49 @@ fun ApiSettingsScreen(
                 }
             }
 
+            // LLM Model picker
+            item {
+                val models = listOf("gpt-4o", "gpt-4o-mini", "claude-sonnet", "claude-haiku", "gemini-pro")
+                ProfileDropdown(
+                    label = "LLM Model",
+                    selected = profile.llmModel,
+                    options = models,
+                    displayName = { it },
+                    onSelect = viewModel::setLlmModel,
+                )
+            }
+
+            // Subscription section
+            item {
+                androidx.compose.material3.HorizontalDivider()
+                Text("Subscription", style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 8.dp))
+            }
+            item {
+                Text(
+                    "Current tier: ${profile.effectiveTier.name}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            // Telemetry section
+            item {
+                androidx.compose.material3.HorizontalDivider()
+                Text("Telemetry", style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 8.dp))
+            }
+            item {
+                SwitchRow(
+                    label = "Share Usage Data",
+                    checked = profile.telemetryEnabled,
+                    onCheckedChange = viewModel::setTelemetryEnabled,
+                )
+            }
+
             item { Spacer(Modifier.height(24.dp)) }
         }
     }

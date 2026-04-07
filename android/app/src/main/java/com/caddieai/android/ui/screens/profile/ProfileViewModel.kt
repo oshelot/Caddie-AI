@@ -41,6 +41,9 @@ class ProfileViewModel @Inject constructor(
     fun setPhone(v: String) = update { it.copy(phone = v).withUpdatedAt() }
     fun setHandicap(v: Float) = update { it.copy(handicap = v).withUpdatedAt() }
     fun setStockShape(v: StockShape) = update { it.copy(stockShape = v).withUpdatedAt() }
+    fun setWoodsStockShape(v: StockShape) = update { it.copy(woodsStockShape = v).withUpdatedAt() }
+    fun setIronsStockShape(v: StockShape) = update { it.copy(ironsStockShape = v).withUpdatedAt() }
+    fun setHybridsStockShape(v: StockShape) = update { it.copy(hybridsStockShape = v).withUpdatedAt() }
     fun setMissTendency(v: MissTendency) = update { it.copy(missTendency = v).withUpdatedAt() }
     fun setAggressiveness(v: Aggressiveness) = update { it.copy(aggressiveness = v).withUpdatedAt() }
     fun setBunkerConfidence(v: BunkerConfidence) = update { it.copy(bunkerConfidence = v).withUpdatedAt() }
@@ -58,6 +61,9 @@ class ProfileViewModel @Inject constructor(
     fun setUsesMetric(v: Boolean) = update { it.copy(usesMetric = v).withUpdatedAt() }
     fun setImageAnalysisBetaEnabled(v: Boolean) = update { it.copy(imageAnalysisBetaEnabled = v).withUpdatedAt() }
     fun setPreferredTeeBox(v: com.caddieai.android.data.model.TeeBoxPreference) = update { it.copy(preferredTeeBox = v).withUpdatedAt() }
+    fun setIronType(v: com.caddieai.android.data.model.IronType?) = update { it.copy(ironType = v).withUpdatedAt() }
+    fun setTelemetryEnabled(v: Boolean) = update { it.copy(telemetryEnabled = v).withUpdatedAt() }
+    fun setLlmModel(v: String) = update { it.copy(llmModel = v).withUpdatedAt() }
     fun setScoringEnabled(v: Boolean) = update { it.copy(scoringEnabled = v).withUpdatedAt() }
     fun setDebugTierOverride(isPro: Boolean) = update {
         it.copy(debugTierOverride = if (isPro) UserTier.PRO else null).withUpdatedAt()

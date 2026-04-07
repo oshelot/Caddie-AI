@@ -11,9 +11,12 @@ import com.google.android.gms.ads.interstitial.InterstitialAd
 import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
 import com.google.android.gms.ads.initialization.InitializationStatus
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,11 +28,23 @@ const val INTERSTITIAL_AD_UNIT_ID = "ca-app-pub-3940256099942544/1033173712"
 class AdManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val billingService: BillingService,
+    private val profileStore: com.caddieai.android.data.store.ProfileStore,
 ) {
     val subscriptionStatus: StateFlow<SubscriptionStatus> = billingService.subscriptionStatus
 
+    // Cache effective tier from profile (updated reactively)
+    @Volatile private var effectiveTierIsPro = false
+
+    init {
+        CoroutineScope(Dispatchers.IO).launch {
+            profileStore.profile.collect { profile ->
+                effectiveTierIsPro = profile.effectiveTier == com.caddieai.android.data.model.UserTier.PRO
+            }
+        }
+    }
+
     val shouldShowAds: Boolean
-        get() = !billingService.subscriptionStatus.value.isPro
+        get() = !billingService.subscriptionStatus.value.isPro && !effectiveTierIsPro
 
     private var interstitialAd: InterstitialAd? = null
     private val _interstitialReady = MutableStateFlow(false)

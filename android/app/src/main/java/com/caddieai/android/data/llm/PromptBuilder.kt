@@ -30,6 +30,15 @@ object PromptBuilder {
         appendLine("- Bunker confidence: ${profile.bunkerConfidence.name.lowercase()}")
         appendLine("- Chip style: ${profile.chipStyle.name.replace('_', ' ').lowercase()}")
         appendLine("- Caddie persona: ${profile.caddiePersona.displayName}")
+        profile.ironType?.let { ironType ->
+            val desc = when (ironType) {
+                com.caddieai.android.data.model.IronType.GAME_IMPROVEMENT ->
+                    "Game Improvement (wide sole, high launch — limited in bunkers, tight lies, and wind)"
+                com.caddieai.android.data.model.IronType.SUPER_GAME_IMPROVEMENT ->
+                    "Super Game Improvement (maximum sole width, extreme offset, highest launch bias — avoid bunkers, tight lies, knockdowns)"
+            }
+            appendLine("- Iron type: $desc")
+        }
 
         appendLine()
         appendLine("## Club Distances (yards)")

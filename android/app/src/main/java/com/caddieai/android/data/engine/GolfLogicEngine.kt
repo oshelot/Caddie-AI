@@ -1,6 +1,7 @@
 package com.caddieai.android.data.engine
 
 import com.caddieai.android.data.model.Club
+import com.caddieai.android.data.model.IronType
 import com.caddieai.android.data.model.LieType
 import com.caddieai.android.data.model.PlayerProfile
 import com.caddieai.android.data.model.ShotContext
@@ -33,9 +34,53 @@ object GolfLogicEngine {
         val slopeAdj = context.elevationChangeYards // +elevation = club up, -elevation = club down
 
         val rawDistance = context.distanceToPin + windAdj + slopeAdj
-        val effectiveDistance = (rawDistance / lieMult).roundToInt().coerceAtLeast(0)
+        var effectiveDistance = (rawDistance / lieMult).roundToInt().coerceAtLeast(0)
 
-        val club = selectClub(effectiveDistance, profile)
+        // GI/SGI iron modifiers — apply before club selection
+        val isGI = profile.ironType != null
+        val isSGI = profile.ironType == IronType.SUPER_GAME_IMPROVEMENT
+        val giNotes = mutableListOf<String>()
+
+        val isBunker = context.lie == LieType.FAIRWAY_BUNKER || context.lie == LieType.BUNKER
+        val isTightLie = context.lie == LieType.HARDPAN || context.lie == LieType.DIVOT
+        val isThickRough = context.lie == LieType.DEEP_ROUGH || context.lie == LieType.WET_ROUGH
+        val isHeadwind = context.windDirection == WindDirection.HEADWIND && context.windStrength.ordinal >= WindStrength.MODERATE.ordinal
+
+        if (isGI) {
+            if (isThickRough) {
+                // Reduce carry expectation by 15%
+                effectiveDistance = (effectiveDistance * 1.15).roundToInt()
+                giNotes.add("• GI irons lose ~15% carry from thick rough — clubbing up")
+            }
+        }
+
+        var club = selectClub(effectiveDistance, profile)
+
+        if (isGI) {
+            if (isBunker && club.name.contains("IRON")) {
+                // Swap to hybrid or fairway wood if available
+                val hybrid = profile.bagClubs.firstOrNull { it.name.contains("HYBRID") }
+                    ?: profile.bagClubs.firstOrNull { it.name.contains("WOOD") && !it.name.contains("DRIVER") }
+                if (hybrid != null) {
+                    club = hybrid
+                    giNotes.add("• GI wide sole struggles in bunkers — using ${hybrid.displayName}")
+                } else {
+                    giNotes.add("• GI irons limited in bunkers — swing 80%, ball back in stance")
+                }
+            }
+            if (isTightLie && effectiveDistance > 160) {
+                val hybrid = profile.bagClubs.firstOrNull { it.name.contains("HYBRID") }
+                if (hybrid != null) {
+                    club = hybrid
+                    giNotes.add("• Tight lie + GI irons — ${hybrid.displayName} sweeps cleaner")
+                } else {
+                    giNotes.add("• Tight lie: ball back, hands forward, shallow strike")
+                }
+            }
+            if (isHeadwind) {
+                giNotes.add("• GI irons can't flight down — club up, 3/4 swing, trust the loft")
+            }
+        }
 
         val notes = buildString {
             if (windAdj != 0) {
@@ -50,6 +95,7 @@ object GolfLogicEngine {
                 val dir = if (slopeAdj > 0) "uphill" else "downhill"
                 appendLine("• Playing $dir (${abs(slopeAdj)} yd elevation)")
             }
+            giNotes.forEach { appendLine(it) }
         }.trim()
 
         return EngineResult(

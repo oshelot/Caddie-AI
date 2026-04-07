@@ -28,6 +28,9 @@ data class PlayerProfile(
         Club.LOB_WEDGE,
     ),
     val stockShape: StockShape = StockShape.STRAIGHT,
+    val woodsStockShape: StockShape = StockShape.STRAIGHT,
+    val ironsStockShape: StockShape = StockShape.STRAIGHT,
+    val hybridsStockShape: StockShape = StockShape.STRAIGHT,
     val missTendency: MissTendency = MissTendency.NONE,
     val aggressiveness: Aggressiveness = Aggressiveness.MODERATE,
     val bunkerConfidence: BunkerConfidence = BunkerConfidence.MEDIUM,
@@ -63,6 +66,13 @@ data class PlayerProfile(
 
     // Tee box preference
     val preferredTeeBox: TeeBoxPreference = TeeBoxPreference.WHITE,
+
+    // Iron type — null = standard irons (no modifiers)
+    val ironType: IronType? = null,
+
+    // Telemetry + LLM model
+    val telemetryEnabled: Boolean = true,
+    val llmModel: String = "gpt-4o",
 
     // Scoring
     val scoringEnabled: Boolean = false,

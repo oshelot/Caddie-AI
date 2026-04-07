@@ -228,9 +228,52 @@ fun CaddieScreen(
                 }
             }
 
-            // Card 1: Quick Input
+            // Card 1: Quick Input — voice button
             item {
                 SectionCard(title = "Quick Input") {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        val micTint = if (voiceState.isListening) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary
+                        IconButton(
+                            onClick = {
+                                if (!hasMicPermission) {
+                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                } else {
+                                    voiceViewModel.toggleListening()
+                                }
+                            },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(
+                                    color = if (voiceState.isListening)
+                                        MaterialTheme.colorScheme.errorContainer
+                                    else MaterialTheme.colorScheme.primaryContainer,
+                                    shape = CircleShape
+                                )
+                        ) {
+                            Icon(
+                                if (voiceState.isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                                contentDescription = "Voice input",
+                                tint = micTint,
+                            )
+                        }
+                        Text(
+                            if (voiceState.isListening) "Listening…"
+                            else "Tap to describe your shot",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            // Card 2: Shot Setup — distance + shot type
+            item {
+                SectionCard(title = "Shot Setup") {
                     OutlinedTextField(
                         value = if (shotContext.distanceToPin == 0) "" else shotContext.distanceToPin.toString(),
                         onValueChange = { v ->
@@ -241,12 +284,6 @@ fun CaddieScreen(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                     )
-                }
-            }
-
-            // Card 2: Shot Setup
-            item {
-                SectionCard(title = "Shot Setup") {
                     EnumDropdown(
                         label = "Shot Type",
                         selected = shotContext.shotType,
@@ -337,53 +374,20 @@ fun CaddieScreen(
                 }
             }
 
-            // Photo + Voice row
-            item {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (canUseImageAnalysis) {
-                        FilledTonalButton(
-                            onClick = {
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Default.Photo, contentDescription = null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(if (selectedImageUri != null) "Photo selected" else "Add Lie Photo")
-                        }
-                    }
-
-                    // Voice mic button
-                    val micTint = if (voiceState.isListening) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.primary
-                    IconButton(
+            // Photo row (voice moved to Quick Input)
+            if (canUseImageAnalysis) {
+                item {
+                    FilledTonalButton(
                         onClick = {
-                            if (!hasMicPermission) {
-                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            } else {
-                                voiceViewModel.toggleListening()
-                            }
-                        },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(
-                                color = if (voiceState.isListening)
-                                    MaterialTheme.colorScheme.errorContainer
-                                else MaterialTheme.colorScheme.primaryContainer,
-                                shape = CircleShape
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(
-                            if (voiceState.isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = "Voice input",
-                            tint = micTint,
-                        )
+                        Icon(Icons.Default.Photo, contentDescription = null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (selectedImageUri != null) "Photo selected" else "Add Lie Photo")
                     }
                 }
             }

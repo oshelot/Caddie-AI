@@ -64,13 +64,49 @@ fun SwingInfoScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // Shot Shape section — per-category pickers
+            item {
+                androidx.compose.material3.Text(
+                    "Shot Shape",
+                    style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                )
+            }
             item {
                 SwingInfoDropdown(
-                    label = "Stock Shape",
-                    selected = profile.stockShape,
+                    label = "Woods",
+                    selected = profile.woodsStockShape,
                     options = StockShape.entries,
                     displayName = { it.name.replace('_', ' ').lowercase().replaceFirstChar { c -> c.uppercase() } },
-                    onSelect = viewModel::setStockShape,
+                    onSelect = viewModel::setWoodsStockShape,
+                )
+            }
+            item {
+                SwingInfoDropdown(
+                    label = "Irons",
+                    selected = profile.ironsStockShape,
+                    options = StockShape.entries,
+                    displayName = { it.name.replace('_', ' ').lowercase().replaceFirstChar { c -> c.uppercase() } },
+                    onSelect = viewModel::setIronsStockShape,
+                )
+            }
+            item {
+                SwingInfoDropdown(
+                    label = "Hybrids",
+                    selected = profile.hybridsStockShape,
+                    options = StockShape.entries,
+                    displayName = { it.name.replace('_', ' ').lowercase().replaceFirstChar { c -> c.uppercase() } },
+                    onSelect = viewModel::setHybridsStockShape,
+                )
+            }
+            // Tendencies section
+            item {
+                androidx.compose.material3.Text(
+                    "Tendencies",
+                    style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                 )
             }
             item {

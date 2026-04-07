@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -28,6 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -162,6 +165,63 @@ fun YourBagScreen(
                         onDistanceChange = { viewModel.setClubDistance(club, it) },
                     )
                 }
+            }
+
+            // Game Improvement Iron toggle
+            item {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                var showGiDialog by remember { mutableStateOf(false) }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Game Improvement Irons", style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        if (profile.ironType != null) {
+                            Text(
+                                profile.ironType!!.displayName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = profile.ironType != null,
+                        onCheckedChange = { enabled ->
+                            if (enabled) showGiDialog = true
+                            else viewModel.setIronType(null)
+                        },
+                    )
+                }
+                if (showGiDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showGiDialog = false },
+                        title = { Text("Game Improvement Type") },
+                        text = { Text("Regular or Super Game Improvement?") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                viewModel.setIronType(com.caddieai.android.data.model.IronType.GAME_IMPROVEMENT)
+                                showGiDialog = false
+                            }) { Text("Regular") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                viewModel.setIronType(com.caddieai.android.data.model.IronType.SUPER_GAME_IMPROVEMENT)
+                                showGiDialog = false
+                            }) { Text("Super") }
+                        },
+                    )
+                }
+                Text(
+                    "GI/SGI irons have wider soles and higher offset. The caddie will account for reduced versatility from bunkers, tight lies, and rough.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
             }
 
             item { Spacer(Modifier.height(88.dp)) }
