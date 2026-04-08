@@ -69,6 +69,35 @@ class LLMRouter @Inject constructor(
             }
     }
 
+    /**
+     * Streaming chat completion for paid-tier users. Falls back to buffered chatCompletion
+     * when proxy is not available (free tier or proxy disabled). The onChunk callback
+     * receives the accumulated text after each delta.
+     */
+    suspend fun chatCompletionStreaming(
+        messages: List<ChatMessage>,
+        profile: PlayerProfile,
+        maxTokens: Int = 500,
+        onChunk: (String) -> Unit,
+    ): Result<String> {
+        val service = selectService(profile)
+        if (service is LLMProxyService) {
+            logger.log(LogLevel.INFO, LogCategory.LLM, "llm_chat_streaming",
+                message = "LLM streaming chat via proxy (${messages.size} messages)")
+            return service.chatCompletionStreaming(messages, maxTokens, onChunk)
+                .also { result ->
+                    if (result.isFailure) {
+                        val err = result.exceptionOrNull()
+                        logger.log(LogLevel.ERROR, LogCategory.LLM, "llm_chat_stream_failed",
+                            message = "LLM streaming failed: ${err?.message ?: "unknown"}")
+                    }
+                }
+        }
+        // Free tier or no proxy — fall back to buffered, emit final result as a single chunk
+        return chatCompletion(messages, profile, maxTokens, jsonMode = false)
+            .onSuccess { onChunk(it) }
+    }
+
     private fun selectService(profile: PlayerProfile): LLMService {
         // Paid users with no personal key → proxy (only when proxy credentials are configured)
         if (profile.effectiveTier == UserTier.PRO && LLMProxyService.isAvailable()) {
@@ -76,6 +105,7 @@ class LLMRouter @Inject constructor(
                 LLMProvider.OPENAI -> profile.openAiApiKey.isNotBlank()
                 LLMProvider.ANTHROPIC -> profile.anthropicApiKey.isNotBlank()
                 LLMProvider.GOOGLE -> profile.googleApiKey.isNotBlank()
+                LLMProvider.BEDROCK -> false // Bedrock always routes through proxy
             }
             if (!hasPersonalKey) return proxyService
         }
@@ -83,6 +113,7 @@ class LLMRouter @Inject constructor(
             LLMProvider.OPENAI -> openAIService
             LLMProvider.ANTHROPIC -> claudeService
             LLMProvider.GOOGLE -> geminiService
+            LLMProvider.BEDROCK -> proxyService
         }
     }
 }

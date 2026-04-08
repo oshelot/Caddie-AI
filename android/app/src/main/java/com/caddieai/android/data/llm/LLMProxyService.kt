@@ -55,7 +55,27 @@ class LLMProxyService @Inject constructor(
             JsonObject(mapOf("role" to JsonPrimitive("user"), "content" to buildContent(PromptBuilder.buildShotPrompt(context, profile), imageBase64))),
         )
         val responseText = sendRequest(messages, maxTokens = 1500, jsonMode = true)
-        lenientJson.decodeFromString<LLMShotResponse>(flattenProxyResponse(responseText)).toShotRecommendation(LLMProvider.OPENAI)
+        val cleaned = extractJsonObject(responseText)
+        lenientJson.decodeFromString<LLMShotResponse>(flattenProxyResponse(cleaned)).toShotRecommendation(LLMProvider.BEDROCK)
+    }
+
+    /**
+     * Defensive JSON extraction. Bedrock Nova Micro may wrap JSON in markdown fences
+     * (```json ... ```) or add preamble text. Strip fences and find the first {...} block.
+     */
+    private fun extractJsonObject(raw: String): String {
+        val trimmed = raw.trim()
+        // Strip markdown code fences
+        val unfenced = trimmed
+            .removePrefix("```json").removePrefix("```JSON").removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        // If already starts with {, return as-is
+        if (unfenced.startsWith("{")) return unfenced
+        // Otherwise find the first { and last } and extract that range
+        val first = unfenced.indexOf('{')
+        val last = unfenced.lastIndexOf('}')
+        return if (first >= 0 && last > first) unfenced.substring(first, last + 1) else unfenced
     }
 
     // Hole analysis & follow-ups: 500 tokens, plain text
@@ -75,6 +95,82 @@ class LLMProxyService @Inject constructor(
             JsonObject(mapOf("role" to JsonPrimitive(msg.role), "content" to content))
         }
         sendRequest(jsonMessages, maxTokens = maxTokens, jsonMode = jsonMode)
+    }
+
+    /**
+     * Streaming chat completion via SSE. Calls onChunk with the ACCUMULATED text after each
+     * delta arrives. Returns the final accumulated text on success.
+     */
+    suspend fun chatCompletionStreaming(
+        messages: List<ChatMessage>,
+        maxTokens: Int = 500,
+        onChunk: (String) -> Unit,
+    ): Result<String> = runCatching {
+        val jsonMessages = messages.map { msg ->
+            JsonObject(mapOf("role" to JsonPrimitive(msg.role), "content" to JsonPrimitive(msg.content)))
+        }
+        sendRequestStreaming(jsonMessages, maxTokens, onChunk)
+    }
+
+    private suspend fun sendRequestStreaming(
+        messages: List<JsonObject>,
+        maxTokens: Int,
+        onChunk: (String) -> Unit,
+    ): String = withContext(Dispatchers.IO) {
+        val bodyMap = mutableMapOf<String, JsonElement>(
+            "messages"    to JsonArray(messages),
+            "max_tokens"  to JsonPrimitive(maxTokens),
+            "temperature" to JsonPrimitive(0.7),
+            "stream"      to JsonPrimitive(true),
+        )
+        val request = Request.Builder()
+            .url(BuildConfig.LLM_PROXY_ENDPOINT)
+            .addHeader("x-api-key", BuildConfig.LLM_PROXY_API_KEY)
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Accept", "text/event-stream")
+            .post(Json.encodeToString(JsonObject(bodyMap)).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val response = httpClient.newCall(request).execute()
+        if (!response.isSuccessful) {
+            response.close()
+            error("Streaming proxy error ${response.code}")
+        }
+
+        val source = response.body?.source() ?: error("Empty streaming response body")
+        val accumulated = StringBuilder()
+        var totalTokens: Int? = null
+        try {
+            while (!source.exhausted()) {
+                val line = source.readUtf8Line() ?: break
+                if (line.isBlank()) continue
+                if (!line.startsWith("data:")) continue
+                val payload = line.removePrefix("data:").trim()
+                if (payload == "[DONE]") break
+                try {
+                    val obj = lenientJson.parseToJsonElement(payload) as? JsonObject ?: continue
+                    // Content delta
+                    (obj["content"] as? JsonPrimitive)?.content?.let { delta ->
+                        accumulated.append(delta)
+                        onChunk(accumulated.toString())
+                    }
+                    // Usage event
+                    (obj["usage"] as? JsonObject)?.let { usage ->
+                        totalTokens = (usage["total_tokens"] as? JsonPrimitive)?.content?.toIntOrNull()
+                    }
+                } catch (_: Exception) {
+                    // Skip malformed SSE lines
+                }
+            }
+        } finally {
+            response.close()
+        }
+
+        totalTokens?.let { tokens ->
+            apiUsageStore.recordCall(LLMProvider.BEDROCK, tokens)
+            logger.log(LogLevel.INFO, LogCategory.LLM, "proxy_stream_success", mapOf("tokens" to tokens))
+        }
+        accumulated.toString()
     }
 
     private suspend fun sendRequest(
@@ -117,7 +213,7 @@ class LLMProxyService @Inject constructor(
             ?.get("total_tokens")
             ?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() }
         totalTokens?.let { tokens ->
-            apiUsageStore.recordCall(LLMProvider.OPENAI, tokens)
+            apiUsageStore.recordCall(LLMProvider.BEDROCK, tokens)
             logger.log(LogLevel.INFO, LogCategory.LLM, "proxy_call_success", mapOf("tokens" to tokens))
         }
 

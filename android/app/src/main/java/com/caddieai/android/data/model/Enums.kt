@@ -211,6 +211,7 @@ enum class LLMProvider {
     OPENAI,
     ANTHROPIC,
     GOOGLE,
+    BEDROCK,
 }
 
 @Serializable

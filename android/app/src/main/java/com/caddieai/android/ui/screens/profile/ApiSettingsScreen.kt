@@ -100,6 +100,11 @@ fun ApiSettingsScreen(
                         onValueChange = viewModel::setGoogleApiKey,
                         placeholder = "AIza…",
                     )
+                    LLMProvider.BEDROCK -> Text(
+                        "Bedrock proxy — managed server-side, no API key required.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
