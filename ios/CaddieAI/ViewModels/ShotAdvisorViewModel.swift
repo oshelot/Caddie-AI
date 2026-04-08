@@ -23,6 +23,11 @@ final class ShotAdvisorViewModel {
     var isEnriching = false
     var errorMessage: String?
 
+    /// LLM round-trip latency in milliseconds (debug builds only).
+    var llmLatencyMs: Int?
+    /// Deterministic engine latency in milliseconds (debug builds only).
+    var engineLatencyMs: Int?
+
     // MARK: - Conversation State
 
     var conversationHistory: [OpenAIService.ChatMessage] = []
@@ -73,12 +78,16 @@ final class ShotAdvisorViewModel {
         recommendation = nil
         followUpMessages = []
         conversationHistory = []
+        llmLatencyMs = nil
+        engineLatencyMs = nil
 
         // Step 1: Deterministic analysis (instant, on-device)
+        let engineStart = CFAbsoluteTimeGetCurrent()
         let analysis = GolfLogicEngine.analyze(
             context: shotContext,
             profile: profile
         )
+        engineLatencyMs = Int((CFAbsoluteTimeGetCurrent() - engineStart) * 1000)
         deterministicAnalysis = analysis
 
         // Phase 1: Show deterministic recommendation immediately
@@ -102,6 +111,7 @@ final class ShotAdvisorViewModel {
         }
 
         // Phase 2: LLM enrichment (network call)
+        let llmStart = CFAbsoluteTimeGetCurrent()
         do {
             let tier = subscriptionManager?.tier ?? .free
             var (result, usage) = try await llmRouter.getRecommendation(
@@ -131,6 +141,7 @@ final class ShotAdvisorViewModel {
                     totalTokens: usage.totalTokens
                 )
             }
+            llmLatencyMs = Int((CFAbsoluteTimeGetCurrent() - llmStart) * 1000)
             // If LLM didn't return an execution plan, use the deterministic one
             if result.executionPlan == nil {
                 result.executionPlan = analysis.executionPlan
@@ -270,6 +281,8 @@ final class ShotAdvisorViewModel {
         conversationHistory = []
         followUpMessages = []
         lastSavedRecordID = nil
+        llmLatencyMs = nil
+        engineLatencyMs = nil
     }
 
     // MARK: - Fallback

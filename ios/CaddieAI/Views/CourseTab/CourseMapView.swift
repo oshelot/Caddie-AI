@@ -605,6 +605,22 @@ struct HoleAnalysisSheet: View {
                             }
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+
+                            #if DEBUG
+                            if viewModel.engineLatencyMs != nil || viewModel.llmLatencyMs != nil {
+                                let parts = [
+                                    viewModel.engineLatencyMs.map { "Engine: \($0)ms" },
+                                    viewModel.llmLatencyMs.map { ms in
+                                        ms >= 1000
+                                            ? "LLM: \(String(format: "%.1f", Double(ms) / 1000.0))s"
+                                            : "LLM: \(ms)ms"
+                                    }
+                                ].compactMap { $0 }
+                                Text(parts.joined(separator: " | "))
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.tertiary)
+                            }
+                            #endif
                         }
                         .padding(.horizontal)
 

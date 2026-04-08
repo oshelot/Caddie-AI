@@ -20,6 +20,11 @@ class HoleAnalysisViewModel {
     var apiUsageStore: APIUsageStore?
     var subscriptionManager: SubscriptionManager?
 
+    /// LLM round-trip latency in milliseconds (debug builds only).
+    var llmLatencyMs: Int?
+    /// Deterministic engine latency in milliseconds (debug builds only).
+    var engineLatencyMs: Int?
+
     private var conversationHistory: [OpenAIService.ChatMessage] = []
 
     // MARK: - Analyze Hole
@@ -41,6 +46,8 @@ class HoleAnalysisViewModel {
         followUpResponse = nil
         conversationHistory = []
         weatherError = nil
+        llmLatencyMs = nil
+        engineLatencyMs = nil
 
         // Fetch weather (best-effort)
         let weatherData: WeatherData?
@@ -68,6 +75,7 @@ class HoleAnalysisViewModel {
         }
 
         // Tier 1: Deterministic analysis (instant, on-device)
+        let engineStart = CFAbsoluteTimeGetCurrent()
         var result = HoleAnalysisEngine.analyze(
             hole: hole,
             course: course,
@@ -75,6 +83,7 @@ class HoleAnalysisViewModel {
             weatherContext: weatherContext,
             selectedTee: selectedTee
         )
+        engineLatencyMs = Int((CFAbsoluteTimeGetCurrent() - engineStart) * 1000)
         analysis = result
 
         // Tier 2: LLM caddie narrative (async)
@@ -85,6 +94,7 @@ class HoleAnalysisViewModel {
             return
         }
 
+        let llmStart = CFAbsoluteTimeGetCurrent()
         do {
             let tier = subscriptionManager?.tier ?? .free
             let (advice, usage) = try await LLMRouter.shared.getHoleAnalysis(
@@ -114,6 +124,7 @@ class HoleAnalysisViewModel {
                     totalTokens: usage.totalTokens
                 )
             }
+            llmLatencyMs = Int((CFAbsoluteTimeGetCurrent() - llmStart) * 1000)
             result.strategicAdvice = advice
             analysis = result
 

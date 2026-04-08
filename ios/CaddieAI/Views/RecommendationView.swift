@@ -88,6 +88,10 @@ struct RecommendationView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.blue)
                         .padding(.top, 4)
+
+                        #if DEBUG
+                        debugLatencyLabel(engine: viewModel.engineLatencyMs, llm: viewModel.llmLatencyMs)
+                        #endif
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
@@ -317,6 +321,30 @@ struct RecommendationView: View {
         case .low: return .red
         }
     }
+
+    #if DEBUG
+    @ViewBuilder
+    private func debugLatencyLabel(engine: Int?, llm: Int?) -> some View {
+        if engine != nil || llm != nil {
+            let parts = [
+                engine.map { "Engine: \($0)ms" },
+                llm.map { "LLM: \(formattedMs($0))" }
+            ].compactMap { $0 }
+            Text(parts.joined(separator: " | "))
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+        }
+    }
+
+    private func formattedMs(_ ms: Int) -> String {
+        if ms >= 1000 {
+            let formatted = String(format: "%.1f", Double(ms) / 1000.0)
+            return "\(formatted)s"
+        }
+        return "\(ms)ms"
+    }
+    #endif
 }
 
 // MARK: - Follow-Up Section
