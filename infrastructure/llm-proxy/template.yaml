@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CaddieAI LLM Proxy — FastAPI on Lambda with response streaming via
+  Lambda Web Adapter. Forwards OpenAI chat completions with SSE streaming
+  support for paid-tier mobile clients.
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 256
+
+Parameters:
+  ProxyApiKey:
+    Type: String
+    Description: API key that mobile clients must send in x-api-key header
+    NoEcho: true
+  SecretId:
+    Type: String
+    Default: caddieai/openai-api-key
+    Description: Secrets Manager secret ID for the OpenAI API key
+
+Resources:
+  LLMProxyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: caddieai-llm-proxy
+      Runtime: python3.12
+      Handler: run.sh
+      CodeUri: .
+      Architectures:
+        - x86_64
+      Layers:
+        # Lambda Web Adapter layer — routes HTTP to the FastAPI app
+        - !Sub arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerX86:27
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          AWS_LWA_INVOKE_MODE: response_stream
+          PORT: "8000"
+          PROXY_API_KEY: !Ref ProxyApiKey
+          SECRET_ID: !Ref SecretId
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretId}-*
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM
+        Cors:
+          AllowOrigins:
+            - "*"
+          AllowMethods:
+            - POST
+          AllowHeaders:
+            - Content-Type
+            - x-api-key
+
+Outputs:
+  FunctionUrl:
+    Description: Lambda Function URL (use this as the proxy endpoint in client apps)
+    Value: !GetAtt LLMProxyFunctionUrl.FunctionUrl
+  FunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt LLMProxyFunction.Arn
