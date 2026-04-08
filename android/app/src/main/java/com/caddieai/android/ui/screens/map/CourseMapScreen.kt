@@ -172,10 +172,12 @@ fun CourseMapScreen(
     // Animate camera — fly to hole or zoom out to full course on ALL
     LaunchedEffect(state.selectedHoleNumber) {
         if (state.selectedHoleNumber == null) {
+            // ALL view — reset to north-up
             mapView.mapboxMap.flyTo(
                 CameraOptions.Builder()
                     .center(Point.fromLngLat(centroid.longitude, centroid.latitude))
                     .zoom(15.5)
+                    .bearing(0.0)
                     .build(),
                 MapAnimationOptions.mapAnimationOptions { duration(900L) }
             )
@@ -184,13 +186,15 @@ fun CourseMapScreen(
             val tee = hole?.teeBox
             val green = hole?.pin
             if (tee != null && green != null) {
-                // Center on midpoint between tee and green, zoom to fit whole hole
+                // Center on midpoint, rotate so tee is at bottom and green at top
                 val midLat = (tee.latitude + green.latitude) / 2
                 val midLon = (tee.longitude + green.longitude) / 2
+                val bearing = forwardBearingDeg(tee.latitude, tee.longitude, green.latitude, green.longitude)
                 mapView.mapboxMap.flyTo(
                     CameraOptions.Builder()
                         .center(Point.fromLngLat(midLon, midLat))
                         .zoom(16.0)
+                        .bearing(bearing)
                         .build(),
                     MapAnimationOptions.mapAnimationOptions { duration(900L) }
                 )
@@ -200,6 +204,7 @@ fun CourseMapScreen(
                     CameraOptions.Builder()
                         .center(Point.fromLngLat(target.longitude, target.latitude))
                         .zoom(16.5)
+                        .bearing(0.0)
                         .build(),
                     MapAnimationOptions.mapAnimationOptions { duration(900L) }
                 )
@@ -404,6 +409,17 @@ private fun renderTapDistanceOverlay(
         lineWidth(4.0)
         lineOpacity(0.9)
     })
+}
+
+/** Forward bearing in degrees (0-360) from point A to point B. 0 = north. */
+private fun forwardBearingDeg(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val phi1 = Math.toRadians(lat1)
+    val phi2 = Math.toRadians(lat2)
+    val dLon = Math.toRadians(lon2 - lon1)
+    val y = Math.sin(dLon) * Math.cos(phi2)
+    val x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon)
+    val brng = Math.toDegrees(Math.atan2(y, x))
+    return (brng + 360) % 360
 }
 
 private fun computeCourseCentroid(course: NormalizedCourse): GeoPoint {
