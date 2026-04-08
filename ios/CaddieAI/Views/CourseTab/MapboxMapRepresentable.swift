@@ -331,23 +331,60 @@ struct MapboxMapRepresentable: UIViewRepresentable {
                 let coords = collectCoordinates(for: hole)
                 guard coords.count >= 2 else { return }
 
+                // Compute tee-to-green bearing for auto-orientation
+                let bearing = Self.teeToGreenBearing(for: hole)
+
                 let padding = UIEdgeInsets(top: 80, left: 40, bottom: 200, right: 40)
                 guard let camera = try? map.camera(
                     for: coords,
-                    camera: CameraOptions(),
+                    camera: CameraOptions(bearing: bearing),
                     coordinatesPadding: padding,
                     maxZoom: nil,
                     offset: nil
                 ) else { return }
-                mapView.camera.fly(to: camera, duration: 0.8)
+                mapView.camera.fly(to: camera, duration: 0.9)
             } else if let course {
-                // Fly back to course overview
+                // Fly back to course overview — north up
                 let center = CLLocationCoordinate2D(
                     latitude: course.centroid.latitude,
                     longitude: course.centroid.longitude
                 )
-                mapView.camera.fly(to: CameraOptions(center: center, zoom: 15.5), duration: 0.8)
+                mapView.camera.fly(to: CameraOptions(center: center, zoom: 15.5, bearing: 0), duration: 0.9)
             }
+        }
+
+        /// Computes camera bearing so tee is at the bottom and green at the top of the screen.
+        /// Returns 0 (north-up) if tee or green coordinates are unavailable.
+        static func teeToGreenBearing(for hole: NormalizedHole) -> Double {
+            // Determine tee point: first point of line of play, or first tee area centroid
+            let teePoint: GeoJSONPoint?
+            if let start = hole.lineOfPlay?.startPoint {
+                teePoint = start
+            } else if let firstTee = hole.teeAreas.first {
+                teePoint = firstTee.centroid
+            } else {
+                teePoint = nil
+            }
+
+            // Determine green point: green centroid, pin, or end of line of play
+            let greenPoint: GeoJSONPoint?
+            if let green = hole.green {
+                greenPoint = green.centroid
+            } else if let pin = hole.pin {
+                greenPoint = pin
+            } else if let end = hole.lineOfPlay?.endPoint {
+                greenPoint = end
+            } else {
+                greenPoint = nil
+            }
+
+            guard let tee = teePoint, let green = greenPoint else { return 0 }
+
+            // bearing(to:) gives the compass heading from tee to green.
+            // To render tee-at-bottom / green-at-top, the camera bearing must
+            // point the "up" direction of the screen toward the green, so we
+            // use the tee→green bearing directly as the camera bearing.
+            return tee.bearing(to: green)
         }
 
         /// Collects all coordinates from a hole's geometry features
