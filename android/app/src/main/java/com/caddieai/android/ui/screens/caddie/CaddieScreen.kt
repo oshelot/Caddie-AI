@@ -289,7 +289,15 @@ fun CaddieScreen(
                         selected = shotContext.shotType,
                         options = ShotType.entries,
                         displayName = { it.name.replace('_', ' ').lowercase().replaceFirstChar { c -> c.uppercase() } },
-                        onSelect = { viewModel.updateContext { ctx -> ctx.copy(shotType = it) } },
+                        onSelect = { newType ->
+                            viewModel.updateContext { ctx ->
+                                // Auto-reconcile lie if current lie is invalid for new shot type
+                                val validLies = newType.validLies()
+                                val newLie = if (validLies.isEmpty() || ctx.lie in validLies) ctx.lie
+                                             else newType.defaultLie()
+                                ctx.copy(shotType = newType, lie = newLie)
+                            }
+                        },
                     )
                 }
             }
@@ -297,13 +305,16 @@ fun CaddieScreen(
             // Card 2: Conditions
             item {
                 SectionCard(title = "Conditions") {
-                    EnumDropdown(
-                        label = "Lie",
-                        selected = shotContext.lie,
-                        options = LieType.entries,
-                        displayName = { it.name.replace('_', ' ').lowercase().replaceFirstChar { c -> c.uppercase() } },
-                        onSelect = { viewModel.updateContext { ctx -> ctx.copy(lie = it) } },
-                    )
+                    val validLies = shotContext.shotType.validLies()
+                    if (validLies.isNotEmpty()) {
+                        EnumDropdown(
+                            label = "Lie",
+                            selected = shotContext.lie,
+                            options = validLies,
+                            displayName = { it.name.replace('_', ' ').lowercase().replaceFirstChar { c -> c.uppercase() } },
+                            onSelect = { viewModel.updateContext { ctx -> ctx.copy(lie = it) } },
+                        )
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.weight(1f)) {
                             EnumDropdown(

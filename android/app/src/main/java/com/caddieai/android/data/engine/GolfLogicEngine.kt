@@ -29,6 +29,10 @@ object GolfLogicEngine {
     )
 
     fun analyze(context: ShotContext, profile: PlayerProfile): EngineResult {
+        // Defensive: warn on impossible shot/lie combos (KAN-232)
+        if (context.lie !in context.shotType.validLies() && context.shotType.validLies().isNotEmpty()) {
+            android.util.Log.w("GolfLogicEngine", "Impossible combo: shotType=${context.shotType} lie=${context.lie}")
+        }
         val windAdj = windAdjustmentYards(context.windStrength, context.windDirection)
         val lieMult = lieMultiplier(context.lie)
         val slopeAdj = context.elevationChangeYards // +elevation = club up, -elevation = club down

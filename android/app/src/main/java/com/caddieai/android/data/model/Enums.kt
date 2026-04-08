@@ -49,7 +49,33 @@ enum class ShotType {
     FAIRWAY_BUNKER,
     LAYUP,
     PUTT,
-    DRIVER,
+    DRIVER;
+
+    /** Returns the set of valid lies for this shot type. Empty = picker hidden. */
+    fun validLies(): List<LieType> = when (this) {
+        DRIVER -> emptyList() // Tee shot — lie picker hidden
+        PUTT -> listOf(LieType.GREEN, LieType.FRINGE)
+        BUNKER -> listOf(LieType.BUNKER)
+        FAIRWAY_BUNKER -> listOf(LieType.FAIRWAY_BUNKER)
+        PUNCH -> listOf(LieType.ROUGH, LieType.DEEP_ROUGH, LieType.WET_ROUGH, LieType.HARDPAN, LieType.DIVOT)
+        // All other shot types: standard non-bunker lies
+        else -> listOf(
+            LieType.FAIRWAY, LieType.ROUGH, LieType.DEEP_ROUGH, LieType.WET_ROUGH,
+            LieType.HARDPAN, LieType.DIVOT, LieType.UPHILL, LieType.DOWNHILL,
+            LieType.SIDEHILL_ABOVE, LieType.SIDEHILL_BELOW, LieType.FRINGE,
+        )
+    }
+
+    /** Returns the default lie for this shot type. */
+    fun defaultLie(): LieType = when (this) {
+        DRIVER -> LieType.TEE_BOX
+        PUTT -> LieType.GREEN
+        BUNKER -> LieType.BUNKER
+        FAIRWAY_BUNKER -> LieType.FAIRWAY_BUNKER
+        PUNCH -> LieType.ROUGH
+        CHIP, PITCH, FLOP, BUMP_AND_RUN -> LieType.FRINGE
+        else -> LieType.FAIRWAY
+    }
 }
 
 @Serializable
