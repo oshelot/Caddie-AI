@@ -274,6 +274,38 @@ enum ShotType: String, CaseIterable, Codable, Identifiable, Sendable {
         case .layup: return "Layup"
         }
     }
+
+    /// Whether the lie picker should be visible for this shot type.
+    var showsLiePicker: Bool {
+        self != .tee
+    }
+
+    /// The set of lie types that are valid for this shot type.
+    var validLies: [LieType] {
+        switch self {
+        case .tee:
+            return [.fairway] // Lie is irrelevant; fairway used internally
+        case .bunker:
+            return [.greensideBunker, .fairwayBunker]
+        case .approach, .layup:
+            return LieType.nonBunkerLies
+        case .chip, .pitch:
+            return LieType.nonBunkerLies
+        case .punchRecovery:
+            return LieType.nonBunkerLies
+        }
+    }
+
+    /// The default lie when this shot type is selected.
+    var defaultLie: LieType {
+        switch self {
+        case .tee:            return .fairway
+        case .bunker:         return .greensideBunker
+        case .chip, .pitch:   return .firstCut
+        case .punchRecovery:  return .treesObstructed
+        case .approach, .layup: return .fairway
+        }
+    }
 }
 
 // MARK: - Lie Type
@@ -303,6 +335,11 @@ enum LieType: String, CaseIterable, Codable, Identifiable, Sendable {
         case .pineStraw: return "Pine Straw"
         case .treesObstructed: return "Trees / Obstructed"
         }
+    }
+
+    /// All lies except bunker types — used by non-bunker shot types.
+    static var nonBunkerLies: [LieType] {
+        allCases.filter { $0 != .greensideBunker && $0 != .fairwayBunker }
     }
 }
 

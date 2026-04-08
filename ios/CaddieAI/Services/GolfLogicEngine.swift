@@ -33,6 +33,14 @@ struct GolfLogicEngine {
         context: ShotContext,
         profile: PlayerProfile
     ) -> DeterministicAnalysis {
+        // Defensive: log if shot type and lie are contradictory
+        if !context.shotType.validLies.contains(context.lieType) {
+            LoggingService.shared.warning(.analysis, "Shot type / lie mismatch", metadata: [
+                "shotType": context.shotType.rawValue,
+                "lieType": context.lieType.rawValue,
+            ])
+        }
+
         let effectiveDistance = calculateEffectiveDistance(context: context, ironType: profile.ironType)
         let clubLimit = maxClubForLie(context.lieType, ironType: profile.ironType)
         let recommendedClub = selectClub(

@@ -128,12 +128,14 @@ struct ShotInputView: View {
                     // Conditions
                     GroupBox("Conditions") {
                         VStack(spacing: 12) {
-                            LabeledContent("Lie") {
-                                MenuPicker(
-                                    selection: $vm.shotContext.lieType,
-                                    options: LieType.allCases,
-                                    displayName: \.displayName
-                                )
+                            if vm.shotContext.shotType.showsLiePicker {
+                                LabeledContent("Lie") {
+                                    FilteredMenuPicker(
+                                        selection: $vm.shotContext.lieType,
+                                        options: vm.shotContext.shotType.validLies,
+                                        displayName: \.displayName
+                                    )
+                                }
                             }
 
                             LabeledContent("Wind") {
@@ -227,6 +229,13 @@ struct ShotInputView: View {
             }
             .navigationTitle("Caddie")
             .scrollDismissesKeyboard(.interactively)
+            .onChange(of: vm.shotContext.shotType) { _, newType in
+                // Auto-reconcile lie when shot type changes
+                let validLies = newType.validLies
+                if !validLies.contains(vm.shotContext.lieType) {
+                    vm.shotContext.lieType = newType.defaultLie
+                }
+            }
             .onChange(of: speechService.transcribedText) { _, newValue in
                 if !newValue.isEmpty {
                     viewModel.voiceNotes = newValue
@@ -289,6 +298,39 @@ private struct MenuPicker<T: Hashable & Identifiable & CaseIterable>: View
 where T.AllCases: RandomAccessCollection {
     @Binding var selection: T
     let options: T.AllCases
+    let displayName: KeyPath<T, String>
+
+    var body: some View {
+        Menu {
+            Picker(selection: $selection) {
+                ForEach(options) { option in
+                    Text(option[keyPath: displayName]).tag(option)
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 4) {
+                Text(selection[keyPath: displayName])
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+            }
+            .foregroundStyle(.tint)
+            .contentShape(Rectangle())
+        }
+    }
+}
+
+// MARK: - Filtered Menu Picker
+
+/// A picker rendered as a `Menu` that accepts an explicit array of options
+/// instead of requiring CaseIterable. Used when the available options are
+/// filtered based on other state (e.g. valid lies for a shot type).
+private struct FilteredMenuPicker<T: Hashable & Identifiable>: View {
+    @Binding var selection: T
+    let options: [T]
     let displayName: KeyPath<T, String>
 
     var body: some View {
