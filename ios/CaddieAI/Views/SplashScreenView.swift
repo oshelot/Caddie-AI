@@ -23,7 +23,8 @@ struct SplashScreenView: View {
         return .system(size: size, weight: .heavy, design: .rounded)
     }()
 
-    private static let navyColor = Color(red: 11/255, green: 34/255, blue: 101/255) // #0B2265
+    private static let caddieColor = Color(red: 0x23/255, green: 0x36/255, blue: 0x7D/255) // #23367D
+    private static let aiColor = Color(red: 0xC5/255, green: 0x03/255, blue: 0x1A/255)     // #C5031A
 
     var body: some View {
         ZStack {
@@ -45,10 +46,10 @@ struct SplashScreenView: View {
                 Spacer().frame(height: 32)
 
                 // App name — Orbitron ExtraBold wordmark
-                Text("CaddieAI")
+                (Text("Caddie").foregroundStyle(Self.caddieColor)
+                 + Text("AI").foregroundStyle(Self.aiColor))
                     .font(Self.orbitronFont)
                     .tracking(0.5)
-                    .foregroundStyle(Self.navyColor)
                     .opacity(textOpacity)
 
                 Spacer()

@@ -16,6 +16,11 @@ final class CourseCacheService {
     private static let cacheDirectoryName = "CourseCache"
     private static let indexFileName = "course_index.json"
 
+    /// In-memory LRU cache to avoid repeated disk reads for recently-accessed courses.
+    private var memoryCache: [String: NormalizedCourse] = [:]
+    private var memoryCacheOrder: [String] = []
+    private static let memoryCacheLimit = 8
+
     init() {
         self.index = Self.loadIndex() ?? CourseCacheIndex(entries: [])
     }
@@ -32,6 +37,9 @@ final class CourseCacheService {
     // MARK: - Save
 
     func save(_ course: NormalizedCourse) {
+        // Update in-memory cache
+        insertIntoMemoryCache(id: course.id, course: course)
+
         let fileName = "course_\(course.id.hashValue).json"
         let fileURL = Self.cacheDirectory.appendingPathComponent(fileName)
 
@@ -63,6 +71,12 @@ final class CourseCacheService {
     // MARK: - Load
 
     func load(id: String) -> NormalizedCourse? {
+        // Check in-memory cache first (avoids disk I/O)
+        if let cached = memoryCache[id] {
+            touchMemoryCacheEntry(id: id)
+            return cached
+        }
+
         guard let entry = index.entries.first(where: { $0.id == id }),
               entry.schemaVersion == NormalizedCourse.currentSchemaVersion else {
             return nil
@@ -73,7 +87,11 @@ final class CourseCacheService {
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(NormalizedCourse.self, from: data)
+        guard let course = try? decoder.decode(NormalizedCourse.self, from: data) else { return nil }
+
+        // Promote to in-memory cache for subsequent access
+        insertIntoMemoryCache(id: id, course: course)
+        return course
     }
 
     // MARK: - Lookup
@@ -143,6 +161,9 @@ final class CourseCacheService {
     // MARK: - Invalidation
 
     func invalidate(id: String) {
+        memoryCache.removeValue(forKey: id)
+        memoryCacheOrder.removeAll { $0 == id }
+
         if let entry = index.entries.first(where: { $0.id == id }) {
             let fileURL = Self.cacheDirectory.appendingPathComponent(entry.fileName)
             try? FileManager.default.removeItem(at: fileURL)
@@ -156,6 +177,8 @@ final class CourseCacheService {
     }
 
     func invalidateAll() {
+        memoryCache.removeAll()
+        memoryCacheOrder.removeAll()
         index.entries.removeAll()
         saveIndex()
         try? FileManager.default.removeItem(at: Self.cacheDirectory)
@@ -178,5 +201,24 @@ final class CourseCacheService {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(CourseCacheIndex.self, from: data)
+    }
+
+    // MARK: - In-Memory LRU Helpers
+
+    private func insertIntoMemoryCache(id: String, course: NormalizedCourse) {
+        memoryCacheOrder.removeAll { $0 == id }
+        memoryCacheOrder.append(id)
+        memoryCache[id] = course
+
+        // Evict oldest if over limit
+        while memoryCacheOrder.count > Self.memoryCacheLimit {
+            let evicted = memoryCacheOrder.removeFirst()
+            memoryCache.removeValue(forKey: evicted)
+        }
+    }
+
+    private func touchMemoryCacheEntry(id: String) {
+        memoryCacheOrder.removeAll { $0 == id }
+        memoryCacheOrder.append(id)
     }
 }

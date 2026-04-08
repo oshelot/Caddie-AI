@@ -36,6 +36,17 @@ struct CourseMapView: View {
     @State private var showTeeReminder = false
     @State private var tapDistanceInfo: TapDistanceInfo?
 
+    /// Pre-sorted holes to avoid re-sorting on every render.
+    private var sortedHoles: [NormalizedHole] {
+        course.holes.sorted { $0.number < $1.number }
+    }
+
+    /// The currently selected hole model, pre-computed to avoid repeated O(n) lookups.
+    private var selectedHoleModel: NormalizedHole? {
+        guard let sel = viewModel.selectedHole else { return nil }
+        return course.holes.first { $0.number == sel }
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             // Satellite map with overlays
@@ -163,8 +174,7 @@ struct CourseMapView: View {
                         Text(course.name)
                             .font(.headline)
                             .foregroundStyle(.white)
-                        if let sel = viewModel.selectedHole,
-                           let hole = course.holes.first(where: { $0.number == sel }) {
+                        if let hole = selectedHoleModel {
                             HStack(spacing: 8) {
                                 Text("Hole \(hole.number)")
                                     .foregroundStyle(.white.opacity(0.9))
@@ -223,8 +233,7 @@ struct CourseMapView: View {
                         .disabled(isDetecting)
 
                         Button {
-                            if let sel = viewModel.selectedHole,
-                               let hole = course.holes.first(where: { $0.number == sel }) {
+                            if let hole = selectedHoleModel {
                                 showingAnalysis = true
                                 Task {
                                     analysisViewModel.apiUsageStore = apiUsageStore
@@ -273,7 +282,7 @@ struct CourseMapView: View {
                                     .clipShape(Capsule())
                             }
 
-                            ForEach(course.holes.sorted(by: { $0.number < $1.number })) { hole in
+                            ForEach(sortedHoles) { hole in
                                 Button {
                                     viewModel.selectedHole = hole.number
                                 } label: {
@@ -426,9 +435,7 @@ struct CourseMapView: View {
     // MARK: - Auto Detect
 
     private func autoDetectAndAskCaddie() {
-        guard let sel = viewModel.selectedHole,
-              let hole = course.holes.first(where: { $0.number == sel })
-        else { return }
+        guard let hole = selectedHoleModel else { return }
 
         if !locationManager.isAuthorized {
             locationManager.requestPermission()
@@ -523,9 +530,7 @@ struct CourseMapView: View {
 
     private func handleMapTap(_ coordinate: CLLocationCoordinate2D) {
         // Require a selected hole so we know which green to measure to
-        guard let sel = viewModel.selectedHole,
-              let hole = course.holes.first(where: { $0.number == sel })
-        else { return }
+        guard let hole = selectedHoleModel else { return }
 
         let greenTarget: GeoJSONPoint? = hole.green?.centroid ?? hole.lineOfPlay?.endPoint
         guard let target = greenTarget else { return }

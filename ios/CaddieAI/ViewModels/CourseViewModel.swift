@@ -205,17 +205,22 @@ final class CourseViewModel {
                         "latencyMs": "\(cacheMs)", "courseName": result.name,
                         "cacheHit": "true", "reEnriching": "true",
                     ])
-                    ingestionStep = "Fetching scorecard data…"
-                    let enriched = await enrichWithScorecardData(
-                        courses: [cached], courseName: result.name, apiKey: golfApiKey
-                    )
-                    if let course = enriched.first {
-                        cacheService?.save(course)
-                        selectedCourse = course
-                        TelemetryService.shared.recordCoursePlayed(courseName: course.name)
-                        isIngesting = false
-                        return
+                    // Display the cached course immediately so the user isn't blocked
+                    selectedCourse = cached
+                    TelemetryService.shared.recordCoursePlayed(courseName: cached.name)
+                    isIngesting = false
+
+                    // Enrich in background — UI updates when enrichment completes
+                    Task {
+                        let enriched = await self.enrichWithScorecardData(
+                            courses: [cached], courseName: result.name, apiKey: golfApiKey
+                        )
+                        if let course = enriched.first {
+                            self.cacheService?.save(course)
+                            self.selectedCourse = course
+                        }
                     }
+                    return
                 }
 
                 LoggingService.shared.info(.map, "cache_check", metadata: [
@@ -338,27 +343,10 @@ final class CourseViewModel {
                 "holeCount": "\(courses.first?.holes.count ?? 0)",
             ])
 
-            // Step 4: Enrich with scorecard data from Golf Course API
-            let golfApiKey = {
-                let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
-                return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
-            }()
-            var enrichedCourses = courses
-            if !golfApiKey.isEmpty {
-                ingestionStep = "Fetching scorecard data…"
-                stepStart = CFAbsoluteTimeGetCurrent()
-                enrichedCourses = await enrichWithScorecardData(courses: courses, courseName: result.name, apiKey: golfApiKey)
-                try Task.checkCancellation()
-                LoggingService.shared.info(.map, "scorecard_fetch", metadata: [
-                    "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))",
-                    "courseName": result.name,
-                ])
-            }
-
-            // Step 5: Cache all sub-courses
+            // Step 4: Cache geometry-only courses immediately so the map can display
             ingestionStep = "Saving to cache…"
             stepStart = CFAbsoluteTimeGetCurrent()
-            for course in enrichedCourses {
+            for course in courses {
                 cacheService?.save(course)
             }
             LoggingService.shared.info(.map, "cache_save", metadata: [
@@ -366,32 +354,13 @@ final class CourseViewModel {
                 "courseName": result.name,
             ])
 
-            // Step 5b: Upload to server cache (fire-and-forget, non-blocking)
-            if Secrets.courseCacheEndpoint != nil {
-                for course in enrichedCourses {
-                    Task {
-                        do {
-                            try await CourseCacheAPIClient.putCourse(course)
-                            LoggingService.shared.info(.map, "server_cache_upload", metadata: [
-                                "courseName": course.name, "courseId": course.id,
-                            ])
-                        } catch {
-                            LoggingService.shared.warning(.map, "server_cache_upload_error", metadata: [
-                                "courseName": course.name, "error": error.localizedDescription,
-                            ])
-                        }
-                    }
-                }
-            }
-
-            // Step 6: Handle results
-            if enrichedCourses.count > 1 {
-                // Multiple sub-courses — let user pick (no ad for this flow)
-                availableSubCourses = enrichedCourses
+            // Step 5: Display the course immediately (geometry + pars from OSM)
+            if courses.count > 1 {
+                availableSubCourses = courses
                 showSubCoursePicker = true
                 adCompleted = true
                 isIngesting = false
-            } else if let course = enrichedCourses.first {
+            } else if let course = courses.first {
                 var warning: String?
                 if course.holes.isEmpty {
                     warning = "This course hasn't been mapped in OpenStreetMap yet. The satellite map will show the area, but hole layouts, greens, and hazards aren't available."
@@ -399,14 +368,12 @@ final class CourseViewModel {
                     warning = "This course has limited map data. Some holes, greens, or hazards may be missing."
                 }
 
-                // If an interstitial ad is showing, stage the result for dual-gate
                 if isShowingInterstitialAd {
                     pendingCourse = course
                     pendingWarning = warning
                     ingestionCompleted = true
                     completeTransitionIfReady()
                 } else {
-                    // No ad showing — transition immediately
                     if let warning { ingestionWarning = warning }
                     selectedCourse = course
                     TelemetryService.shared.recordCoursePlayed(courseName: course.name)
@@ -416,11 +383,74 @@ final class CourseViewModel {
                 isIngesting = false
             }
 
-            // Log total ingestion time
+            // Step 6: Enrich with scorecard data in background (non-blocking)
+            let golfApiKey = {
+                let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
+                return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
+            }()
+            if !golfApiKey.isEmpty {
+                let coursesToEnrich = courses
+                let courseName = result.name
+                Task {
+                    let enrichStart = CFAbsoluteTimeGetCurrent()
+                    let enrichedCourses = await self.enrichWithScorecardData(
+                        courses: coursesToEnrich, courseName: courseName, apiKey: golfApiKey
+                    )
+                    LoggingService.shared.info(.map, "scorecard_fetch", metadata: [
+                        "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - enrichStart) * 1000))",
+                        "courseName": courseName,
+                    ])
+
+                    // Update cache and displayed course with enriched data
+                    for course in enrichedCourses {
+                        self.cacheService?.save(course)
+                    }
+                    if enrichedCourses.count == 1, let enriched = enrichedCourses.first {
+                        self.selectedCourse = enriched
+                    } else if enrichedCourses.count > 1 {
+                        self.availableSubCourses = enrichedCourses
+                    }
+
+                    // Upload enriched versions to server cache
+                    if Secrets.courseCacheEndpoint != nil {
+                        for course in enrichedCourses {
+                            Task {
+                                do {
+                                    try await CourseCacheAPIClient.putCourse(course)
+                                    LoggingService.shared.info(.map, "server_cache_upload", metadata: [
+                                        "courseName": course.name, "courseId": course.id,
+                                    ])
+                                } catch {
+                                    LoggingService.shared.warning(.map, "server_cache_upload_error", metadata: [
+                                        "courseName": course.name, "error": error.localizedDescription,
+                                    ])
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // No API key — still upload geometry-only courses to server cache
+                if Secrets.courseCacheEndpoint != nil {
+                    for course in courses {
+                        Task {
+                            do {
+                                try await CourseCacheAPIClient.putCourse(course)
+                            } catch {
+                                LoggingService.shared.warning(.map, "server_cache_upload_error", metadata: [
+                                    "courseName": course.name, "error": error.localizedDescription,
+                                ])
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Log total ingestion time (geometry-ready, enrichment may still be in progress)
             LoggingService.shared.info(.map, "total_ingestion", metadata: [
                 "latencyMs": "\(Int((CFAbsoluteTimeGetCurrent() - totalStart) * 1000))",
                 "courseName": result.name,
-                "holeCount": "\(enrichedCourses.first?.holes.count ?? 0)",
+                "holeCount": "\(courses.first?.holes.count ?? 0)",
             ])
             return
         } catch is CancellationError {
@@ -497,35 +527,29 @@ final class CourseViewModel {
     // MARK: - Load from Cache
 
     func loadCachedCourse(id: String) {
-        guard var course = cacheService?.load(id: id) else { return }
+        guard let course = cacheService?.load(id: id) else { return }
 
-        // Re-enrich stale cached courses that are missing tee/yardage data
+        // Display the course immediately regardless of enrichment status
+        selectedCourse = course
+        selectedTee = cacheService?.selectedTee(forCourse: id)
+        TelemetryService.shared.recordCoursePlayed(courseName: course.name)
+
+        // If missing tee/yardage data, enrich in background without blocking the UI
         let golfApiKey = {
             let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
             return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
         }()
         if course.teeNames == nil && !course.holes.isEmpty && !golfApiKey.isEmpty {
-            isIngesting = true
-            ingestionStep = "Fetching scorecard data…"
             Task {
-                let enriched = await enrichWithScorecardData(
+                let enriched = await self.enrichWithScorecardData(
                     courses: [course], courseName: course.name, apiKey: golfApiKey
                 )
                 if let updated = enriched.first {
-                    course = updated
-                    cacheService?.save(updated)
+                    self.cacheService?.save(updated)
+                    self.selectedCourse = updated
                 }
-                selectedCourse = course
-                selectedTee = cacheService?.selectedTee(forCourse: id)
-                TelemetryService.shared.recordCoursePlayed(courseName: course.name)
-                isIngesting = false
             }
-            return
         }
-
-        selectedCourse = course
-        selectedTee = cacheService?.selectedTee(forCourse: id)
-        TelemetryService.shared.recordCoursePlayed(courseName: course.name)
     }
 
     // MARK: - Cached Courses List

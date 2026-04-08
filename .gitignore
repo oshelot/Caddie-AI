@@ -19,12 +19,7 @@ Pods/
 *.iml
 .gradle
 local.properties
-android/.idea/caches
-android/.idea/libraries
-android/.idea/modules.xml
-android/.idea/workspace.xml
-android/.idea/navEditor.xml
-android/.idea/assetWizardSettings.xml
+android/.idea/
 android/build/
 android/app/build/
 android/captures/
@@ -48,6 +43,7 @@ secrets/
 
 # === Infrastructure build artifacts ===
 infrastructure/llm-proxy/lambda_function.zip
+infrastructure/course-cache/function.zip
 
 # === OS / Editor ===
 .DS_Store
