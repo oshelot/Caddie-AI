@@ -28,10 +28,13 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -109,16 +112,20 @@ fun SplashScreen(
         // 3. Fixed 32dp spacer
         Spacer(modifier = Modifier.height(32.dp))
 
-        // 4. "CaddieAI" wordmark — Orbitron ExtraBold, brand navy
+        // 4. "CaddieAI" wordmark — Orbitron ExtraBold, dual color
+        val caddieColor = Color(0xFF23367D)
+        val aiColor = Color(0xFFC5031A)
         Text(
-            text = "CaddieAI",
+            text = buildAnnotatedString {
+                withStyle(SpanStyle(color = caddieColor)) { append("Caddie") }
+                withStyle(SpanStyle(color = aiColor)) { append("AI") }
+            },
             style = TextStyle(
                 fontFamily = orbitronFamily,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 44.sp,
                 letterSpacing = 0.02.em,
             ),
-            color = brandNavy,
             modifier = Modifier.alpha(textAlpha.value)
         )
 

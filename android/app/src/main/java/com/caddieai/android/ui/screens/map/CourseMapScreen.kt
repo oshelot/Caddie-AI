@@ -6,6 +6,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GolfCourse
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -204,75 +207,138 @@ fun CourseMapScreen(
         }
     }
 
-    BottomSheetScaffold(
-        scaffoldState = scaffoldState,
-        sheetPeekHeight = 130.dp,
-        sheetContent = {
-            val hole = course.holes.firstOrNull { it.number == state.selectedHoleNumber }
-            val teeYardage = state.selectedTee?.let { tee ->
-                // Look up yardage for selected tee from course data (not just analysis)
-                course.holeYardagesByTee[tee]?.get(state.selectedHoleNumber.toString())
-                    ?: state.analysis?.yardagesByTee?.get(tee)
-            } ?: hole?.yardage
+    // Fullscreen map with floating overlays (iOS parity)
+    val hole = course.holes.firstOrNull { it.number == state.selectedHoleNumber }
+    val teeYardage = state.selectedTee?.let { tee ->
+        course.holeYardagesByTee[tee]?.get(state.selectedHoleNumber.toString())
+            ?: state.analysis?.yardagesByTee?.get(tee)
+    } ?: hole?.yardage
 
-            if (!state.isAnalyzed) {
-                // Peek row — shown before analysis
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (state.selectedHoleNumber != null) "Hole ${state.selectedHoleNumber}" else course.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.primary,
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Map fills entire screen
+        AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+
+        // ── Top floating controls ──
+        // Back button (top-left)
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 8.dp, top = 40.dp)
+                .size(40.dp)
+                .background(Color.Black.copy(alpha = 0.4f), CircleShape),
+        ) { Icon(Icons.Default.ArrowBack, "Back", tint = Color.White) }
+
+        // Tee picker (top-right)
+        if (state.dedupedTees.size > 1) {
+            var expanded by remember { mutableStateOf(false) }
+            val currentDisplay = state.dedupedTees.firstOrNull { it.canonicalTee == state.selectedTee }?.displayName
+                ?: state.selectedTee ?: ""
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(end = 8.dp, top = 40.dp)) {
+                Surface(shape = RoundedCornerShape(16.dp), color = Color.Black.copy(alpha = 0.4f),
+                    modifier = Modifier.clickable { expanded = true }) {
+                    Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Flag, null, Modifier.size(14.dp), tint = Color.White)
+                        Spacer(Modifier.width(4.dp))
+                        Text(currentDisplay, color = Color.White, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    state.dedupedTees.forEach { deduped ->
+                        DropdownMenuItem(
+                            text = {
+                                val ydsText = if (deduped.totalYards > 0) " ${String.format("%,d", deduped.totalYards)} yds" else ""
+                                Text("${deduped.displayName}$ydsText")
+                            },
+                            onClick = { viewModel.selectTee(course, deduped.canonicalTee); expanded = false },
+                            trailingIcon = if (deduped.canonicalTee == state.selectedTee) {
+                                { Icon(Icons.Default.Check, null) }
+                            } else null,
                         )
-                        hole?.let {
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                "Par ${it.par} • ${teeYardage ?: it.yardage} yds${state.selectedTee?.let { t -> " ($t)" } ?: ""}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    }
+                }
+            }
+        }
+
+        // Weather badge (below back button)
+        state.weatherBadge?.let { weather ->
+            Surface(shape = RoundedCornerShape(16.dp), color = Color.Black.copy(alpha = 0.6f),
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 88.dp)) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("${weather.tempF}°F", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    if (weather.windMph >= 5) {
+                        Text("💨", style = MaterialTheme.typography.bodySmall)
+                        Text("${weather.windMph}mph ${weather.windCompass}", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+
+        // Tap-to-distance card (top-right below tee picker)
+        state.tapDistanceYds?.let { yds ->
+            Surface(shape = RoundedCornerShape(12.dp), color = Color.Black.copy(alpha = 0.75f),
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = 8.dp, top = 88.dp)) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("$yds yds", color = Color.White, style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(6.dp))
+                        IconButton(onClick = { viewModel.clearTapDistance() }, modifier = Modifier.size(20.dp)) {
+                            Icon(Icons.Default.Close, "Clear", tint = Color.White, modifier = Modifier.size(16.dp))
                         }
                     }
-                    if (state.selectedHoleNumber != null) {
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            // Ask Caddie (green)
-                            Button(
-                                onClick = { state.selectedHoleNumber?.let { viewModel.askCaddie(course, it) } },
-                                enabled = !state.isAskingCaddie,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF2E7D32),
-                                ),
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                if (state.isAskingCaddie) {
-                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp,
-                                        color = Color.White)
-                                } else {
-                                    Icon(Icons.Default.GolfCourse, null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Ask Caddie")
-                                }
+                    state.tapRecommendedClub?.let { club ->
+                        Text(club.name.replace('_', ' '), color = Color(0xFFFFEB3B),
+                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
+        // ── Bottom overlays ──
+        Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            // Tee reminder
+            AnimatedVisibility(visible = state.showTeeReminder, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Flag, null, Modifier.size(16.dp), tint = Color.White)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Tap the tee button to choose your tee box", style = MaterialTheme.typography.bodySmall,
+                        color = Color.White, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { viewModel.dismissTeeReminder() }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, "Dismiss", Modifier.size(16.dp), tint = Color.White)
+                    }
+                }
+            }
+
+            // Hole info + action buttons
+            if (!state.isAnalyzed) {
+                Surface(color = Color.LightGray.copy(alpha = 0.85f), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (state.selectedHoleNumber != null) "Hole ${state.selectedHoleNumber}" else course.name,
+                                style = MaterialTheme.typography.titleMedium, color = Color.Black, fontWeight = FontWeight.Bold)
+                            hole?.let {
+                                Spacer(Modifier.width(8.dp))
+                                Text("Par ${it.par} • ${teeYardage ?: it.yardage} yds",
+                                    style = MaterialTheme.typography.bodySmall, color = Color.Black.copy(alpha = 0.7f))
                             }
-                            // Analyze (blue)
-                            Button(
-                                onClick = { state.selectedHoleNumber?.let { viewModel.analyzeHole(course, it) } },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                if (state.isLoadingLLM) {
-                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.onPrimary)
-                                } else {
-                                    Icon(Icons.Default.Star, null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Analyze")
+                        }
+                        if (state.selectedHoleNumber != null) {
+                            Spacer(Modifier.height(6.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { state.selectedHoleNumber?.let { viewModel.askCaddie(course, it) } },
+                                    enabled = !state.isAskingCaddie, modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) {
+                                    if (state.isAskingCaddie) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                                    else { Icon(Icons.Default.GolfCourse, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Ask Caddie") }
+                                }
+                                Button(onClick = { state.selectedHoleNumber?.let { viewModel.analyzeHole(course, it) } }, modifier = Modifier.weight(1f)) {
+                                    if (state.isLoadingLLM) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                    else { Icon(Icons.Default.Star, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Analyze") }
                                 }
                             }
                         }
@@ -281,198 +347,24 @@ fun CourseMapScreen(
             }
 
             if (state.isAnalyzed) {
-                HoleAnalysisSheet(
-                    state = state,
-                    course = course,
+                HoleAnalysisSheet(state = state, course = course,
                     onHoleSelected = { holeNum -> viewModel.selectHole(course, holeNum) },
                     onFollowUpChange = viewModel::onFollowUpChange,
                     onSendFollowUp = { viewModel.sendFollowUp(course) },
                     onDismissOffTopicDialog = viewModel::dismissOffTopicDialog,
-                    onSpeakAdvice = viewModel::speakAdvice,
-                    onStopSpeaking = viewModel::stopSpeaking,
-                )
-            }
-        },
-        topBar = {
-            TopAppBar(
-                title = { Text("Course Map") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (state.dedupedTees.size > 1) {
-                        var expanded by remember { mutableStateOf(false) }
-                        val currentDisplay = state.dedupedTees.firstOrNull { it.canonicalTee == state.selectedTee }?.displayName
-                            ?: state.selectedTee ?: ""
-                        Box {
-                            FilterChip(
-                                selected = false,
-                                onClick = { expanded = true },
-                                label = { Text(currentDisplay) },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.Flag,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                },
-                            )
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false },
-                            ) {
-                                state.dedupedTees.forEach { deduped ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            val ydsText = if (deduped.totalYards > 0) " ${String.format("%,d", deduped.totalYards)} yds" else ""
-                                            Text("${deduped.displayName}$ydsText")
-                                        },
-                                        onClick = {
-                                            viewModel.selectTee(course, deduped.canonicalTee)
-                                            expanded = false
-                                        },
-                                        trailingIcon = if (deduped.canonicalTee == state.selectedTee) {
-                                            { Icon(Icons.Default.Check, contentDescription = null) }
-                                        } else null,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-                ),
-            )
-        }
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                AndroidView(
-                    factory = { mapView },
-                    modifier = Modifier.fillMaxSize(),
-                )
-                // Weather badge overlay
-                state.weatherBadge?.let { weather ->
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = Color.Black.copy(alpha = 0.6f),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(start = 8.dp, top = 42.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text("${weather.tempF}°F", color = Color.White,
-                                style = MaterialTheme.typography.bodySmall)
-                            if (weather.windMph >= 5) {
-                                Text("💨", style = MaterialTheme.typography.bodySmall)
-                                Text("${weather.windMph}mph ${weather.windCompass}",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                }
-
-                // Tap-to-distance card
-                state.tapDistanceYds?.let { yds ->
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.Black.copy(alpha = 0.75f),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(end = 8.dp, top = 42.dp),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("$yds yds to green", color = Color.White,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                                Spacer(Modifier.width(6.dp))
-                                IconButton(
-                                    onClick = { viewModel.clearTapDistance() },
-                                    modifier = Modifier.size(20.dp),
-                                ) {
-                                    Icon(Icons.Default.Close, "Clear", tint = Color.White,
-                                        modifier = Modifier.size(16.dp))
-                                }
-                            }
-                            state.tapRecommendedClub?.let { club ->
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    club.name.replace('_', ' '),
-                                    color = Color(0xFFFFEB3B),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                )
-                            }
-                        }
-                    }
-                }
+                    onSpeakAdvice = viewModel::speakAdvice, onStopSpeaking = viewModel::stopSpeaking)
             }
 
-            // Tee reminder callout
-            AnimatedVisibility(
-                visible = state.showTeeReminder,
-                enter = slideInVertically { -it },
-                exit = slideOutVertically { -it },
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
-                            RoundedCornerShape(8.dp),
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.Flag, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Tap the tee selector above to choose your tee box",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(
-                        onClick = { viewModel.dismissTeeReminder() },
-                        modifier = Modifier.size(24.dp),
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
-                    }
-                }
-            }
-
-            // Hole selector chips (below map)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                FilterChip(
-                    selected = state.selectedHoleNumber == null,
-                    onClick = { viewModel.selectAll() },
-                    label = { Text("ALL") },
-                )
-                course.holes.forEach { hole ->
-                    FilterChip(
-                        selected = hole.number == state.selectedHoleNumber,
-                        onClick = { viewModel.selectHole(course, hole.number) },
-                        label = { Text("${hole.number}") },
-                    )
+            // Hole selector
+            Row(modifier = Modifier.fillMaxWidth()
+                .background(Color.LightGray.copy(alpha = 0.85f))
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilterChip(selected = state.selectedHoleNumber == null, onClick = { viewModel.selectAll() }, label = { Text("ALL") })
+                course.holes.forEach { h ->
+                    FilterChip(selected = h.number == state.selectedHoleNumber,
+                        onClick = { viewModel.selectHole(course, h.number) }, label = { Text("${h.number}") })
                 }
             }
         }

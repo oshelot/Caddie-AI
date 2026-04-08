@@ -75,7 +75,7 @@ import com.caddieai.android.ui.screens.map.CourseMapScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CourseScreen(viewModel: CourseViewModel = hiltViewModel(), onNavigateToCaddie: () -> Unit = {}) {
+fun CourseScreen(viewModel: CourseViewModel = hiltViewModel(), onNavigateToCaddie: () -> Unit = {}, onMapVisibilityChanged: (Boolean) -> Unit = {}) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -97,6 +97,7 @@ fun CourseScreen(viewModel: CourseViewModel = hiltViewModel(), onNavigateToCaddi
 
     // Show map when course is selected (from search or cache tap)
     val showMap = state.selectedCourse != null
+    LaunchedEffect(showMap) { onMapVisibilityChanged(showMap) }
 
     AnimatedContent(targetState = showMap, label = "CourseMapToggle") { isMap ->
         if (isMap && state.selectedCourse != null) {

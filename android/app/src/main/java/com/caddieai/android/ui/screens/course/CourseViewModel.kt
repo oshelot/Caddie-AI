@@ -218,13 +218,18 @@ class CourseViewModel @Inject constructor(
                 return@launch
             }
 
-            // Server cache check — fast path before full ingestion
+            // On local miss: race server cache vs full ingestion pipeline
+            // First result with valid data wins
             if (serverCacheClient.isEnabled) {
-                val serverCached = serverCacheClient.getCourse(existingId)
+                val serverDeferred = async { serverCacheClient.getCourse(existingId) }
+                val ingestionDeferred = async { ingestCourse(result) }
+
+                val serverCached = serverDeferred.await()
                 if (serverCached != null && serverCached.teeNames.isNotEmpty() &&
                     !(serverCached.teeNames.size == 1 && serverCached.teeNames.first() == "Standard") &&
                     serverCached.holes.size !in 9..17
                 ) {
+                    ingestionDeferred.cancel() // server cache won — cancel ingestion
                     cacheService.saveCourse(serverCached)
                     _state.update { it.copy(
                         selectedCourse = serverCached,
@@ -234,9 +239,11 @@ class CourseViewModel @Inject constructor(
                     activeRoundStore.setActiveCourse(serverCached)
                     return@launch
                 }
+                // Server cache miss — let ingestion complete
+                ingestionDeferred.await()
+            } else {
+                ingestCourse(result)
             }
-
-            ingestCourse(result)
         }
     }
 
@@ -261,10 +268,16 @@ class CourseViewModel @Inject constructor(
             if (com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY.isNotBlank()) {
                 val apiKey = com.caddieai.android.BuildConfig.GOLF_COURSE_API_KEY
                 val searchResult = golfApiClient.searchCourses(courseName, apiKey).firstOrNull()
-                val detail = if (searchResult != null && searchResult.id.isNotBlank()) {
-                    golfApiClient.getCourse(searchResult.id, apiKey)
-                } else null
-                detail ?: searchResult
+                // Skip detail call if search already has tee data
+                if (searchResult != null && searchResult.teeNames.isNotEmpty() &&
+                    searchResult.holeYardagesByTee.isNotEmpty()) {
+                    searchResult
+                } else {
+                    val detail = if (searchResult != null && searchResult.id.isNotBlank()) {
+                        golfApiClient.getCourse(searchResult.id, apiKey)
+                    } else null
+                    detail ?: searchResult
+                }
             } else null
         }
 

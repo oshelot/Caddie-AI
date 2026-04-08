@@ -42,6 +42,11 @@ class CourseCacheService @Inject constructor(
         private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
     }
 
+    // In-memory LRU cache — avoids disk I/O for hot courses
+    private val memoryCache = object : LinkedHashMap<String, NormalizedCourse>(10, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, NormalizedCourse>): Boolean = size > 10
+    }
+
     private val coursesDir: File
         get() = File(context.filesDir, COURSES_DIR).also { it.mkdirs() }
 
@@ -49,25 +54,35 @@ class CourseCacheService @Inject constructor(
     private val favoritesFile: File get() = File(coursesDir, FAVORITES_FILE)
     private val teeSelectionsFile: File get() = File(coursesDir, "tee_selections.json")
 
-    /** Save a course to the file cache and update the index. */
+    /** Save a course to the file cache, memory cache, and update the index. */
     fun saveCourse(course: NormalizedCourse) {
+        memoryCache[course.id] = course
         val file = File(coursesDir, "${course.id}.json")
         file.writeText(json.encodeToString(course))
         updateIndex(course)
         logger.log(LogLevel.INFO, LogCategory.CACHE, "course_saved", mapOf("hole_count" to course.holes.size))
     }
 
-    /** Load a cached course by ID. Returns null if not cached. */
-    fun getCourse(id: String): NormalizedCourse? = runCatching {
-        val file = File(coursesDir, "$id.json")
-        if (!file.exists()) {
-            logger.log(LogLevel.INFO, LogCategory.CACHE, "course_cache_miss")
-            return null
+    /** Load a cached course by ID. Checks memory first, then disk. */
+    fun getCourse(id: String): NormalizedCourse? {
+        // Memory cache hit — no disk I/O
+        memoryCache[id]?.let {
+            logger.log(LogLevel.INFO, LogCategory.CACHE, "course_memory_hit")
+            return it
         }
-        val course = json.decodeFromString<NormalizedCourse>(file.readText())
-        logger.log(LogLevel.INFO, LogCategory.CACHE, "course_cache_hit")
-        course
-    }.getOrNull()
+        // Disk fallback
+        return runCatching {
+            val file = File(coursesDir, "$id.json")
+            if (!file.exists()) {
+                logger.log(LogLevel.INFO, LogCategory.CACHE, "course_cache_miss")
+                return null
+            }
+            val course = json.decodeFromString<NormalizedCourse>(file.readText())
+            memoryCache[course.id] = course // promote to memory
+            logger.log(LogLevel.INFO, LogCategory.CACHE, "course_cache_hit")
+            course
+        }.getOrNull()
+    }
 
     /** List all cached courses from the index. */
     fun listCachedCourses(): List<CourseIndexEntry> = runCatching {
@@ -118,6 +133,7 @@ class CourseCacheService @Inject constructor(
     }.getOrDefault(emptyMap())
 
     fun deleteCourse(id: String) {
+        memoryCache.remove(id)
         File(coursesDir, "$id.json").delete()
         removeFromIndex(id)
     }
