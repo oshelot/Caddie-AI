@@ -38,6 +38,7 @@ data class HoleAnalysisState(
     val selectedHoleNumber: Int? = null,
     val analysis: HoleAnalysis? = null,
     val isLoadingLLM: Boolean = false,
+    val analysisLlmMs: Long = 0L,
     val conversation: List<ConversationMessage> = emptyList(),
     val followUpInput: String = "",
     val showOffTopicDialog: Boolean = false,
@@ -505,14 +506,17 @@ class HoleAnalysisViewModel @Inject constructor(
                     ChatMessage("system", systemPrompt),
                     ChatMessage("user", userPrompt),
                 )
+                val llmStart = System.currentTimeMillis()
                 llmRouter.chatCompletion(messages, profile, maxTokens = 500)
                     .onSuccess { rawAdvice ->
+                        val llmMs = System.currentTimeMillis() - llmStart
                         val advice = flattenJsonToText(rawAdvice)
                         _state.update {
                             it.copy(
                                 isLoadingLLM = false,
                                 analysis = analysis.copy(llmEnhancedAnalysis = advice),
                                 conversation = listOf(ConversationMessage(MessageRole.CADDIE, advice)),
+                                analysisLlmMs = llmMs,
                             )
                         }
                     }

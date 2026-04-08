@@ -51,10 +51,13 @@ sealed class ShotAdvisorState {
         val recommendation: ShotRecommendation,
         val archetype: ShotArchetype,
         val engineNotes: String,
+        val engineMs: Long = 0L,
     ) : ShotAdvisorState()
     data class Enhanced(
         val recommendation: ShotRecommendation,
         val archetype: ShotArchetype,
+        val engineMs: Long = 0L,
+        val llmMs: Long = 0L,
     ) : ShotAdvisorState()
     data class Error(val message: String, val fallback: ShotRecommendation? = null, val archetype: ShotArchetype? = null) : ShotAdvisorState()
 }
@@ -175,14 +178,17 @@ class ShotAdvisorViewModel @Inject constructor(
             }
 
             // Step 1: Instant deterministic recommendation
+            val engineStart = System.currentTimeMillis()
             val engineResult = GolfLogicEngine.analyze(context, profile)
             val deterministicRec = GolfLogicEngine.analyzeToRecommendation(context, profile)
             val archetype = ExecutionEngine.buildArchetype(engineResult.recommendedClub, context, profile)
+            val engineMs = System.currentTimeMillis() - engineStart
 
             _state.value = ShotAdvisorState.Deterministic(
                 recommendation = deterministicRec,
                 archetype = archetype,
                 engineNotes = engineResult.notes,
+                engineMs = engineMs,
             )
 
             // Step 2: Enhanced LLM recommendation (async)
@@ -192,10 +198,12 @@ class ShotAdvisorViewModel @Inject constructor(
                     profile.effectiveTier == com.caddieai.android.data.model.UserTier.PRO
 
             if (hasApiKey) {
+                val llmStart = System.currentTimeMillis()
                 llmRouter.getRecommendation(context, profile, effectiveImage)
                     .onSuccess { llmRec ->
+                        val llmMs = System.currentTimeMillis() - llmStart
                         val llmArchetype = ExecutionEngine.buildArchetype(llmRec.recommendedClub, context, profile)
-                        _state.value = ShotAdvisorState.Enhanced(llmRec, llmArchetype)
+                        _state.value = ShotAdvisorState.Enhanced(llmRec, llmArchetype, engineMs, llmMs)
                         saveToHistory(context, llmRec)
                     }
                     .onFailure { e ->

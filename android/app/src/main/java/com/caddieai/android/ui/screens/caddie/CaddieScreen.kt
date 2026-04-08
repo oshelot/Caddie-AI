@@ -526,6 +526,26 @@ fun CaddieScreen(
                     }
                 }
 
+                // Debug latency label (debug builds only)
+                if (com.caddieai.android.BuildConfig.DEBUG) {
+                    val (engineMs, llmMs) = when (val s = state) {
+                        is ShotAdvisorState.Enhanced -> Pair(s.engineMs, s.llmMs)
+                        is ShotAdvisorState.Deterministic -> Pair(s.engineMs, 0L)
+                        else -> Pair(0L, 0L)
+                    }
+                    if (engineMs > 0 || llmMs > 0) {
+                        fun fmt(ms: Long) = if (ms < 1000) "${ms}ms" else "${"%.1f".format(ms / 1000.0)}s"
+                        item {
+                            Text(
+                                "Engine: ${fmt(engineMs)} · LLM: ${fmt(llmMs)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
+                    }
+                }
+
                 // Error banner (AI failed, showing engine fallback)
                 if (state is ShotAdvisorState.Error) {
                     item {

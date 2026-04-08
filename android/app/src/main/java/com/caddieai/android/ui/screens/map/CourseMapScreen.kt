@@ -351,6 +351,18 @@ fun CourseMapScreen(
                 }
             }
 
+            // Debug latency label (debug builds only)
+            if (com.caddieai.android.BuildConfig.DEBUG && state.analysisLlmMs > 0) {
+                Text(
+                    "LLM: " + (if (state.analysisLlmMs < 1000) "${state.analysisLlmMs}ms" else "${"%.1f".format(state.analysisLlmMs / 1000.0)}s"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+
             if (state.isAnalyzed) {
                 HoleAnalysisSheet(state = state, course = course,
                     onHoleSelected = { holeNum -> viewModel.selectHole(course, holeNum) },
