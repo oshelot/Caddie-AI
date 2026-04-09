@@ -835,6 +835,14 @@ final class CourseViewModel {
 
     // MARK: - Scorecard Enrichment
 
+    /// Strips common suffixes that the Golf Course API doesn't handle well.
+    /// e.g. "Sharp Park Golf Course" → "Sharp Park", "Pebble Beach Golf Links" → "Pebble Beach"
+    private static let golfNameSuffixes = [
+        "Golf Course", "Golf Club", "Country Club", "Golf Links",
+        "Golf & Country Club", "Golf and Country Club",
+        "Municipal Golf Course", "Public Golf Course",
+    ]
+
     private func enrichWithScorecardData(courses: [NormalizedCourse], courseName: String, apiKey: String) async -> [NormalizedCourse] {
         // Check rate limit before making Golf API calls
         if let store = apiUsageStore, !store.canMakeGolfAPICall {
@@ -843,9 +851,24 @@ final class CourseViewModel {
 
         do {
             // Search returns summary data; fetch full detail for tee/hole info
-            let results = try await GolfCourseAPIClient.searchCourses(name: courseName, apiKey: apiKey)
+            var results = try await GolfCourseAPIClient.searchCourses(name: courseName, apiKey: apiKey)
             apiUsageStore?.recordGolfAPICall(method: "searchCourses")
             TelemetryService.shared.recordGolfAPICall(method: "searchCourses")
+
+            // If no results, retry with common suffixes stripped
+            // (e.g. "Sharp Park Golf Course" → "Sharp Park")
+            if results.isEmpty {
+                let stripped = Self.golfNameSuffixes.reduce(courseName) { name, suffix in
+                    name.replacingOccurrences(of: suffix, with: "", options: .caseInsensitive)
+                }.trimmingCharacters(in: .whitespaces)
+
+                if !stripped.isEmpty && stripped != courseName {
+                    results = try await GolfCourseAPIClient.searchCourses(name: stripped, apiKey: apiKey)
+                    apiUsageStore?.recordGolfAPICall(method: "searchCourses")
+                    TelemetryService.shared.recordGolfAPICall(method: "searchCourses")
+                }
+            }
+
             guard let bestMatch = results.first else { return courses }
 
             // The search result may have tees already, but fetch detail to be sure
