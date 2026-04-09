@@ -56,6 +56,21 @@ Cross-platform design system for iOS and Android. See `android/design-tokens.jso
 
 ---
 
+### Course Search Screen
+
+| Element | Contents |
+|---------|----------|
+| Segment Picker | Search / Saved tabs |
+| Search Fields | Course name, City (optional with autocomplete) |
+| WiFi Hint | "Pre-download courses on WiFi for best on-course performance" — caption style, wifi icon |
+| Search Result Row | Course name, location, source warning; trailing download button |
+| Download Button States | `arrow.down.circle` (blue) = not cached, spinner = downloading, `checkmark.circle.fill` (green) = cached, `exclamationmark.circle` (red) = error (tappable retry) |
+| Row Tap | Opens course (existing ingestion + navigation flow) |
+| Download Tap | Background cache without navigation; concurrent downloads supported |
+| Favorites Section | Quick access below search; star icon + name + location |
+
+---
+
 ### Course Map Screen
 
 Non-form UI — uses map overlays and floating controls.
@@ -341,6 +356,8 @@ These are **net-new** icons for the lie picker on the Caddie screen (ShotInputVi
 | Course Search: Search/Saved selector | Done | Done |
 | Course Search: Favorites + star toggle | Done | Done |
 | Course Search: Delete confirmation dialog | Done | Done |
+| Course Search: Download button | Done | Pending |
+| Course Search: WiFi hint banner | Done | Pending |
 | Course Map: Weather badge | Done | Done |
 | Course Map: Tap-to-distance + club recommendation | Done | Done |
 | Course Map: Ask Caddie + Analyze buttons | Done | Done |
@@ -372,3 +389,4 @@ These are **net-new** icons for the lie picker on the Caddie screen (ShotInputVi
 |------|--------|
 | 2026-04-06 | Initial version. Defined all screen layouts, naming conventions, component patterns, parity checklist. Created under KAN-88 epic. |
 | 2026-04-07 | Added Iconography section: 45-icon catalog with asset specs, platform integration, per-file migration plan, and phased rollout. Expanded design-tokens.json icon mappings. |
+| 2026-04-09 | Added Course Search Screen section with download button states and WiFi hint banner spec. Updated feature parity checklist with download button and WiFi hint (KAN-247). |

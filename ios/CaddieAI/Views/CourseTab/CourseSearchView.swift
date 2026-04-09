@@ -117,16 +117,32 @@ struct CourseSearchView: View {
                         }
                     }
 
+                    // MARK: - WiFi Hint Banner
+                    if !viewModel.searchResults.isEmpty {
+                        Section {
+                            Label("Pre-download courses on WiFi for best on-course performance", systemImage: "wifi")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .listRowBackground(Color.clear)
+                        }
+                    }
+
                     // MARK: - Search Results
                     if !viewModel.searchResults.isEmpty {
                         Section {
                             ForEach(viewModel.searchResults) { result in
-                                Button {
-                                    viewModel.startIngestion(result)
-                                } label: {
-                                    CourseSearchRow(result: result)
+                                HStack {
+                                    Button {
+                                        viewModel.startIngestion(result)
+                                    } label: {
+                                        CourseSearchRow(result: result)
+                                    }
+                                    .tint(.primary)
+
+                                    Spacer()
+
+                                    downloadButton(for: result)
                                 }
-                                .tint(.primary)
                             }
                         } header: {
                             HStack {
@@ -313,6 +329,48 @@ struct CourseSearchView: View {
         }
     }
 
+    // MARK: - Download Button
+
+    @ViewBuilder
+    private func downloadButton(for result: CourseSearchResult) -> some View {
+        let state = viewModel.downloadState(for: result)
+        switch state {
+        case .notDownloaded:
+            Button {
+                viewModel.downloadCourseInBackground(result)
+            } label: {
+                Image(systemName: "arrow.down.circle")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+        case .downloading(let progress):
+            ZStack {
+                Circle()
+                    .stroke(Color.blue.opacity(0.2), lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(Color.blue, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 22, height: 22)
+            .animation(.easeInOut(duration: 0.3), value: progress)
+        case .cached:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(.green)
+        case .error:
+            Button {
+                viewModel.downloadCourseInBackground(result)
+            } label: {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.title3)
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     // MARK: - Proximity Check
 
     private func checkForNearbyCourse() async {
@@ -348,15 +406,8 @@ struct CourseSearchRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(result.name)
-                    .font(.headline)
-                if result.isCached {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.caption)
-                }
-            }
+            Text(result.name)
+                .font(.headline)
             if let city = result.city, let state = result.state {
                 Text("\(city), \(state)")
                     .font(.subheadline)

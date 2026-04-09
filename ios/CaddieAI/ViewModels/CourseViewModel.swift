@@ -35,6 +35,15 @@ final class CourseViewModel {
     /// Task handle for cancellation support
     private var ingestionTask: Task<Void, Never>?
 
+    // MARK: - Background Download State
+
+    /// Per-course background download tracking (keyed by generated course ID)
+    /// Value is progress fraction 0.0–1.0; presence in dict means downloading.
+    var downloadProgress: [String: Double] = [:]
+    var downloadedCourseIDs: Set<String> = []
+    var downloadErrorCourseIDs: Set<String> = []
+    private var downloadTasks: [String: Task<Void, Never>] = [:]
+
     var selectedHole: Int?
     var selectedTee: String?
 
@@ -109,6 +118,11 @@ final class CourseViewModel {
         }
 
         searchResults = merged
+
+        // Populate downloadedCourseIDs from already-cached results
+        downloadedCourseIDs = Set(merged.filter { $0.isCached }
+            .map { NormalizedCourse.generateId(name: $0.name, centroid: $0.centroid) })
+
         isSearching = false
     }
 
@@ -670,6 +684,155 @@ final class CourseViewModel {
         }
     }
 
+    // MARK: - Background Download
+
+    /// Returns the current download state for a search result.
+    func downloadState(for result: CourseSearchResult) -> CourseDownloadState {
+        let courseId = NormalizedCourse.generateId(name: result.name, centroid: result.centroid)
+        if result.isCached || downloadedCourseIDs.contains(courseId) { return .cached }
+        if let progress = downloadProgress[courseId] { return .downloading(progress: progress) }
+        if downloadErrorCourseIDs.contains(courseId) { return .error }
+        return .notDownloaded
+    }
+
+    /// Downloads a course in the background without navigating away.
+    func downloadCourseInBackground(_ result: CourseSearchResult) {
+        let courseId = NormalizedCourse.generateId(name: result.name, centroid: result.centroid)
+        guard downloadProgress[courseId] == nil,
+              !downloadedCourseIDs.contains(courseId) else { return }
+
+        downloadProgress[courseId] = 0.0
+        downloadErrorCourseIDs.remove(courseId)
+
+        downloadTasks[courseId] = Task {
+            do {
+                let _ = try await fetchAndCacheCourse(result) { progress in
+                    self.downloadProgress[courseId] = progress
+                }
+                downloadProgress.removeValue(forKey: courseId)
+                downloadedCourseIDs.insert(courseId)
+                if let idx = searchResults.firstIndex(where: { $0.id == result.id }) {
+                    searchResults[idx].isCached = true
+                }
+            } catch {
+                downloadProgress.removeValue(forKey: courseId)
+                downloadErrorCourseIDs.insert(courseId)
+            }
+            downloadTasks.removeValue(forKey: courseId)
+        }
+    }
+
+    /// Runs the full ingestion pipeline (cache → server cache → Overpass → parse → normalize → save → enrich)
+    /// without touching any UI navigation state. Returns the cached/ingested courses.
+    /// Progress steps: cache check (0.05) → server cache (0.15) → Overpass fetch (0.50) → parse (0.65) → normalize (0.75) → save (0.85) → enrich (1.0)
+    private func fetchAndCacheCourse(
+        _ result: CourseSearchResult,
+        forceRefresh: Bool = false,
+        onProgress: ((Double) -> Void)? = nil
+    ) async throws -> [NormalizedCourse] {
+        // Check local cache first
+        onProgress?(0.05)
+        let courseId = NormalizedCourse.generateId(name: result.name, centroid: result.centroid)
+        if !forceRefresh, let cached = cacheService?.load(id: courseId) {
+            let holeCount = cached.holes.count
+            // If full 18 (or close), return immediately
+            if !(holeCount >= 9 && holeCount < 18) {
+                onProgress?(1.0)
+                return [cached]
+            }
+            // Otherwise fall through to re-ingest for incomplete courses
+        }
+
+        // Check server cache
+        onProgress?(0.10)
+        if Secrets.courseCacheEndpoint != nil {
+            do {
+                if let serverCached = try await CourseCacheAPIClient.getCourse(id: courseId) {
+                    cacheService?.save(serverCached)
+                    onProgress?(1.0)
+                    return [serverCached]
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Server cache failure is non-fatal
+            }
+        }
+
+        guard let bbox = result.boundingBox else {
+            throw NSError(domain: "CourseViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "No bounding box available for this course."])
+        }
+
+        // Fetch from Overpass
+        onProgress?(0.15)
+        var response = try await OverpassClient.fetchCourseFeatures(boundingBox: bbox)
+        try Task.checkCancellation()
+        onProgress?(0.50)
+
+        var parsed = OSMParser.parse(response)
+        try Task.checkCancellation()
+        onProgress?(0.60)
+
+        // Retry with wider bbox if incomplete holes from MapKit source
+        if parsed.holeLines.count >= 9 && parsed.holeLines.count < 18
+            && result.source == .appleMapKit {
+            let widerBbox = bbox.buffered(by: 0.008)
+            let widerResponse = try await OverpassClient.fetchCourseFeatures(boundingBox: widerBbox)
+            try Task.checkCancellation()
+            let widerParsed = OSMParser.parse(widerResponse)
+            if widerParsed.holeLines.count > parsed.holeLines.count {
+                response = widerResponse
+                parsed = widerParsed
+            }
+        }
+        onProgress?(0.65)
+
+        // Normalize
+        let courses = CourseNormalizer.normalizeAll(
+            features: parsed,
+            courseName: result.name,
+            osmCourseId: result.id,
+            city: result.city,
+            state: result.state
+        )
+        try Task.checkCancellation()
+        onProgress?(0.75)
+
+        // Cache locally
+        for course in courses {
+            cacheService?.save(course)
+        }
+        onProgress?(0.85)
+
+        // Enrich with scorecard data
+        let golfApiKey = {
+            let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
+            return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
+        }()
+        var finalCourses = courses
+        if !golfApiKey.isEmpty {
+            let enriched = await enrichWithScorecardData(
+                courses: courses, courseName: result.name, apiKey: golfApiKey
+            )
+            for course in enriched {
+                cacheService?.save(course)
+            }
+            finalCourses = enriched
+        }
+        onProgress?(1.0)
+
+        // Upload to server cache
+        if Secrets.courseCacheEndpoint != nil {
+            for course in finalCourses {
+                Task {
+                    try? await CourseCacheAPIClient.putCourse(course)
+                }
+            }
+        }
+
+        return finalCourses
+    }
+
     // MARK: - Scorecard Enrichment
 
     private func enrichWithScorecardData(courses: [NormalizedCourse], courseName: String, apiKey: String) async -> [NormalizedCourse] {
@@ -750,4 +913,13 @@ final class CourseViewModel {
             return courses
         }
     }
+}
+
+// MARK: - Download State
+
+enum CourseDownloadState {
+    case notDownloaded
+    case downloading(progress: Double)
+    case cached
+    case error
 }
