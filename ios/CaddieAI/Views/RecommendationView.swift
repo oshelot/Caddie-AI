@@ -6,7 +6,6 @@
 import SwiftUI
 
 struct RecommendationView: View {
-    let analysis: DeterministicAnalysis?
     let onNewShot: () -> Void
 
     @Environment(ShotAdvisorViewModel.self) private var viewModel
@@ -28,24 +27,14 @@ struct RecommendationView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
 
-                    // Enrichment banner while LLM is processing
-                    if viewModel.isEnriching {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Enhancing with AI...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(.blue.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .transition(.opacity)
+                    // Loading skeleton while LLM is processing
+                    if viewModel.phase == .loading {
+                        SkeletonView()
+                            .transition(.opacity)
                     }
 
-                    // Error banner when LLM failed
-                    if let error = viewModel.errorMessage, !viewModel.isEnriching {
+                    // Error banner when LLM failed (showing fallback)
+                    if case .error(let msg) = viewModel.phase {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle.fill")
@@ -54,7 +43,7 @@ struct RecommendationView: View {
                                     .font(.caption)
                                     .fontWeight(.semibold)
                             }
-                            Text(error)
+                            Text(msg)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -64,124 +53,26 @@ struct RecommendationView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
 
-                    // Hero: Club + Effective Distance + TTS button
-                    VStack(spacing: 8) {
-                        Text(recommendation.club)
-                            .font(.system(size: 36, weight: .bold))
-                        Text("\(recommendation.effectiveDistanceYards) yards effective")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-
-                        Button {
-                            if ttsService.isSpeaking {
-                                ttsService.stop()
-                            } else {
-                                ttsService.speak(spokenSummary)
-                            }
-                        } label: {
-                            Label(
-                                ttsService.isSpeaking ? "Stop" : "Read Aloud",
-                                systemImage: ttsService.isSpeaking ? "stop.circle.fill" : "speaker.wave.2.circle.fill"
-                            )
-                            .font(.callout)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.blue)
-                        .padding(.top, 4)
-
-                        #if DEBUG
-                        debugLatencyLabel(engine: viewModel.engineLatencyMs, llm: viewModel.llmLatencyMs)
-                        #endif
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                    // Target & Preferred Miss
-                    GroupBox("Target") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label(recommendation.target, systemImage: "target")
-                            Label(recommendation.preferredMiss, systemImage: "arrow.uturn.right")
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // SECTION 1: Hero — Club + Distance + Target/Miss
+                    if viewModel.revealStep >= 1 {
+                        heroSection
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
-                    // Risk & Confidence
-                    HStack(spacing: 12) {
-                        GroupBox("Risk") {
-                            Text(recommendation.riskLevel.displayName)
-                                .font(.headline)
-                                .foregroundStyle(riskColor)
-                                .frame(maxWidth: .infinity)
-                        }
-                        GroupBox("Confidence") {
-                            Text(recommendation.confidence.displayName)
-                                .font(.headline)
-                                .foregroundStyle(confidenceColor)
-                                .frame(maxWidth: .infinity)
-                        }
+                    // SECTION 2: How to Hit It (progressive field reveal)
+                    if viewModel.revealStep >= 2, let plan = recommendation.executionPlan {
+                        ProgressiveExecutionPlanCard(plan: plan)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    // Rationale
-                    GroupBox("Why This Club") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(recommendation.rationale, id: \.self) { bullet in
-                                HStack(alignment: .top, spacing: 8) {
-                                    Text("\u{2022}")
-                                        .foregroundStyle(.secondary)
-                                    Text(bullet)
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // SECTION 3: Why This Club
+                    if viewModel.revealStep >= 3 {
+                        rationaleSection
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    // Adjustments from deterministic engine
-                    if let analysis, !analysis.adjustments.isEmpty {
-                        GroupBox("Distance Adjustments") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(analysis.adjustments, id: \.self) { adj in
-                                    Text(adj)
-                                        .font(.callout)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-
-                    // Conservative Option
-                    if let conservative = recommendation.conservativeOption {
-                        GroupBox("Conservative Option") {
-                            Text(conservative)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-
-                    // Execution Plan
-                    if let plan = recommendation.executionPlan {
-                        ExecutionPlanCard(plan: plan)
-                    }
-
-                    // Swing Thought
-                    VStack(spacing: 8) {
-                        Image(systemName: "brain.head.profile")
-                            .font(.title2)
-                            .foregroundStyle(.green)
-                        Text(recommendation.swingThought)
-                            .font(.title3)
-                            .italic()
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(.green.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                    // Follow-Up Questions (available after LLM enrichment)
-                    if !viewModel.isEnriching {
+                    // Follow-Up Questions (available after reveal completes)
+                    if viewModel.phase == .complete || viewModel.phase.isError {
                         FollowUpSection(
                             followUpText: $followUpText,
                             messages: viewModel.followUpMessages,
@@ -199,71 +90,20 @@ struct RecommendationView: View {
                     }
 
                     // Outcome Feedback
-                    if showOutcomeSection {
-                        GroupBox("How Did It Go?") {
-                            VStack(alignment: .leading, spacing: 12) {
-                                HStack(spacing: 10) {
-                                    ForEach(ShotOutcome.allCases) { outcome in
-                                        Button {
-                                            selectedOutcome = outcome
-                                        } label: {
-                                            VStack(spacing: 2) {
-                                                Text(verbatim: outcome.emoji)
-                                                    .font(.system(size: 24))
-                                                Text(outcome.displayName)
-                                                    .font(.caption2)
-                                            }
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 6)
-                                            .background(
-                                                selectedOutcome == outcome ? Color.accentColor.opacity(0.2) : Color.clear,
-                                                in: RoundedRectangle(cornerRadius: 8)
-                                            )
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .stroke(selectedOutcome == outcome ? Color.accentColor : Color.clear, lineWidth: 2)
-                                            )
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-
-                                Picker("Club Used", selection: $actualClub) {
-                                    Text("Same as recommended").tag(recommendation.club)
-                                    ForEach(Club.shotClubs) { club in
-                                        if club.displayName != recommendation.club {
-                                            Text(club.displayName).tag(club.displayName)
-                                        }
-                                    }
-                                }
-                                .pickerStyle(.menu)
-
-                                if let outcome = selectedOutcome {
-                                    Button("Save Result") {
-                                        viewModel.updateOutcome(
-                                            outcome: outcome,
-                                            actualClub: actualClub,
-                                            notes: "",
-                                            historyStore: historyStore
-                                        )
-                                        showOutcomeSection = false
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .controlSize(.small)
-                                }
-                            }
-                        }
-                    } else {
-                        Button {
-                            showOutcomeSection = true
-                        } label: {
-                            Label("Log Shot Result", systemImage: "checkmark.circle")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
+                    if viewModel.phase == .complete || viewModel.phase.isError {
+                        outcomeSection
                     }
-
-                    // New Shot button
+                }
+                .padding()
+                .animation(.easeInOut(duration: 0.35), value: viewModel.revealStep)
+                .animation(.easeInOut(duration: 0.3), value: viewModel.phase)
+            }
+            .navigationTitle("Recommendation")
+            .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) {
+                // Sticky "New Shot" button — always visible
+                VStack(spacing: 0) {
+                    Divider()
                     Button {
                         ttsService.stop()
                         onNewShot()
@@ -274,20 +114,162 @@ struct RecommendationView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .padding(.top, 8)
+                    .padding(.horizontal)
+                    .padding(.vertical, 12)
+                    .background(.bar)
                 }
-                .padding()
-                .animation(.easeInOut(duration: 0.3), value: viewModel.isEnriching)
             }
-            .navigationTitle("Recommendation")
-            .navigationBarTitleDisplayMode(.inline)
             .onAppear {
-                if !hasSavedToHistory {
+                if !hasSavedToHistory, viewModel.recommendation != nil {
                     viewModel.saveToHistory(historyStore: historyStore)
                     actualClub = recommendation.club
                     hasSavedToHistory = true
                 }
             }
+            .onChange(of: viewModel.phase) { _, newPhase in
+                // Save to history once recommendation arrives
+                if !hasSavedToHistory, viewModel.recommendation != nil,
+                   newPhase == .complete || newPhase.isError {
+                    viewModel.saveToHistory(historyStore: historyStore)
+                    actualClub = recommendation.club
+                    hasSavedToHistory = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Hero Section
+
+    @ViewBuilder
+    private var heroSection: some View {
+        VStack(spacing: 8) {
+            Text(recommendation.club)
+                .font(.system(size: 36, weight: .bold))
+            Text("\(recommendation.effectiveDistanceYards) yards effective")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+
+            // Target & Preferred Miss (compact)
+            VStack(spacing: 4) {
+                Label(recommendation.target, systemImage: "target")
+                    .font(.callout)
+                Label(recommendation.preferredMiss, systemImage: "arrow.uturn.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+
+            Button {
+                if ttsService.isSpeaking {
+                    ttsService.stop()
+                } else {
+                    ttsService.speak(spokenSummary)
+                }
+            } label: {
+                Label(
+                    ttsService.isSpeaking ? "Stop" : "Read Aloud",
+                    systemImage: ttsService.isSpeaking ? "stop.circle.fill" : "speaker.wave.2.circle.fill"
+                )
+                .font(.callout)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.blue)
+            .padding(.top, 4)
+
+            #if DEBUG
+            debugLatencyLabel(engine: viewModel.engineLatencyMs, llm: viewModel.llmLatencyMs)
+            #endif
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Rationale Section
+
+    @ViewBuilder
+    private var rationaleSection: some View {
+        GroupBox("Why This Club") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(recommendation.rationale, id: \.self) { bullet in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("\u{2022}")
+                            .foregroundStyle(.secondary)
+                        Text(bullet)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Outcome Section
+
+    @ViewBuilder
+    private var outcomeSection: some View {
+        if showOutcomeSection {
+            GroupBox("How Did It Go?") {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        ForEach(ShotOutcome.allCases) { outcome in
+                            Button {
+                                selectedOutcome = outcome
+                            } label: {
+                                VStack(spacing: 2) {
+                                    Text(verbatim: outcome.emoji)
+                                        .font(.system(size: 24))
+                                    Text(outcome.displayName)
+                                        .font(.caption2)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                                .background(
+                                    selectedOutcome == outcome ? Color.accentColor.opacity(0.2) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(selectedOutcome == outcome ? Color.accentColor : Color.clear, lineWidth: 2)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    Picker("Club Used", selection: $actualClub) {
+                        Text("Same as recommended").tag(recommendation.club)
+                        ForEach(Club.shotClubs) { club in
+                            if club.displayName != recommendation.club {
+                                Text(club.displayName).tag(club.displayName)
+                            }
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    if let outcome = selectedOutcome {
+                        Button("Save Result") {
+                            viewModel.updateOutcome(
+                                outcome: outcome,
+                                actualClub: actualClub,
+                                notes: "",
+                                historyStore: historyStore
+                            )
+                            showOutcomeSection = false
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
+            }
+        } else {
+            Button {
+                showOutcomeSection = true
+            } label: {
+                Label("Log Shot Result", systemImage: "checkmark.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
         }
     }
 
@@ -304,22 +286,6 @@ struct RecommendationView: View {
             text += "Swing thought: \(recommendation.swingThought)."
         }
         return text
-    }
-
-    private var riskColor: Color {
-        switch recommendation.riskLevel {
-        case .low: return .green
-        case .medium: return .orange
-        case .high: return .red
-        }
-    }
-
-    private var confidenceColor: Color {
-        switch recommendation.confidence {
-        case .high: return .green
-        case .medium: return .orange
-        case .low: return .red
-        }
     }
 
     #if DEBUG
@@ -345,6 +311,33 @@ struct RecommendationView: View {
         return "\(ms)ms"
     }
     #endif
+}
+
+// MARK: - Skeleton View
+
+private struct SkeletonView: View {
+    @State private var pulse = false
+
+    var body: some View {
+        VStack(spacing: 24) {
+            // Pulsing golf icon
+            Image(systemName: "figure.golf")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary.opacity(0.4))
+                .scaleEffect(pulse ? 1.08 : 0.95)
+                .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: pulse)
+
+            Text("Analyzing your shot...")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            ProgressView()
+                .controlSize(.regular)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 60)
+        .onAppear { pulse = true }
+    }
 }
 
 // MARK: - Follow-Up Section
@@ -460,8 +453,9 @@ private struct FollowUpSection: View {
     let vm = ShotAdvisorViewModel()
     // Set a mock recommendation so the preview renders
     vm.recommendation = .mock
+    vm.phase = .complete
+    vm.revealStep = 3
     return RecommendationView(
-        analysis: nil,
         onNewShot: {}
     )
     .environment(vm)

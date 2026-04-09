@@ -223,7 +223,7 @@ struct ShotInputView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(viewModel.isLoading || viewModel.isEnriching || viewModel.shotContext.distanceYards <= 0)
+                    .disabled(viewModel.phase == .loading || viewModel.shotContext.distanceYards <= 0)
                 }
                 .padding()
             }
@@ -262,8 +262,8 @@ struct ShotInputView: View {
                     }
                 }
             }
-            .onChange(of: viewModel.recommendation != nil) { _, hasRecommendation in
-                if hasRecommendation && !showingRecommendation {
+            .onChange(of: viewModel.phase) { _, newPhase in
+                if newPhase != .idle && !showingRecommendation {
                     showingRecommendation = true
                 }
             }
@@ -271,20 +271,16 @@ struct ShotInputView: View {
                 speechService.requestAuthorization()
             }
             .sheet(isPresented: $showingRecommendation) {
-                if viewModel.recommendation != nil {
-                    RecommendationView(
-                        analysis: viewModel.deterministicAnalysis
-                    ) {
-                        showingRecommendation = false
-                        viewModel.resetForNewShot()
-                        selectedPhotoItem = nil
-                    }
-                    .environment(viewModel)
-                    .environment(profileStore)
-                    .environment(speechService)
-                    .environment(historyStore)
-                    .environment(ttsService)
+                RecommendationView {
+                    showingRecommendation = false
+                    viewModel.resetForNewShot()
+                    selectedPhotoItem = nil
                 }
+                .environment(viewModel)
+                .environment(profileStore)
+                .environment(speechService)
+                .environment(historyStore)
+                .environment(ttsService)
             }
         }
     }

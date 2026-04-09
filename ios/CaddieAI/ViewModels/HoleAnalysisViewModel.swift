@@ -97,14 +97,18 @@ class HoleAnalysisViewModel {
         let llmStart = CFAbsoluteTimeGetCurrent()
         do {
             let tier = subscriptionManager?.tier ?? .free
-            let (advice, usage) = try await LLMRouter.shared.getHoleAnalysis(
+            let (advice, usage) = try await LLMRouter.shared.getHoleAnalysisStreaming(
                 hole: hole,
                 analysis: result,
                 course: course,
                 profile: profile,
                 tier: tier,
                 selectedTee: selectedTee
-            )
+            ) { [weak self] accumulated in
+                guard let self else { return }
+                result.strategicAdvice = accumulated
+                self.analysis = result
+            }
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
                     store.recordLLMUsage(
@@ -176,14 +180,17 @@ class HoleAnalysisViewModel {
 
         do {
             let tier = subscriptionManager?.tier ?? .free
-            let (response, usage) = try await LLMRouter.shared.askHoleFollowUp(
+            let (response, usage) = try await LLMRouter.shared.askHoleFollowUpStreaming(
                 question: question,
                 conversationHistory: conversationHistory,
                 apiKey: profile.activeLLMApiKey,
                 provider: profile.llmProvider,
                 model: profile.llmModel,
                 tier: tier
-            )
+            ) { [weak self] accumulated in
+                guard let self else { return }
+                self.followUpResponse = accumulated
+            }
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
                     store.recordLLMUsage(

@@ -6,6 +6,21 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Advisor Phase
+
+enum AdvisorPhase: Equatable {
+    case idle
+    case loading
+    case revealing
+    case complete
+    case error(String)
+
+    var isError: Bool {
+        if case .error = self { return true }
+        return false
+    }
+}
+
 @Observable
 final class ShotAdvisorViewModel {
 
@@ -19,9 +34,16 @@ final class ShotAdvisorViewModel {
 
     var recommendation: ShotRecommendation?
     var deterministicAnalysis: DeterministicAnalysis?
-    var isLoading = false
-    var isEnriching = false
+    var phase: AdvisorPhase = .idle
     var errorMessage: String?
+
+    /// Progressive reveal step: 0 = nothing, 1 = hero, 2 = execution plan, 3 = rationale
+    var revealStep: Int = 0
+    static let totalRevealSteps = 3
+
+    /// Backward-compat computed properties for code that still references these.
+    var isLoading: Bool { phase == .loading }
+    var isEnriching: Bool { false }
 
     /// LLM round-trip latency in milliseconds (debug builds only).
     var llmLatencyMs: Int?
@@ -73,15 +95,16 @@ final class ShotAdvisorViewModel {
             "lie": shotContext.lieType.rawValue,
         ])
 
-        isLoading = true
+        phase = .loading
         errorMessage = nil
         recommendation = nil
+        revealStep = 0
         followUpMessages = []
         conversationHistory = []
         llmLatencyMs = nil
         engineLatencyMs = nil
 
-        // Step 1: Deterministic analysis (instant, on-device)
+        // Step 1: Deterministic analysis (instant, on-device) — feeds LLM context + fallback
         let engineStart = CFAbsoluteTimeGetCurrent()
         let analysis = GolfLogicEngine.analyze(
             context: shotContext,
@@ -89,11 +112,6 @@ final class ShotAdvisorViewModel {
         )
         engineLatencyMs = Int((CFAbsoluteTimeGetCurrent() - engineStart) * 1000)
         deterministicAnalysis = analysis
-
-        // Phase 1: Show deterministic recommendation immediately
-        recommendation = buildFallbackRecommendation(from: analysis)
-        isLoading = false
-        isEnriching = true
 
         // Prepare image data for API
         let imageData = selectedImage?.jpegData(compressionQuality: 0.5)
@@ -110,7 +128,7 @@ final class ShotAdvisorViewModel {
             historyInsight = nil
         }
 
-        // Phase 2: LLM enrichment (network call)
+        // Step 2: LLM call — the primary source of recommendation
         let llmStart = CFAbsoluteTimeGetCurrent()
         do {
             let tier = subscriptionManager?.tier ?? .free
@@ -142,7 +160,8 @@ final class ShotAdvisorViewModel {
                 )
             }
             llmLatencyMs = Int((CFAbsoluteTimeGetCurrent() - llmStart) * 1000)
-            // If LLM didn't return an execution plan, use the deterministic one
+
+            // Merge deterministic execution plan if LLM didn't provide one
             if result.executionPlan == nil {
                 result.executionPlan = analysis.executionPlan
             }
@@ -156,6 +175,10 @@ final class ShotAdvisorViewModel {
                 ])
                 voiceStartTime = nil
             }
+
+            // Transition to progressive reveal
+            phase = .revealing
+            await startProgressiveReveal()
 
             // Store conversation history for follow-ups
             let userMessage = OpenAIService.buildUserMessage(
@@ -173,15 +196,51 @@ final class ShotAdvisorViewModel {
             ]
         } catch {
             errorMessage = error.localizedDescription
-            // Keep the existing fallback recommendation (already set in Phase 1)
+            // Build fallback from deterministic and show everything immediately
+            recommendation = buildFallbackRecommendation(from: analysis)
+            revealStep = Self.totalRevealSteps
+            phase = .error(error.localizedDescription)
             LoggingService.shared.error(.llm, "getRecommendation failed: \(error.localizedDescription)", metadata: [
                 "provider": profile.llmProvider.rawValue,
                 "model": profile.llmModel.rawValue,
                 "tier": (subscriptionManager?.tier ?? .free).rawValue,
             ])
         }
+    }
 
-        isEnriching = false
+    // MARK: - Progressive Reveal
+
+    @MainActor
+    private func startProgressiveReveal() async {
+        // Step 1: Show hero section (club + distance + target/miss) with a brief pause
+        // so the skeleton-to-content transition is visible
+        try? await Task.sleep(for: .milliseconds(300))
+        guard phase == .revealing else { return }
+        withAnimation(.easeOut(duration: 0.4)) {
+            revealStep = 1
+        }
+
+        // Step 2: Show "How to Hit It" — noticeable gap so user reads the club first
+        try? await Task.sleep(for: .milliseconds(800))
+        guard phase == .revealing else { return }
+        withAnimation(.easeOut(duration: 0.4)) {
+            revealStep = 2
+        }
+
+        // Wait for execution plan field-by-field animation to mostly finish
+        // (13 fields * 120ms = ~1.56s)
+        try? await Task.sleep(for: .milliseconds(1800))
+        guard phase == .revealing else { return }
+
+        // Step 3: Show "Why This Club" rationale
+        withAnimation(.easeOut(duration: 0.4)) {
+            revealStep = 3
+        }
+
+        // Mark complete after rationale animates in
+        try? await Task.sleep(for: .milliseconds(500))
+        guard phase == .revealing else { return }
+        phase = .complete
     }
 
     // MARK: - Follow-Up Question
@@ -192,16 +251,23 @@ final class ShotAdvisorViewModel {
         isAskingFollowUp = true
         followUpMessages.append(FollowUpMessage(role: .user, text: question))
 
+        // Add a placeholder caddie message that will be updated as chunks stream in
+        let placeholderIndex = followUpMessages.count
+        followUpMessages.append(FollowUpMessage(role: .caddie, text: ""))
+
         do {
             let tier = subscriptionManager?.tier ?? .free
-            let (answer, usage) = try await llmRouter.askFollowUp(
+            let (answer, usage) = try await llmRouter.askFollowUpStreaming(
                 question: question,
                 conversationHistory: conversationHistory,
                 apiKey: profile.activeLLMApiKey,
                 provider: profile.llmProvider,
                 model: profile.llmModel,
                 tier: tier
-            )
+            ) { [weak self] accumulated in
+                guard let self else { return }
+                self.followUpMessages[placeholderIndex] = FollowUpMessage(role: .caddie, text: accumulated)
+            }
             if let usage, let store = apiUsageStore {
                 await MainActor.run {
                     store.recordLLMUsage(
@@ -221,13 +287,14 @@ final class ShotAdvisorViewModel {
                     totalTokens: usage.totalTokens
                 )
             }
-            followUpMessages.append(FollowUpMessage(role: .caddie, text: answer))
+            // Set the final complete answer
+            followUpMessages[placeholderIndex] = FollowUpMessage(role: .caddie, text: answer)
 
             // Update conversation history
             conversationHistory.append(OpenAIService.ChatMessage(role: "user", content: question))
             conversationHistory.append(OpenAIService.ChatMessage(role: "assistant", content: answer))
         } catch {
-            followUpMessages.append(FollowUpMessage(role: .caddie, text: "Sorry, I couldn't process that. \(error.localizedDescription)"))
+            followUpMessages[placeholderIndex] = FollowUpMessage(role: .caddie, text: "Sorry, I couldn't process that. \(error.localizedDescription)")
             LoggingService.shared.error(.llm, "askFollowUp failed: \(error.localizedDescription)", metadata: [
                 "provider": profile.llmProvider.rawValue,
                 "model": profile.llmModel.rawValue,
@@ -277,7 +344,8 @@ final class ShotAdvisorViewModel {
         recommendation = nil
         deterministicAnalysis = nil
         errorMessage = nil
-        isEnriching = false
+        phase = .idle
+        revealStep = 0
         conversationHistory = []
         followUpMessages = []
         lastSavedRecordID = nil
