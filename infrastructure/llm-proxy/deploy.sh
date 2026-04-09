@@ -16,6 +16,7 @@ PROFILE_ARG=""
 LAYER_ARN="arn:aws:lambda:us-east-2:753240598075:layer:LambdaAdapterLayerX86:27"
 BEDROCK_MODEL_ID="us.amazon.nova-micro-v1:0"
 EVAL_TABLE_NAME="caddieai-llm-eval"
+PROXY_API_KEY="${PROXY_API_KEY:?Set PROXY_API_KEY env var before running deploy}"
 
 # Shadow evaluation config (JSON string — edit to add/remove models)
 SHADOW_MODELS='{"nova-lite":{"model_id":"us.amazon.nova-lite-v1:0","provider":"bedrock"}}'
@@ -87,7 +88,7 @@ ENV_JSON=$(cat <<ENVEOF
     "AWS_LAMBDA_EXEC_WRAPPER": "/opt/bootstrap",
     "AWS_LWA_INVOKE_MODE": "response_stream",
     "PORT": "8000",
-    "PROXY_API_KEY": "Gfc1TMjXjjQqfmTcj5ipetDCUx8_a4Kl6owwZqjV99E",
+    "PROXY_API_KEY": "$PROXY_API_KEY",
     "BEDROCK_MODEL_ID": "$BEDROCK_MODEL_ID",
     "SHADOW_MODELS": $(echo "$SHADOW_MODELS" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))"),
     "SHADOW_SAMPLE_RATE": "$SHADOW_SAMPLE_RATE",
@@ -171,10 +172,10 @@ echo "    Shadow sample rate: $SHADOW_SAMPLE_RATE"
 echo "    Eval table: $EVAL_TABLE_NAME"
 echo ""
 echo "    Test buffered:"
-echo "    curl -X POST '$FUNCTION_URL' -H 'Content-Type: application/json' -H 'x-api-key: Gfc1TMjXjjQqfmTcj5ipetDCUx8_a4Kl6owwZqjV99E' -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Say hello\"}]}'"
+echo "    curl -X POST '$FUNCTION_URL' -H 'Content-Type: application/json' -H 'x-api-key: \$PROXY_API_KEY' -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Say hello\"}]}'"
 echo ""
 echo "    Test streaming:"
-echo "    curl -N -X POST '$FUNCTION_URL' -H 'Content-Type: application/json' -H 'x-api-key: Gfc1TMjXjjQqfmTcj5ipetDCUx8_a4Kl6owwZqjV99E' -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Say hello\"}],\"stream\":true}'"
+echo "    curl -N -X POST '$FUNCTION_URL' -H 'Content-Type: application/json' -H 'x-api-key: \$PROXY_API_KEY' -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Say hello\"}],\"stream\":true}'"
 
 # Cleanup
 rm -rf "$BUILD_DIR"

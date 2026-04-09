@@ -489,7 +489,7 @@ def main():
     parser.add_argument("--runs", type=int, default=3, help="Number of runs per model")
     parser.add_argument("--openai-key", default=os.environ.get("OPENAI_API_KEY", ""), help="OpenAI API key for direct test")
     parser.add_argument("--proxy-url", default="https://4utb5leh3ybifep5fgzuz3hlsy0apmmb.lambda-url.us-east-2.on.aws/", help="Lambda proxy URL")
-    parser.add_argument("--proxy-key", default="Gfc1TMjXjjQqfmTcj5ipetDCUx8_a4Kl6owwZqjV99E", help="Proxy API key")
+    parser.add_argument("--proxy-key", default=os.environ.get("PROXY_API_KEY", ""), help="Proxy API key (or set PROXY_API_KEY env var)")
     parser.add_argument("--models", default="all", help="Comma-separated model keys, or 'all'")
     parser.add_argument("--skip-openai", action="store_true", help="Skip OpenAI tests")
     args = parser.parse_args()

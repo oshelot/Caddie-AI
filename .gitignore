@@ -45,6 +45,7 @@ secrets/
 infrastructure/llm-proxy/lambda_function.zip
 infrastructure/llm-proxy/llm-proxy-streaming.zip
 infrastructure/course-cache/function.zip
+infrastructure/llm-proxy/samconfig.toml
 
 # === OS / Editor ===
 .DS_Store
