@@ -29,6 +29,30 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private val US_STATES: Map<String, String> = mapOf(
+    "alabama" to "AL", "alaska" to "AK", "arizona" to "AZ", "arkansas" to "AR",
+    "california" to "CA", "colorado" to "CO", "connecticut" to "CT", "delaware" to "DE",
+    "district of columbia" to "DC", "florida" to "FL", "georgia" to "GA", "hawaii" to "HI",
+    "idaho" to "ID", "illinois" to "IL", "indiana" to "IN", "iowa" to "IA",
+    "kansas" to "KS", "kentucky" to "KY", "louisiana" to "LA", "maine" to "ME",
+    "maryland" to "MD", "massachusetts" to "MA", "michigan" to "MI", "minnesota" to "MN",
+    "mississippi" to "MS", "missouri" to "MO", "montana" to "MT", "nebraska" to "NE",
+    "nevada" to "NV", "new hampshire" to "NH", "new jersey" to "NJ", "new mexico" to "NM",
+    "new york" to "NY", "north carolina" to "NC", "north dakota" to "ND", "ohio" to "OH",
+    "oklahoma" to "OK", "oregon" to "OR", "pennsylvania" to "PA", "rhode island" to "RI",
+    "south carolina" to "SC", "south dakota" to "SD", "tennessee" to "TN", "texas" to "TX",
+    "utah" to "UT", "vermont" to "VT", "virginia" to "VA", "washington" to "WA",
+    "west virginia" to "WV", "wisconsin" to "WI", "wyoming" to "WY",
+)
+private val US_STATE_CODES: Set<String> = US_STATES.values.map { it.lowercase() }.toSet()
+
+sealed class DownloadState {
+    data object NotStarted : DownloadState()
+    data class Downloading(val progress: Float) : DownloadState()
+    data object Complete : DownloadState()
+    data object Error : DownloadState()
+}
+
 data class CourseSearchState(
     val courseName: String = "",
     val locationQuery: String = "",
@@ -40,6 +64,8 @@ data class CourseSearchState(
     val favoriteIds: Set<String> = emptySet(),
     val selectedCourse: NormalizedCourse? = null,
     val ingestionState: IngestionState = IngestionState.Idle,
+    /** Per-course download state keyed by course ID (osm_id or mapbox_* synthetic ID). */
+    val downloadStates: Map<String, DownloadState> = emptyMap(),
 )
 
 sealed class IngestionState {
@@ -124,16 +150,68 @@ class CourseViewModel @Inject constructor(
             val nominatimResults = try { nominatimClient.searchGolfCourses(searchQuery) } catch (e: Exception) { emptyList() }
             android.util.Log.d("CaddieAI/Search", "Nominatim returned ${nominatimResults.size} results")
 
-            // Convert Golf API results to NominatimResult for the UI
-            // Try to match each Golf API result with a Nominatim result (for OSM coordinates)
-            val results = golfApiResults.map { scorecard ->
-                // Find matching Nominatim result by fuzzy name
-                val osmMatch = nominatimResults.firstOrNull { nom ->
-                    nom.name.lowercase().contains(scorecard.name.lowercase().take(10)) ||
-                        scorecard.name.lowercase().contains(nom.name.lowercase().take(10))
+            // KAN-248: detect a US state code anywhere in the user's input
+            // (course name OR location) and hard-filter by it. Also drop any
+            // Golf API result outside the US (Nominatim already restricts via
+            // countrycodes=us, so non-US results can only come from Golf API).
+            val userCity = location.substringBefore(",").trim().lowercase()
+            val detectedStateCode = detectUsStateCode("$courseName $location")
+            val detectedStateName = detectedStateCode?.let { code ->
+                US_STATES.entries.firstOrNull { it.value == code }?.key
+            }
+
+            fun nomCity(nom: NominatimResult) = (nom.address["city"]
+                ?: nom.address["town"]
+                ?: nom.address["village"]
+                ?: nom.address["hamlet"]
+                ?: "").lowercase()
+            fun nomState(nom: NominatimResult) = (nom.address["state"] ?: "").lowercase()
+
+            val filteredGolfApi = golfApiResults.filter { sc ->
+                val isUs = sc.country.isBlank() ||
+                    sc.country.equals("US", ignoreCase = true) ||
+                    sc.country.equals("USA", ignoreCase = true) ||
+                    sc.country.equals("United States", ignoreCase = true)
+                if (!isUs) return@filter false
+                if (detectedStateCode == null) return@filter true
+                val s = sc.state.lowercase()
+                s == detectedStateCode.lowercase() ||
+                    (detectedStateName != null && s == detectedStateName)
+            }
+
+            val filteredNominatim = if (detectedStateCode != null) {
+                nominatimResults.filter { nom ->
+                    val ns = nomState(nom)
+                    val display = nom.display_name.lowercase()
+                    (detectedStateName != null && (ns == detectedStateName ||
+                        display.contains(", $detectedStateName,") ||
+                        display.contains(", $detectedStateName "))) ||
+                        ns == detectedStateCode.lowercase() ||
+                        display.contains(", ${detectedStateCode.lowercase()},") ||
+                        display.contains(", ${detectedStateCode.lowercase()} ")
+                }
+            } else nominatimResults
+
+            // Convert Golf API results to NominatimResult for the UI.
+            // Only pair with a Nominatim entry when city/state also agree — otherwise
+            // we can graft a California course's coordinates onto a Texas course.
+            val results = filteredGolfApi.map { scorecard ->
+                val scName = scorecard.name.lowercase()
+                val scCity = scorecard.city.lowercase()
+                val scState = scorecard.state.lowercase()
+                val osmMatch = filteredNominatim.firstOrNull { nom ->
+                    val nName = nom.name.lowercase()
+                    val nameOk = nName.isNotBlank() && (nName.contains(scName) || scName.contains(nName))
+                    val nc = nomCity(nom)
+                    val ns = nomState(nom)
+                    val cityOk = scCity.isBlank() || nc.isBlank() || nc.contains(scCity) || scCity.contains(nc)
+                    val stateOk = scState.isBlank() || ns.isBlank() || ns.contains(scState) || scState.contains(ns)
+                    nameOk && cityOk && stateOk
                 }
                 NominatimResult(
-                    place_id = 0L,
+                    // Use Golf API id as place_id so courseIdFor() can produce a unique
+                    // ID even when there's no OSM match (prevents mass-download collision).
+                    place_id = scorecard.id.toLongOrNull() ?: 0L,
                     osm_id = osmMatch?.osm_id ?: 0L,
                     osm_type = osmMatch?.osm_type ?: "",
                     display_name = "${scorecard.name}, ${scorecard.city}, ${scorecard.state}",
@@ -145,45 +223,62 @@ class CourseViewModel @Inject constructor(
                 )
             }
 
-            // Add any Nominatim golf courses not already in Golf API results
-            val golfApiNames = golfApiResults.map { it.name.lowercase() }.toSet()
-            val extraNominatim = nominatimResults.filter { nom ->
-                golfApiNames.none { apiName ->
-                    apiName.contains(nom.name.lowercase().take(10)) ||
-                        nom.name.lowercase().contains(apiName.take(10))
-                }
+            // Dedup by full name + city only. State is excluded because Golf API uses
+            // "CA" while Nominatim uses "California", which would cause false dupes.
+            fun dedupKey(name: String, city: String) =
+                "${name.lowercase().trim()}|${city.lowercase().trim()}"
+
+            val usedKeys = results.map {
+                dedupKey(it.name, it.address["city"] ?: "")
+            }.toMutableSet()
+            val extraNominatim = filteredNominatim.filter { nom ->
+                val key = dedupKey(
+                    nom.name.ifBlank { nom.display_name.substringBefore(",") },
+                    nomCity(nom),
+                )
+                usedKeys.add(key)
             }
 
             val merged = results + extraNominatim
 
-            // Sort: location matches first, then by proximity or name relevance
-            val sorted = if (location.isNotBlank()) {
-                val locationLower = location.lowercase()
-                val locationCity = locationLower.substringBefore(",").trim()
-                // Geocode location for distance sorting
-                val locCoords = mapboxGeocode(location)
+            // Hard distance gate: geocode the user's location once, drop any result
+            // whose coordinates are >200km away. Results without coordinates fall back
+            // to the city/state text match already applied upstream.
+            val locCoords: Pair<Double, Double>? =
+                if (location.isNotBlank()) mapboxGeocode(location) else null
+            val maxKm = 200.0
 
-                merged.sortedWith(compareBy<NominatimResult> { r ->
-                    // Priority 1: city/state in display_name matches location
-                    val displayLower = r.display_name.lowercase()
-                    val cityMatch = r.address["city"]?.lowercase()?.contains(locationCity) == true
-                    val stateMatch = r.address["state"]?.lowercase()?.let { locationLower.contains(it) } == true
-                    val displayMatch = displayLower.contains(locationCity)
-                    when {
-                        cityMatch -> 0
-                        displayMatch || stateMatch -> 1
-                        else -> 2
+            val distanceFiltered = if (locCoords != null) {
+                merged.filter { r ->
+                    val lat = r.lat.toDoubleOrNull() ?: 0.0
+                    val lon = r.lon.toDoubleOrNull() ?: 0.0
+                    if (lat != 0.0 || lon != 0.0) {
+                        haversineKm(locCoords.first, locCoords.second, lat, lon) <= maxKm
+                    } else {
+                        // No coordinates — fall back to state/city text match.
+                        // Already enforced by filteredGolfApi / filteredNominatim above,
+                        // so this branch is a safety net.
+                        val rs = (r.address["state"] ?: "").lowercase()
+                        val display = r.display_name.lowercase()
+                        val stateOk = detectedStateCode == null ||
+                            rs == detectedStateCode.lowercase() ||
+                            (detectedStateName != null && rs == detectedStateName) ||
+                            display.contains(detectedStateCode.lowercase())
+                        val cityOk = userCity.isBlank() || display.contains(userCity)
+                        stateOk && cityOk
                     }
-                }.thenBy { r ->
-                    // Priority 2: distance if we have coordinates
-                    if (locCoords != null) {
-                        val lat = r.lat.toDoubleOrNull() ?: 0.0
-                        val lon = r.lon.toDoubleOrNull() ?: 0.0
-                        if (lat != 0.0 || lon != 0.0) haversineKm(locCoords.first, locCoords.second, lat, lon)
-                        else 9999.0
-                    } else 0.0
-                })
+                }
             } else merged
+
+            val sorted = if (locCoords != null) {
+                distanceFiltered.sortedBy { r ->
+                    val lat = r.lat.toDoubleOrNull() ?: 0.0
+                    val lon = r.lon.toDoubleOrNull() ?: 0.0
+                    if (lat != 0.0 || lon != 0.0)
+                        haversineKm(locCoords.first, locCoords.second, lat, lon)
+                    else 9999.0
+                }
+            } else distanceFiltered
 
             _state.update { it.copy(isSearching = false, nominatimResults = sorted) }
             } catch (e: Exception) {
@@ -196,9 +291,7 @@ class CourseViewModel @Inject constructor(
     fun selectAndIngestCourse(result: NominatimResult) {
         viewModelScope.launch {
             // Use cache only if tee data is already present; otherwise re-ingest to fetch full detail
-            // Use osm_id if available, otherwise generate stable ID from name+coords
-            val existingId = if (result.osm_id > 0) result.osm_id.toString()
-                else "mapbox_${result.name.lowercase().replace(" ", "_")}_${result.lat}_${result.lon}"
+            val existingId = courseIdFor(result)
             val cacheStart = System.currentTimeMillis()
             val cached = cacheService.getCourse(existingId)
             val cacheMs = System.currentTimeMillis() - cacheStart
@@ -247,12 +340,23 @@ class CourseViewModel @Inject constructor(
         }
     }
 
-    private suspend fun ingestCourse(result: NominatimResult) = coroutineScope {
+    private suspend fun ingestCourse(
+        result: NominatimResult,
+        backgroundOnly: Boolean = false,
+        onBackgroundProgress: ((Float) -> Unit)? = null,
+    ) = coroutineScope {
+        fun updateProgress(step: IngestionStep, progress: Float) {
+            if (!backgroundOnly) {
+                _state.update { it.copy(ingestionState = IngestionState.InProgress(step, progress)) }
+            }
+        }
+        fun reportBg(p: Float) { onBackgroundProgress?.invoke(p) }
         val profile = profileStore.getProfile()
         val ingestionStart = System.currentTimeMillis()
         val courseName = result.name.ifBlank { result.display_name.substringBefore(",") }
 
-        _state.update { it.copy(ingestionState = IngestionState.InProgress(IngestionStep.FETCHING_SCORECARD, 0.1f)) }
+        updateProgress(IngestionStep.FETCHING_SCORECARD, 0.1f)
+        reportBg(0.15f) // starting Overpass fetch
 
         // Parallelize Overpass + Golf Course API calls (independent network requests)
         val overpassStart = System.currentTimeMillis()
@@ -289,8 +393,7 @@ class CourseViewModel @Inject constructor(
             "courseName" to courseName,
         ))
 
-        val courseId = if (result.osm_id > 0) result.osm_id.toString()
-            else "mapbox_${courseName.lowercase().replace(" ", "_")}_${result.lat}_${result.lon}"
+        val courseId = courseIdFor(result)
         val fallbackScorecard = com.caddieai.android.data.course.CourseScorecard(
             id = courseId,
             name = courseName,
@@ -300,17 +403,23 @@ class CourseViewModel @Inject constructor(
                 com.caddieai.android.data.course.HoleScorecard(number = it, par = 4, yardage = 400)
             }
         )
-        val finalScorecard = scorecard ?: fallbackScorecard
+        // Force the scorecard ID to match courseIdFor(result) so the ingested course
+        // is cached under the same key that downloadStateFor / getCourse look up.
+        // Otherwise a Golf API scorecard would save under its own int ID and cache
+        // lookups by osm_id / golfapi_<id> / mapbox_... would miss.
+        val finalScorecard = (scorecard ?: fallbackScorecard).copy(id = courseId)
 
-        _state.update { it.copy(ingestionState = IngestionState.InProgress(IngestionStep.FETCHING_GEOMETRY, 0.35f)) }
+        updateProgress(IngestionStep.FETCHING_GEOMETRY, 0.35f)
         var osmElements = overpassDeferred.await()
+        reportBg(0.50f) // Overpass fetch complete
         logger.log(LogLevel.INFO, LogCategory.MAP, "overpass_fetch", mapOf(
             "latencyMs" to (System.currentTimeMillis() - overpassStart).toString(),
             "courseName" to courseName,
         ))
+        reportBg(0.60f) // OSM parse complete
 
         // Step 3: Normalize
-        _state.update { it.copy(ingestionState = IngestionState.InProgress(IngestionStep.NORMALIZING, 0.75f)) }
+        updateProgress(IngestionStep.NORMALIZING, 0.75f)
         val normalizeStart = System.currentTimeMillis()
         var course = normalizer.normalize(finalScorecard, osmElements)
 
@@ -325,17 +434,35 @@ class CourseViewModel @Inject constructor(
                 bbox = widerBbox,
             )
             course = normalizer.normalize(finalScorecard, osmElements)
+            reportBg(0.65f) // bbox retry complete
         }
         logger.log(LogLevel.INFO, LogCategory.MAP, "normalize", mapOf(
             "latencyMs" to (System.currentTimeMillis() - normalizeStart).toString(),
             "courseName" to courseName,
             "holeCount" to course.holes.size.toString(),
         ))
+        reportBg(0.75f) // Normalize complete
+
+        // Reject courses with no usable map geometry. If Overpass failed or returned
+        // nothing, the normalizer still emits 18 "holes" from the scorecard but every
+        // teeBox/green/pin is null — the map screen can't render that, and saving it
+        // would leave the download button permanently green pointing at garbage.
+        val hasGeometry = course.holes.any { h ->
+            h.teeBox != null || h.green != null || h.pin != null
+        }
+        if (!hasGeometry) {
+            logger.log(LogLevel.ERROR, LogCategory.MAP, "ingestion_no_geometry",
+                mapOf("courseName" to courseName, "osmElements" to osmElements.size.toString()))
+            // Clear any stale cache entry so downloadStateFor() goes back to NotStarted.
+            cacheService.deleteCourse(course.id)
+            throw IllegalStateException("No OSM geometry returned for $courseName")
+        }
 
         // Step 4: Save to cache
-        _state.update { it.copy(ingestionState = IngestionState.InProgress(IngestionStep.SAVING, 0.95f)) }
+        updateProgress(IngestionStep.SAVING, 0.95f)
         val saveStart = System.currentTimeMillis()
         cacheService.saveCourse(course)
+        reportBg(0.85f) // Saved to local cache
         logger.log(LogLevel.INFO, LogCategory.MAP, "cache_save", mapOf(
             "latencyMs" to (System.currentTimeMillis() - saveStart).toString(),
             "courseName" to courseName,
@@ -352,12 +479,82 @@ class CourseViewModel @Inject constructor(
             "holeCount" to course.holes.size.toString(),
         ))
 
-        _state.update { it.copy(
-            selectedCourse = course,
-            ingestionState = IngestionState.Success(course),
-            cachedCourses = cacheService.listCachedCourses().mapNotNull { e -> cacheService.getCourse(e.id) },
-        )}
-        activeRoundStore.setActiveCourse(course)
+        reportBg(1.0f) // Enrichment complete
+
+        if (backgroundOnly) {
+            _state.update { it.copy(
+                cachedCourses = cacheService.listCachedCourses().mapNotNull { e -> cacheService.getCourse(e.id) },
+            )}
+        } else {
+            _state.update { it.copy(
+                selectedCourse = course,
+                ingestionState = IngestionState.Success(course),
+                cachedCourses = cacheService.listCachedCourses().mapNotNull { e -> cacheService.getCourse(e.id) },
+            )}
+            activeRoundStore.setActiveCourse(course)
+        }
+    }
+
+    /** Computes the stable course ID used for caching, matching selectAndIngestCourse logic. */
+    fun courseIdFor(result: NominatimResult): String = when {
+        result.osm_id > 0 -> result.osm_id.toString()
+        // Golf API id is stashed in place_id by search() — unique per scorecard.
+        result.place_id > 0 -> "golfapi_${result.place_id}"
+        else -> "mapbox_${result.name.lowercase().replace(" ", "_")}_${result.lat}_${result.lon}"
+    }
+
+    /** Returns the current download state for a search result (checks cache). */
+    fun downloadStateFor(result: NominatimResult): DownloadState {
+        val id = courseIdFor(result)
+        _state.value.downloadStates[id]?.let { return it }
+        val cached = cacheService.getCourse(id)
+        val isValid = cached != null && cached.teeNames.isNotEmpty() &&
+            !(cached.teeNames.size == 1 && cached.teeNames.first() == "Standard") &&
+            cached.holes.size !in 9..17
+        return if (isValid) DownloadState.Complete else DownloadState.NotStarted
+    }
+
+    private fun setDownloadState(id: String, state: DownloadState) {
+        _state.update { it.copy(downloadStates = it.downloadStates + (id to state)) }
+    }
+
+    /** Background download — ingests course without navigating. Does not set selectedCourse. */
+    fun downloadCourse(result: NominatimResult) {
+        val id = courseIdFor(result)
+        // Skip if already in progress or complete
+        val current = _state.value.downloadStates[id]
+        if (current is DownloadState.Downloading || current is DownloadState.Complete) return
+
+        // Skip if already validly cached — short-circuit to 1.0 / Complete
+        if (downloadStateFor(result) is DownloadState.Complete) {
+            setDownloadState(id, DownloadState.Complete)
+            return
+        }
+
+        setDownloadState(id, DownloadState.Downloading(0.05f)) // local cache check
+        viewModelScope.launch {
+            try {
+                ingestCourseInBackground(result) { progress ->
+                    setDownloadState(id, DownloadState.Downloading(progress))
+                }
+                setDownloadState(id, DownloadState.Complete)
+                _state.update { it.copy(
+                    cachedCourses = cacheService.listCachedCourses().mapNotNull { e -> cacheService.getCourse(e.id) },
+                )}
+            } catch (e: Exception) {
+                logger.log(LogLevel.ERROR, LogCategory.MAP, "course_download_failed",
+                    mapOf("error" to (e.message ?: "unknown"), "courseName" to result.name))
+                setDownloadState(id, DownloadState.Error)
+            }
+        }
+    }
+
+    /** Wraps ingestCourse in background-only mode — no navigation, no progress banner. */
+    private suspend fun ingestCourseInBackground(
+        result: NominatimResult,
+        onProgress: (Float) -> Unit,
+    ) {
+        ingestCourse(result, backgroundOnly = true, onBackgroundProgress = onProgress)
     }
 
     fun toggleFavorite(courseId: String) {
@@ -497,6 +694,26 @@ class CourseViewModel @Inject constructor(
                 Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
                 Math.sin(dLon / 2).let { it * it }
         return 2 * r * Math.asin(Math.sqrt(a))
+    }
+
+    /**
+     * Detects a US state in free-form user text. Matches full state names first
+     * (so "New York" wins before "NY"), then word-bounded 2-letter codes.
+     * Returns the 2-letter code (uppercase) or null.
+     */
+    private fun detectUsStateCode(text: String): String? {
+        if (text.isBlank()) return null
+        val lower = " ${text.lowercase().replace(",", " ")} "
+        // Full names — try longest first so "north carolina" matches before "carolina"
+        for ((name, code) in US_STATES.entries.sortedByDescending { it.key.length }) {
+            if (lower.contains(" $name ")) return code
+        }
+        // 2-letter codes — must be a standalone token to avoid matching "co" inside "country"
+        val tokens = text.lowercase().split(Regex("[\\s,]+")).filter { it.isNotBlank() }
+        for (token in tokens) {
+            if (token.length == 2 && US_STATE_CODES.contains(token)) return token.uppercase()
+        }
+        return null
     }
 
     private fun buildBbox(lat: Double, lon: Double, radiusDegrees: Double): String {

@@ -384,16 +384,27 @@ class HoleAnalysisViewModel @Inject constructor(
 
     private fun deduplicateTees(teeNames: List<String>, course: NormalizedCourse): List<DedupedTee> {
         if (teeNames.isEmpty()) return emptyList()
+
+        // KAN-248: drop combo tees ("Black/Gold") when any component exists
+        // standalone (case-insensitive) — otherwise the picker shows both
+        // "Black", "Gold", and "Black/Gold" for courses with split tee boxes.
+        val lowerNames = teeNames.map { it.lowercase() }.toSet()
+        val filtered = teeNames.filter { name ->
+            val parts = name.split("/").map { it.trim() }
+            if (parts.size <= 1) return@filter true
+            parts.none { lowerNames.contains(it.lowercase()) }
+        }
+
         val sortedHoles = course.holes.sortedBy { it.number }
-        val signatureToTees = mutableMapOf<String, MutableList<String>>()
-        for (tee in teeNames) {
+        val signatureToTees = linkedMapOf<String, MutableList<String>>()
+        for (tee in filtered) {
             val sig = sortedHoles.joinToString(",") { hole ->
                 course.holeYardagesByTee[tee]?.get(hole.number.toString())?.toString() ?: "-"
             }
             signatureToTees.getOrPut(sig) { mutableListOf() }.add(tee)
         }
+
         return signatureToTees.values
-            .sortedBy { group -> teeNames.indexOf(group.first()) }
             .map { group ->
                 val canonical = group.first()
                 val totalYds = course.holeYardagesByTee[canonical]?.values?.sum() ?: 0
@@ -403,6 +414,7 @@ class HoleAnalysisViewModel @Inject constructor(
                     totalYards = totalYds,
                 )
             }
+            .sortedByDescending { it.totalYards }
     }
 
     /** Deselect all holes and zoom out to full course view. */
@@ -507,27 +519,31 @@ class HoleAnalysisViewModel @Inject constructor(
                     ChatMessage("user", userPrompt),
                 )
                 val llmStart = System.currentTimeMillis()
-                llmRouter.chatCompletion(messages, profile, maxTokens = 500)
-                    .onSuccess { rawAdvice ->
-                        val llmMs = System.currentTimeMillis() - llmStart
-                        val advice = flattenJsonToText(rawAdvice)
-                        _state.update {
-                            it.copy(
-                                isLoadingLLM = false,
-                                analysis = analysis.copy(llmEnhancedAnalysis = advice),
-                                conversation = listOf(ConversationMessage(MessageRole.CADDIE, advice)),
-                                analysisLlmMs = llmMs,
-                            )
-                        }
+                // Seed an empty caddie message that we'll update incrementally
+                _state.update { it.copy(conversation = listOf(ConversationMessage(MessageRole.CADDIE, ""))) }
+                llmRouter.chatCompletionStreaming(messages, profile, maxTokens = 500) { accumulated ->
+                    _state.update { it.copy(
+                        conversation = listOf(ConversationMessage(MessageRole.CADDIE, accumulated)),
+                    )}
+                }.onSuccess { rawAdvice ->
+                    val llmMs = System.currentTimeMillis() - llmStart
+                    val advice = flattenJsonToText(rawAdvice)
+                    _state.update {
+                        it.copy(
+                            isLoadingLLM = false,
+                            analysis = analysis.copy(llmEnhancedAnalysis = advice),
+                            conversation = listOf(ConversationMessage(MessageRole.CADDIE, advice)),
+                            analysisLlmMs = llmMs,
+                        )
                     }
-                    .onFailure {
-                        _state.update {
-                            it.copy(
-                                isLoadingLLM = false,
-                                conversation = listOf(ConversationMessage(MessageRole.CADDIE, analysis.strategicAdvice)),
-                            )
-                        }
+                }.onFailure {
+                    _state.update {
+                        it.copy(
+                            isLoadingLLM = false,
+                            conversation = listOf(ConversationMessage(MessageRole.CADDIE, analysis.strategicAdvice)),
+                        )
                     }
+                }
             } else {
                 _state.update { it.copy(isLoadingLLM = false) }
             }
@@ -587,29 +603,41 @@ class HoleAnalysisViewModel @Inject constructor(
                     add(ChatMessage(if (msg.role == MessageRole.USER) "user" else "assistant", msg.content))
                 }
             }
-            llmRouter.chatCompletion(messages, profile, maxTokens = 500)
-                .onSuccess { reply ->
-                    logger.log(LogLevel.INFO, LogCategory.LLM, "askHoleFollowUp", mapOf(
-                        "latencyMs" to (System.currentTimeMillis() - followUpStart).toString(),
-                    ))
-                    _state.update { state ->
-                        state.copy(
-                            isLoadingLLM = false,
-                            conversation = state.conversation + ConversationMessage(MessageRole.CADDIE, reply),
+            // Seed an empty caddie reply we'll update incrementally
+            _state.update { state ->
+                state.copy(conversation = state.conversation + ConversationMessage(MessageRole.CADDIE, ""))
+            }
+            llmRouter.chatCompletionStreaming(messages, profile, maxTokens = 500) { accumulated ->
+                _state.update { state ->
+                    val convo = state.conversation.toMutableList()
+                    if (convo.isNotEmpty() && convo.last().role == MessageRole.CADDIE) {
+                        convo[convo.lastIndex] = ConversationMessage(MessageRole.CADDIE, accumulated)
+                    }
+                    state.copy(conversation = convo)
+                }
+            }.onSuccess { reply ->
+                logger.log(LogLevel.INFO, LogCategory.LLM, "askHoleFollowUp", mapOf(
+                    "latencyMs" to (System.currentTimeMillis() - followUpStart).toString(),
+                ))
+                _state.update { state ->
+                    val convo = state.conversation.toMutableList()
+                    if (convo.isNotEmpty() && convo.last().role == MessageRole.CADDIE) {
+                        convo[convo.lastIndex] = ConversationMessage(MessageRole.CADDIE, reply)
+                    }
+                    state.copy(isLoadingLLM = false, conversation = convo)
+                }
+            }.onFailure {
+                _state.update { state ->
+                    val convo = state.conversation.toMutableList()
+                    if (convo.isNotEmpty() && convo.last().role == MessageRole.CADDIE) {
+                        convo[convo.lastIndex] = ConversationMessage(
+                            MessageRole.CADDIE,
+                            "I couldn't get an AI response right now. ${analysis?.strategicAdvice ?: ""}"
                         )
                     }
+                    state.copy(isLoadingLLM = false, conversation = convo)
                 }
-                .onFailure {
-                    _state.update { state ->
-                        state.copy(
-                            isLoadingLLM = false,
-                            conversation = state.conversation + ConversationMessage(
-                                MessageRole.CADDIE,
-                                "I couldn't get an AI response right now. ${analysis?.strategicAdvice ?: ""}"
-                            ),
-                        )
-                    }
-                }
+            }
         }
     }
 

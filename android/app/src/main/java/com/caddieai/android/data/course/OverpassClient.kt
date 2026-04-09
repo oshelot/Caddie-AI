@@ -101,7 +101,10 @@ class OverpassClient @Inject constructor(
                 return@runCatching emptyList()
             }
             if (code !in 200..299 || body.isBlank()) {
-                logger.log(LogLevel.ERROR, LogCategory.API, "overpass_fetch_failed", mapOf("status" to code))
+                logger.log(LogLevel.ERROR, LogCategory.API, "overpass_fetch_failed_$code",
+                    mapOf("status" to code, "bodyPreview" to body.take(200)))
+                android.util.Log.e("CaddieAI/Overpass",
+                    "Overpass $code on $url — body: ${body.take(500)}")
                 return@runCatching emptyList()
             }
             val parseStart = System.currentTimeMillis()

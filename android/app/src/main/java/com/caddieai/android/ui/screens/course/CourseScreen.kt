@@ -26,9 +26,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.GolfCourse
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.LocationOn
@@ -118,6 +122,8 @@ fun CourseScreen(viewModel: CourseViewModel = hiltViewModel(), onNavigateToCaddi
                 onToggleFavorite = viewModel::toggleFavorite,
                 onSelectCachedCourse = viewModel::selectCachedCourse,
                 onDeleteCourse = viewModel::deleteCachedCourse,
+                onDownloadCourse = viewModel::downloadCourse,
+                downloadStateFor = viewModel::downloadStateFor,
             )
         }
     }
@@ -135,6 +141,8 @@ private fun CourseListScreen(
     onToggleFavorite: (String) -> Unit,
     onSelectCachedCourse: (com.caddieai.android.data.model.NormalizedCourse) -> Unit,
     onDeleteCourse: (String) -> Unit = {},
+    onDownloadCourse: (com.caddieai.android.data.course.NominatimResult) -> Unit = {},
+    downloadStateFor: (com.caddieai.android.data.course.NominatimResult) -> DownloadState = { DownloadState.NotStarted },
 ) {
     var selectedTab by remember { mutableStateOf(0) } // 0 = Search, 1 = Saved
     var courseToDelete by remember { mutableStateOf<com.caddieai.android.data.model.NormalizedCourse?>(null) }
@@ -205,6 +213,8 @@ private fun CourseListScreen(
                     onSelectCourse = onSelectCourse,
                     onToggleFavorite = onToggleFavorite,
                     onSelectCachedCourse = onSelectCachedCourse,
+                    onDownloadCourse = onDownloadCourse,
+                    downloadStateFor = downloadStateFor,
                 )
             } else {
                 // ── Saved Tab ──
@@ -251,6 +261,8 @@ private fun SearchTabContent(
     onSelectCourse: (com.caddieai.android.data.course.NominatimResult) -> Unit,
     onToggleFavorite: (String) -> Unit,
     onSelectCachedCourse: (com.caddieai.android.data.model.NormalizedCourse) -> Unit,
+    onDownloadCourse: (com.caddieai.android.data.course.NominatimResult) -> Unit = {},
+    downloadStateFor: (com.caddieai.android.data.course.NominatimResult) -> com.caddieai.android.ui.screens.course.DownloadState = { com.caddieai.android.ui.screens.course.DownloadState.NotStarted },
 ) {
     val favCourses = state.cachedCourses.filter { it.id in state.favoriteIds }
 
@@ -312,11 +324,55 @@ private fun SearchTabContent(
         // Search results
         if (state.nominatimResults.isNotEmpty()) {
             item { SectionLabel("Search Results", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+            item {
+                // WiFi hint banner
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.Wifi, null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Pre-download courses on WiFi for best on-course performance",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             items(state.nominatimResults) { result ->
+                val dlState = downloadStateFor(result)
                 ListItem(
                     headlineContent = { Text(result.name.ifBlank { result.display_name.substringBefore(",") }) },
                     supportingContent = { Text(result.display_name, maxLines = 2) },
                     leadingContent = { Icon(Icons.Default.GolfCourse, null, tint = MaterialTheme.colorScheme.primary) },
+                    trailingContent = {
+                        when (val dl = dlState) {
+                            is DownloadState.Complete -> Icon(
+                                Icons.Default.CheckCircle, "Downloaded",
+                                tint = Color(0xFF2E7D32),
+                            )
+                            is DownloadState.Downloading -> CircularProgressIndicator(
+                                progress = { dl.progress },
+                                modifier = Modifier.size(22.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.dp,
+                            )
+                            is DownloadState.Error -> IconButton(onClick = { onDownloadCourse(result) }) {
+                                Icon(Icons.Default.ErrorOutline, "Retry download",
+                                    tint = MaterialTheme.colorScheme.error)
+                            }
+                            is DownloadState.NotStarted -> IconButton(onClick = { onDownloadCourse(result) }) {
+                                Icon(Icons.Default.Download, "Download",
+                                    tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    },
                     modifier = Modifier.clickable { onSelectCourse(result) },
                 )
                 HorizontalDivider()

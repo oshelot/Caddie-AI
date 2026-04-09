@@ -251,10 +251,7 @@ fun CourseMapScreen(
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     state.dedupedTees.forEach { deduped ->
                         DropdownMenuItem(
-                            text = {
-                                val ydsText = if (deduped.totalYards > 0) " ${String.format("%,d", deduped.totalYards)} yds" else ""
-                                Text("${deduped.displayName}$ydsText")
-                            },
+                            text = { Text(deduped.displayName) },
                             onClick = { viewModel.selectTee(course, deduped.canonicalTee); expanded = false },
                             trailingIcon = if (deduped.canonicalTee == state.selectedTee) {
                                 { Icon(Icons.Default.Check, null) }

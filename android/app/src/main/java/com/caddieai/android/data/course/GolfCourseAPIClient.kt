@@ -146,26 +146,34 @@ private data class GolfAPIDetailResponse(
             )
         } ?: emptyList()
 
-        // Use all tees, deduplicate by canonical name (first occurrence wins)
+        // Use all tees, deduplicate by canonical name (first occurrence wins).
+        // KAN-248: case-insensitive dedup so "RED" (male) and "Red" (female) collapse
+        // to one entry. Canonical display name uses title case ("Red", not "RED").
         val allTeeSets: List<GolfAPITeeSet> = buildList {
             tees.male?.let { addAll(it) }
             tees.female?.let { addAll(it) }
         }
 
-        val teeNamesList = allTeeSets
-            .map { it.tee_name }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .sorted()
+        // lowercase key -> canonical display name (first-seen casing wins, matches iOS)
+        val canonicalByKey = linkedMapOf<String, String>()
+        allTeeSets.forEach { ts ->
+            val raw = ts.tee_name
+            if (raw.isNotBlank()) {
+                val key = raw.lowercase()
+                if (key !in canonicalByKey) canonicalByKey[key] = raw
+            }
+        }
+        val teeNamesList = canonicalByKey.values.sorted()
 
         val holeYardagesByTee: Map<String, Map<String, Int>> = allTeeSets
             .filter { it.tee_name.isNotBlank() }
-            .groupBy { it.tee_name }
+            .groupBy { it.tee_name.lowercase() }
             .mapValues { (_, teeSets) ->
                 val teeSet = teeSets.first()
                 // API doesn't include hole_number — use array index + 1
                 teeSet.holes.mapIndexed { idx, h -> (idx + 1).toString() to h.yardage }.toMap()
             }
+            .mapKeys { (key, _) -> canonicalByKey[key] ?: key }
 
         return CourseScorecard(
             id = id.toString(),
