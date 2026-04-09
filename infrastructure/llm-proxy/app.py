@@ -2,38 +2,41 @@
 CaddieAI LLM Proxy — FastAPI on AWS Lambda (via Lambda Web Adapter)
 
 Stateless proxy that forwards OpenAI-compatible chat completion requests
-to OpenAI's API using a server-side key stored in AWS Secrets Manager.
-Forces gpt-4o-mini for all requests. Authenticates clients via x-api-key header.
+to Amazon Bedrock (Nova Micro) using IAM authentication.
+Authenticates clients via x-api-key header.
 
 Supports two modes:
-  - Buffered (default): Returns the full JSON response after OpenAI completes.
-  - Streaming (stream: true): Forwards SSE chunks from OpenAI as they arrive,
+  - Buffered (default): Returns the full JSON response after Bedrock completes.
+  - Streaming (stream: true): Forwards SSE chunks from Bedrock as they arrive,
     using FastAPI StreamingResponse through Lambda Function URL RESPONSE_STREAM.
 """
 
 import json
 import os
+import time
 from typing import AsyncGenerator
 
 import boto3
-import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from shadow_eval import (
+    run_shadow_evaluation_buffered,
+    run_shadow_evaluation_streaming_sync,
+)
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-FORCED_MODEL = "gpt-4o-mini"
-SECRET_ID = os.environ.get("SECRET_ID", "caddieai/openai-api-key")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-micro-v1:0")
 PROXY_API_KEY_ENV = os.environ.get("PROXY_API_KEY", "")
-REQUEST_TIMEOUT = 55  # seconds
+BEDROCK_REGION = os.environ.get("BEDROCK_REGION", os.environ.get("AWS_REGION", "us-east-2"))
 
-# Cached values (persist across warm invocations)
-_openai_key: str | None = None
+# Cached Bedrock client (persists across warm invocations)
+_bedrock_client = None
 _proxy_api_key: str | None = None
 
 app = FastAPI()
@@ -46,22 +49,18 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# Key retrieval
+# Bedrock client
 # ---------------------------------------------------------------------------
 
-def get_openai_key() -> str:
-    """Retrieve OpenAI API key from Secrets Manager, cached after first call."""
-    global _openai_key
-    if _openai_key:
-        return _openai_key
-
-    client = boto3.client(
-        "secretsmanager",
-        region_name=os.environ.get("AWS_REGION", "us-east-2"),
-    )
-    resp = client.get_secret_value(SecretId=SECRET_ID)
-    _openai_key = resp["SecretString"]
-    return _openai_key
+def get_bedrock_client():
+    """Get or create the Bedrock Runtime client, cached across warm invocations."""
+    global _bedrock_client
+    if _bedrock_client is None:
+        _bedrock_client = boto3.client(
+            "bedrock-runtime",
+            region_name=BEDROCK_REGION,
+        )
+    return _bedrock_client
 
 
 def get_proxy_api_key() -> str:
@@ -86,108 +85,125 @@ def _authenticate(request: Request) -> str | None:
     return None
 
 
-def _build_openai_payload(body: dict, stream: bool = False) -> dict:
-    """Build the payload forwarded to OpenAI."""
-    payload = {
-        "model": FORCED_MODEL,
-        "messages": body["messages"],
-        "max_tokens": body.get("max_tokens", 500),
-        "temperature": body.get("temperature", 0.7),
-    }
-    if stream:
-        payload["stream"] = True
-        payload["stream_options"] = {"include_usage": True}
-    if "response_format" in body:
-        payload["response_format"] = body["response_format"]
-    return payload
-
-
-# ---------------------------------------------------------------------------
-# Streaming handler
-# ---------------------------------------------------------------------------
-
-async def _stream_openai(body: dict) -> AsyncGenerator[str, None]:
+def _convert_messages_to_bedrock(body: dict) -> tuple[list[dict], list[dict]]:
     """
-    Async generator that streams SSE events from OpenAI to the client.
+    Convert OpenAI-format messages to Bedrock Converse format.
+
+    Returns (system_messages, conversation_messages).
+    Bedrock separates system messages from the conversation.
+    """
+    system_msgs = []
+    converse_msgs = []
+
+    for msg in body["messages"]:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+
+        if role == "system":
+            system_msgs.append({"text": content if isinstance(content, str) else str(content)})
+        else:
+            # Map OpenAI roles to Bedrock roles
+            bedrock_role = "assistant" if role == "assistant" else "user"
+
+            # Handle content that may be a list (multimodal) or string
+            if isinstance(content, list):
+                # OpenAI multimodal format: [{"type": "text", "text": "..."}, {"type": "image_url", ...}]
+                bedrock_content = []
+                for part in content:
+                    if part.get("type") == "text":
+                        bedrock_content.append({"text": part["text"]})
+                    # Skip image_url parts — Nova Micro is text-only
+                converse_msgs.append({"role": bedrock_role, "content": bedrock_content})
+            else:
+                converse_msgs.append({
+                    "role": bedrock_role,
+                    "content": [{"text": content if isinstance(content, str) else str(content)}],
+                })
+
+    return system_msgs, converse_msgs
+
+
+# ---------------------------------------------------------------------------
+# Streaming handler (Bedrock ConverseStream)
+# ---------------------------------------------------------------------------
+
+def _run_post_stream_shadows(
+    body: dict,
+    accumulated_text: str,
+    usage_data: dict | None,
+    stream_start: float,
+) -> None:
+    """Run shadow evaluation after streaming completes (sync, no more yields)."""
+    primary_latency_ms = int((time.perf_counter() - stream_start) * 1000)
+    run_shadow_evaluation_streaming_sync(
+        body=body,
+        primary_response_text=accumulated_text,
+        primary_usage=usage_data or {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        primary_latency_ms=primary_latency_ms,
+        primary_model_id=BEDROCK_MODEL_ID,
+    )
+
+
+async def _stream_bedrock(body: dict) -> AsyncGenerator[str, None]:
+    """
+    Generator that streams SSE events from Bedrock to the client.
 
     Yields `data: {"content": "..."}` for each text chunk,
     `data: {"usage": {...}}` for token counts, and `data: [DONE]` to finish.
+    After [DONE], runs shadow model evaluation if sampled.
     """
-    openai_payload = _build_openai_payload(body, stream=True)
+    accumulated_text = ""
+    usage_data = None
+    stream_start = time.perf_counter()
 
     try:
-        openai_key = get_openai_key()
+        system_msgs, converse_msgs = _convert_messages_to_bedrock(body)
     except Exception as e:
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield f"data: {json.dumps({'error': f'Message conversion error: {str(e)}'})}\n\n"
         yield "data: [DONE]\n\n"
         return
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {openai_key}",
-    }
+    try:
+        client = get_bedrock_client()
+        kwargs = {
+            "modelId": BEDROCK_MODEL_ID,
+            "messages": converse_msgs,
+            "inferenceConfig": {
+                "maxTokens": body.get("max_tokens", 500),
+                "temperature": body.get("temperature", 0.7),
+            },
+        }
+        if system_msgs:
+            kwargs["system"] = system_msgs
 
-    usage_data = None
+        response = client.converse_stream(**kwargs)
+    except Exception as e:
+        yield f"data: {json.dumps({'error': f'Bedrock error: {str(e)}'})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
 
-    async with httpx.AsyncClient() as client:
-        try:
-            async with client.stream(
-                "POST",
-                OPENAI_API_URL,
-                headers=headers,
-                json=openai_payload,
-                timeout=REQUEST_TIMEOUT,
-            ) as resp:
-                if resp.status_code != 200:
-                    error_body = await resp.aread()
-                    try:
-                        error_json = json.loads(error_body)
-                        msg = error_json.get("error", {}).get(
-                            "message", f"OpenAI error: HTTP {resp.status_code}"
-                        )
-                    except (json.JSONDecodeError, AttributeError):
-                        msg = f"OpenAI error: HTTP {resp.status_code}"
-                    yield f"data: {json.dumps({'error': msg})}\n\n"
-                    yield "data: [DONE]\n\n"
-                    return
+    try:
+        for event in response.get("stream", []):
+            if "contentBlockDelta" in event:
+                delta = event["contentBlockDelta"].get("delta", {})
+                text = delta.get("text", "")
+                if text:
+                    accumulated_text += text
+                    yield f"data: {json.dumps({'content': text})}\n\n"
 
-                async for raw_line in resp.aiter_lines():
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    if not line.startswith("data: "):
-                        continue
-
-                    payload = line[6:]  # strip "data: " prefix
-
-                    if payload == "[DONE]":
-                        break
-
-                    try:
-                        chunk = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
-
-                    # Extract content delta
-                    choices = chunk.get("choices", [])
-                    if choices:
-                        delta = choices[0].get("delta", {})
-                        content = delta.get("content")
-                        if content:
-                            yield f"data: {json.dumps({'content': content})}\n\n"
-
-                    # Capture usage from the final chunk
-                    if "usage" in chunk and chunk["usage"]:
-                        usage_data = chunk["usage"]
-
-        except httpx.HTTPStatusError as e:
-            yield f"data: {json.dumps({'error': f'OpenAI error: HTTP {e.response.status_code}'})}\n\n"
-            yield "data: [DONE]\n\n"
-            return
-        except (httpx.ConnectError, httpx.TimeoutException) as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            yield "data: [DONE]\n\n"
-            return
+            elif "metadata" in event:
+                usage = event["metadata"].get("usage", {})
+                if usage:
+                    usage_data = {
+                        "prompt_tokens": usage.get("inputTokens", 0),
+                        "completion_tokens": usage.get("outputTokens", 0),
+                        "total_tokens": usage.get("inputTokens", 0) + usage.get("outputTokens", 0),
+                    }
+    except Exception as e:
+        yield f"data: {json.dumps({'error': f'Stream error: {str(e)}'})}\n\n"
+        yield "data: [DONE]\n\n"
+        _run_post_stream_shadows(body, accumulated_text, usage_data, stream_start)
+        return
 
     # Emit usage as a separate event so clients can track token counts
     if usage_data:
@@ -195,81 +211,93 @@ async def _stream_openai(body: dict) -> AsyncGenerator[str, None]:
 
     yield "data: [DONE]\n\n"
 
+    # Shadow evaluation runs here after [DONE] — generator keeps Lambda alive
+    _run_post_stream_shadows(body, accumulated_text, usage_data, stream_start)
+
 
 # ---------------------------------------------------------------------------
-# Buffered handler
+# Buffered handler (Bedrock Converse)
 # ---------------------------------------------------------------------------
 
 async def _handle_buffered(body: dict) -> JSONResponse:
-    """Call OpenAI without streaming and return the full response."""
-    openai_payload = _build_openai_payload(body, stream=False)
+    """Call Bedrock without streaming and return the full response.
 
+    If shadow evaluation is enabled and this request is sampled,
+    shadow models run after the primary call completes.
+    """
     try:
-        openai_key = get_openai_key()
+        system_msgs, converse_msgs = _convert_messages_to_bedrock(body)
     except Exception as e:
         return JSONResponse(
-            status_code=500,
-            content={"error": f"Failed to retrieve API key: {str(e)}"},
+            status_code=400,
+            content={"error": f"Message conversion error: {str(e)}"},
         )
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {openai_key}",
-    }
-
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(
-                OPENAI_API_URL,
-                headers=headers,
-                json=openai_payload,
-                timeout=REQUEST_TIMEOUT,
-            )
-        except httpx.TimeoutException:
-            return JSONResponse(
-                status_code=504, content={"error": "OpenAI request timed out."}
-            )
-        except httpx.ConnectError as e:
-            return JSONResponse(
-                status_code=504,
-                content={"error": f"Failed to reach OpenAI: {str(e)}"},
-            )
-
-    if resp.status_code == 429:
-        return JSONResponse(
-            status_code=429,
-            content={
-                "error": "Rate limit exceeded at OpenAI. Please try again shortly."
-            },
-        )
-
-    if resp.status_code != 200:
-        try:
-            error_json = resp.json()
-            msg = error_json.get("error", {}).get(
-                "message", f"OpenAI error: HTTP {resp.status_code}"
-            )
-        except (json.JSONDecodeError, AttributeError):
-            msg = f"OpenAI error: HTTP {resp.status_code}"
-        return JSONResponse(status_code=502, content={"error": msg})
+    start_ms = time.perf_counter()
 
     try:
-        openai_response = resp.json()
-        choice = openai_response["choices"][0]["message"]["content"]
-        usage = openai_response.get("usage", {})
-        result = {
-            "choices": [{"message": {"role": "assistant", "content": choice}}],
-            "usage": {
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "total_tokens": usage.get("total_tokens", 0),
+        client = get_bedrock_client()
+        kwargs = {
+            "modelId": BEDROCK_MODEL_ID,
+            "messages": converse_msgs,
+            "inferenceConfig": {
+                "maxTokens": body.get("max_tokens", 1500),
+                "temperature": body.get("temperature", 0.7),
             },
         }
-    except (KeyError, IndexError):
+        if system_msgs:
+            kwargs["system"] = system_msgs
+
+        response = client.converse(**kwargs)
+    except client.exceptions.ThrottlingException:
+        return JSONResponse(
+            status_code=429,
+            content={"error": "Rate limit exceeded at Bedrock. Please try again shortly."},
+        )
+    except Exception as e:
         return JSONResponse(
             status_code=502,
-            content={"error": "Unexpected response format from OpenAI."},
+            content={"error": f"Bedrock error: {str(e)}"},
         )
+
+    primary_latency_ms = int((time.perf_counter() - start_ms) * 1000)
+
+    try:
+        # Extract content from Bedrock response
+        output = response.get("output", {})
+        content_blocks = output.get("message", {}).get("content", [])
+        content = ""
+        for block in content_blocks:
+            if "text" in block:
+                content += block["text"]
+
+        # Extract usage
+        usage = response.get("usage", {})
+        prompt_tokens = usage.get("inputTokens", 0)
+        completion_tokens = usage.get("outputTokens", 0)
+
+        result = {
+            "choices": [{"message": {"role": "assistant", "content": content}}],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            },
+        }
+    except (KeyError, IndexError, TypeError) as e:
+        return JSONResponse(
+            status_code=502,
+            content={"error": f"Unexpected response format from Bedrock: {str(e)}"},
+        )
+
+    # Shadow evaluation — runs concurrently, awaited before response returns
+    await run_shadow_evaluation_buffered(
+        body=body,
+        primary_response_text=content,
+        primary_usage=result["usage"],
+        primary_latency_ms=primary_latency_ms,
+        primary_model_id=BEDROCK_MODEL_ID,
+    )
 
     return JSONResponse(status_code=200, content=result)
 
@@ -279,6 +307,7 @@ async def _handle_buffered(body: dict) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 @app.post("/")
+@app.post("/chat/completions")
 async def chat_completions(request: Request):
     # Authenticate
     auth_error = _authenticate(request)
@@ -304,7 +333,7 @@ async def chat_completions(request: Request):
     # Route to streaming or buffered handler
     if body.get("stream", False):
         return StreamingResponse(
-            _stream_openai(body),
+            _stream_bedrock(body),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

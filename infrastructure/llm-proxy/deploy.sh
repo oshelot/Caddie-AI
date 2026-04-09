@@ -5,6 +5,8 @@
 # Installs dependencies, zips the package, updates Lambda code + config,
 # adds the Lambda Web Adapter layer, and creates a Function URL with
 # RESPONSE_STREAM invoke mode.
+#
+# Backend: Amazon Bedrock (Nova Micro) — no external API keys needed.
 
 set -euo pipefail
 
@@ -12,6 +14,12 @@ FUNCTION_NAME="caddieai-llm-proxy"
 REGION="us-east-2"
 PROFILE_ARG=""
 LAYER_ARN="arn:aws:lambda:us-east-2:753240598075:layer:LambdaAdapterLayerX86:27"
+BEDROCK_MODEL_ID="us.amazon.nova-micro-v1:0"
+EVAL_TABLE_NAME="caddieai-llm-eval"
+
+# Shadow evaluation config (JSON string — edit to add/remove models)
+SHADOW_MODELS='{"nova-lite":{"model_id":"us.amazon.nova-lite-v1:0","provider":"bedrock"}}'
+SHADOW_SAMPLE_RATE="1.0"
 
 # Parse --profile flag
 for arg in "$@"; do
@@ -48,6 +56,7 @@ python3 -m pip install \
 
 echo "==> Copying application files..."
 cp "$SCRIPT_DIR/app.py" "$BUILD_DIR/"
+cp "$SCRIPT_DIR/shadow_eval.py" "$BUILD_DIR/"
 cp "$SCRIPT_DIR/run.sh" "$BUILD_DIR/"
 chmod +x "$BUILD_DIR/run.sh"
 
@@ -71,13 +80,29 @@ aws lambda wait function-updated \
     $PROFILE_ARG
 
 echo "==> Updating Lambda configuration (handler, layer, env vars)..."
+# Build environment JSON (SHADOW_MODELS contains braces, so we use --cli-input-json style)
+ENV_JSON=$(cat <<ENVEOF
+{
+  "Variables": {
+    "AWS_LAMBDA_EXEC_WRAPPER": "/opt/bootstrap",
+    "AWS_LWA_INVOKE_MODE": "response_stream",
+    "PORT": "8000",
+    "PROXY_API_KEY": "Gfc1TMjXjjQqfmTcj5ipetDCUx8_a4Kl6owwZqjV99E",
+    "BEDROCK_MODEL_ID": "$BEDROCK_MODEL_ID",
+    "SHADOW_MODELS": $(echo "$SHADOW_MODELS" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read().strip()))"),
+    "SHADOW_SAMPLE_RATE": "$SHADOW_SAMPLE_RATE",
+    "EVAL_TABLE_NAME": "$EVAL_TABLE_NAME"
+  }
+}
+ENVEOF
+)
 aws lambda update-function-configuration \
     --function-name "$FUNCTION_NAME" \
     --handler "run.sh" \
     --layers "$LAYER_ARN" \
-    --environment "Variables={AWS_LAMBDA_EXEC_WRAPPER=/opt/bootstrap,AWS_LWA_INVOKE_MODE=response_stream,PORT=8000,PROXY_API_KEY=Gfc1TMjXjjQqfmTcj5ipetDCUx8_a4Kl6owwZqjV99E,SECRET_ID=caddieai/openai-api-key}" \
-    --timeout 60 \
-    --memory-size 256 \
+    --environment "$ENV_JSON" \
+    --timeout 90 \
+    --memory-size 512 \
     --region "$REGION" \
     $PROFILE_ARG \
     --output text --query 'FunctionArn'
@@ -113,9 +138,37 @@ aws lambda add-permission \
     --region "$REGION" \
     $PROFILE_ARG 2>/dev/null || echo "    (permission already exists)"
 
+echo "==> Ensuring DynamoDB eval table exists..."
+aws dynamodb create-table \
+    --table-name "$EVAL_TABLE_NAME" \
+    --attribute-definitions \
+        AttributeName=request_id,AttributeType=S \
+        AttributeName=model_id,AttributeType=S \
+        AttributeName=timestamp,AttributeType=S \
+        AttributeName=role,AttributeType=S \
+    --key-schema \
+        AttributeName=request_id,KeyType=HASH \
+        AttributeName=model_id,KeyType=RANGE \
+    --global-secondary-indexes \
+        'IndexName=model-timestamp-index,KeySchema=[{AttributeName=model_id,KeyType=HASH},{AttributeName=timestamp,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+        'IndexName=role-timestamp-index,KeySchema=[{AttributeName=role,KeyType=HASH},{AttributeName=timestamp,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+    --billing-mode PAY_PER_REQUEST \
+    --region "$REGION" \
+    $PROFILE_ARG 2>/dev/null || echo "    (table already exists)"
+
+aws dynamodb update-time-to-live \
+    --table-name "$EVAL_TABLE_NAME" \
+    --time-to-live-specification Enabled=true,AttributeName=ttl \
+    --region "$REGION" \
+    $PROFILE_ARG 2>/dev/null || echo "    (TTL already configured)"
+
 echo ""
 echo "==> Deploy complete!"
 echo "    Function URL: $FUNCTION_URL"
+echo "    Model: $BEDROCK_MODEL_ID"
+echo "    Shadow models: $SHADOW_MODELS"
+echo "    Shadow sample rate: $SHADOW_SAMPLE_RATE"
+echo "    Eval table: $EVAL_TABLE_NAME"
 echo ""
 echo "    Test buffered:"
 echo "    curl -X POST '$FUNCTION_URL' -H 'Content-Type: application/json' -H 'x-api-key: Gfc1TMjXjjQqfmTcj5ipetDCUx8_a4Kl6owwZqjV99E' -d '{\"messages\":[{\"role\":\"user\",\"content\":\"Say hello\"}]}'"
