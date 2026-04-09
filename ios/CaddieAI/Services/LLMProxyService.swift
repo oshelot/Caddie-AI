@@ -79,6 +79,87 @@ final class LLMProxyService: Sendable {
         return try extractContentAndUsage(from: data)
     }
 
+    // MARK: - Streaming Chat Completion
+
+    /// Streaming result containing the accumulated text and optional usage.
+    struct StreamResult: Sendable {
+        var text: String = ""
+        var usage: OpenAIService.TokenUsage?
+    }
+
+    /// Send a streaming chat completion through the backend proxy.
+    /// Calls `onChunk` on the main actor with each accumulated text string.
+    /// Returns the final accumulated text and token usage.
+    func chatCompletionStream(
+        messages: [[String: Any]],
+        maxTokens: Int = 500,
+        temperature: Double = 0.7,
+        onChunk: @MainActor @Sendable (String) -> Void
+    ) async throws -> (String, OpenAIService.TokenUsage?) {
+        guard let endpoint, let apiKey else {
+            throw ProxyError.notConfigured
+        }
+
+        let body: [String: Any] = [
+            "messages": messages,
+            "max_tokens": maxTokens,
+            "temperature": temperature,
+            "stream": true,
+        ]
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 60
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw ProxyError.invalidResponse
+        }
+        guard httpResponse.statusCode == 200 else {
+            // Collect error body
+            var errorData = Data()
+            for try await byte in bytes { errorData.append(byte) }
+            let errorMessage = parseErrorMessage(from: errorData)
+                ?? "Proxy error: HTTP \(httpResponse.statusCode)"
+            throw ProxyError.apiError(errorMessage)
+        }
+
+        var accumulated = ""
+        var tokenUsage: OpenAIService.TokenUsage?
+
+        for try await line in bytes.lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("data: ") else { continue }
+            let payload = String(trimmed.dropFirst(6))
+
+            if payload == "[DONE]" { break }
+
+            guard let data = payload.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+
+            if let content = json["content"] as? String {
+                accumulated += content
+                await onChunk(accumulated)
+            }
+
+            if let usage = json["usage"] as? [String: Any],
+               let prompt = usage["prompt_tokens"] as? Int,
+               let completion = usage["completion_tokens"] as? Int,
+               let total = usage["total_tokens"] as? Int {
+                tokenUsage = OpenAIService.TokenUsage(
+                    promptTokens: prompt, completionTokens: completion, totalTokens: total
+                )
+            }
+        }
+
+        return (accumulated, tokenUsage)
+    }
+
     // MARK: - JSON Response (for structured output like ShotRecommendation)
 
     /// Send a chat completion and decode the content as a ShotRecommendation.

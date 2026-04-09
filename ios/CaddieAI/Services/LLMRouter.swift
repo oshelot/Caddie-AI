@@ -296,6 +296,153 @@ final class LLMRouter: Sendable {
         }
     }
 
+    // MARK: - Streaming Hole Analysis
+
+    /// Streaming version of getHoleAnalysis for paid-tier users.
+    /// Calls `onChunk` with accumulated text as SSE chunks arrive.
+    func getHoleAnalysisStreaming(
+        hole: NormalizedHole,
+        analysis: HoleAnalysis,
+        course: NormalizedCourse,
+        profile: PlayerProfile,
+        tier: UserTier = .free,
+        selectedTee: String? = nil,
+        onChunk: @MainActor @Sendable (String) -> Void
+    ) async throws -> (String, OpenAIService.TokenUsage?) {
+        let provider = tier == .paid ? "proxy" : profile.llmProvider.rawValue
+        let model = tier == .paid ? "gpt-4o-mini" : profile.llmModel.rawValue
+        LoggingService.shared.info(.llm, "LLM streaming request started", metadata: [
+            "method": "getHoleAnalysis", "provider": provider,
+            "model": model, "tier": tier.rawValue,
+            "hole": "\(hole.number)",
+        ])
+        let start = CFAbsoluteTimeGetCurrent()
+
+        // Only stream via proxy for paid-tier; free-tier falls back to buffered
+        guard tier == .paid else {
+            let result = try await getHoleAnalysis(
+                hole: hole, analysis: analysis, course: course,
+                profile: profile, tier: tier, selectedTee: selectedTee
+            )
+            await onChunk(result.0)
+            return result
+        }
+
+        do {
+            let userMessage = OpenAIService.buildHoleAnalysisMessage(
+                hole: hole, analysis: analysis,
+                course: course, profile: profile,
+                selectedTee: selectedTee
+            )
+
+            let messages: [[String: Any]] = [
+                ["role": "system", "content": OpenAIService.holeAnalysisSystemPrompt(persona: profile.caddiePersona)],
+                ["role": "user", "content": userMessage]
+            ]
+
+            let (text, usage) = try await LLMProxyService.shared.chatCompletionStream(
+                messages: messages, maxTokens: 500, onChunk: onChunk
+            )
+
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            var meta = ["method": "getHoleAnalysis", "provider": provider,
+                        "model": model, "tier": tier.rawValue,
+                        "latencyMs": "\(latencyMs)", "streaming": "true"]
+            if let usage {
+                meta["promptTokens"] = "\(usage.promptTokens)"
+                meta["completionTokens"] = "\(usage.completionTokens)"
+            }
+            LoggingService.shared.info(.llm, "LLM streaming response complete", metadata: meta)
+            return (text, usage)
+        } catch {
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            LoggingService.shared.error(.llm, "LLM streaming failed: \(error.localizedDescription)", metadata: [
+                "method": "getHoleAnalysis", "provider": provider,
+                "model": model, "tier": tier.rawValue,
+                "latencyMs": "\(latencyMs)",
+                "hole": "\(hole.number)",
+            ])
+            throw error
+        }
+    }
+
+    // MARK: - Streaming Follow-Up
+
+    /// Streaming version of follow-up for paid-tier users.
+    func askFollowUpStreaming(
+        question: String,
+        conversationHistory: [OpenAIService.ChatMessage],
+        apiKey: String,
+        provider: LLMProvider,
+        model: LLMModel,
+        tier: UserTier = .free,
+        onChunk: @MainActor @Sendable (String) -> Void
+    ) async throws -> (String, OpenAIService.TokenUsage?) {
+        // Only stream via proxy for paid-tier
+        guard tier == .paid else {
+            let result = try await askFollowUp(
+                question: question, conversationHistory: conversationHistory,
+                apiKey: apiKey, provider: provider, model: model, tier: tier
+            )
+            await onChunk(result.0)
+            return result
+        }
+
+        let providerName = "proxy"
+        let modelName = "gpt-4o-mini"
+        LoggingService.shared.info(.llm, "LLM streaming request started", metadata: [
+            "method": "askFollowUp", "provider": providerName,
+            "model": modelName, "tier": tier.rawValue,
+        ])
+        let start = CFAbsoluteTimeGetCurrent()
+
+        do {
+            var messages = conversationHistory.map { $0.toAPIFormat() }
+            messages.append(["role": "user", "content": question])
+
+            let (text, usage) = try await LLMProxyService.shared.chatCompletionStream(
+                messages: messages, maxTokens: 500, onChunk: onChunk
+            )
+
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            var meta = ["method": "askFollowUp", "provider": providerName,
+                        "model": modelName, "tier": tier.rawValue,
+                        "latencyMs": "\(latencyMs)", "streaming": "true"]
+            if let usage {
+                meta["promptTokens"] = "\(usage.promptTokens)"
+                meta["completionTokens"] = "\(usage.completionTokens)"
+            }
+            LoggingService.shared.info(.llm, "LLM streaming response complete", metadata: meta)
+            return (text, usage)
+        } catch {
+            let latencyMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            LoggingService.shared.error(.llm, "LLM streaming failed: \(error.localizedDescription)", metadata: [
+                "method": "askFollowUp", "provider": providerName,
+                "model": modelName, "tier": tier.rawValue,
+                "latencyMs": "\(latencyMs)",
+            ])
+            throw error
+        }
+    }
+
+    /// Streaming version of hole follow-up for paid-tier users.
+    func askHoleFollowUpStreaming(
+        question: String,
+        conversationHistory: [OpenAIService.ChatMessage],
+        apiKey: String,
+        provider: LLMProvider,
+        model: LLMModel,
+        tier: UserTier = .free,
+        onChunk: @MainActor @Sendable (String) -> Void
+    ) async throws -> (String, OpenAIService.TokenUsage?) {
+        // Reuse the same streaming logic
+        return try await askFollowUpStreaming(
+            question: question, conversationHistory: conversationHistory,
+            apiKey: apiKey, provider: provider, model: model,
+            tier: tier, onChunk: onChunk
+        )
+    }
+
     // MARK: - Proxy Helpers
 
     private func proxyRecommendation(
