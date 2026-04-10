@@ -345,11 +345,28 @@ private fun SearchTabContent(
                     )
                 }
             }
-            items(state.nominatimResults) { result ->
+            items(
+                items = state.nominatimResults,
+                key = { result ->
+                    // Stable identity so the download button state doesn't
+                    // desync when Compose recomposes the list. Falls back to
+                    // a name+coord composite when neither id is available.
+                    when {
+                        result.osm_id > 0 -> "osm_${result.osm_id}"
+                        result.place_id > 0 -> "place_${result.place_id}"
+                        else -> "raw_${result.name}_${result.lat}_${result.lon}"
+                    }
+                },
+            ) { result ->
                 val dlState = downloadStateFor(result)
                 ListItem(
                     headlineContent = { Text(result.cleanName) },
-                    supportingContent = { Text(result.display_name, maxLines = 2) },
+                    supportingContent = {
+                        val city = result.address["city"].orEmpty()
+                        val state = result.address["state"].orEmpty()
+                        val locLine = listOf(city, state).filter { it.isNotBlank() }.joinToString(", ")
+                        Text(locLine.ifBlank { result.display_name }, maxLines = 1)
+                    },
                     leadingContent = { Icon(Icons.Default.GolfCourse, null, tint = MaterialTheme.colorScheme.primary) },
                     trailingContent = {
                         when (val dl = dlState) {

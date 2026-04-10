@@ -20,6 +20,7 @@ import com.caddieai.android.data.store.ProfileStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -177,9 +178,9 @@ class CourseViewModel @Inject constructor(
                 val s = sc.state.lowercase()
                 s == detectedStateCode.lowercase() ||
                     (detectedStateName != null && s == detectedStateName)
-            }
+            }.let { dedupGolfApiByName(it) }
 
-            val filteredNominatim = if (detectedStateCode != null) {
+            val stateFilteredNominatim = if (detectedStateCode != null) {
                 nominatimResults.filter { nom ->
                     val ns = nomState(nom)
                     val display = nom.display_name.lowercase()
@@ -191,6 +192,13 @@ class CourseViewModel @Inject constructor(
                         display.contains(", ${detectedStateCode.lowercase()} ")
                 }
             } else nominatimResults
+
+            // Collapse duplicate Nominatim entries for the same physical course
+            // (e.g. an OSM relation for the polygon plus a node for the
+            // clubhouse POI). Two entries with the same normalized name AND
+            // coordinates within 1 km are merged, preferring relation > way >
+            // node since relations/ways carry the actual course geometry.
+            val filteredNominatim = distinctByNameAndProximity(stateFilteredNominatim)
 
             // Convert Golf API results to NominatimResult for the UI.
             // Pair with a Nominatim entry when the *normalized* names match
@@ -288,7 +296,40 @@ class CourseViewModel @Inject constructor(
                 }
             } else distanceFiltered
 
-            _state.update { it.copy(isSearching = false, nominatimResults = sorted) }
+            // Enrich each row from the shared server cache (matches iOS).
+            // The Lambda fuzzy-matches by name + centroid and returns the
+            // canonical course it has on file, so Android picks up the
+            // human-friendly name iOS uploaded ("Riverwood Golf Club" rather
+            // than the Golf API's abbreviated "Riverwood Gc").
+            val enriched: List<NominatimResult> = if (serverCacheClient.isEnabled) {
+                coroutineScope {
+                    val deferreds = sorted.map { r ->
+                        async {
+                            val cached = runCatching {
+                                serverCacheClient.searchCourse(
+                                    query = r.cleanName,
+                                    latitude = r.latitude.takeIf { it != 0.0 },
+                                    longitude = r.longitude.takeIf { it != 0.0 },
+                                )
+                            }.getOrNull()
+                            if (cached == null) r else {
+                                val newCity = cached.city.ifBlank { r.address["city"].orEmpty() }
+                                val newState = cached.state.ifBlank { r.address["state"].orEmpty() }
+                                r.copy(
+                                    name = cached.name.ifBlank { r.name },
+                                    display_name = listOf(cached.name, newCity, newState)
+                                        .filter { it.isNotBlank() }.joinToString(", "),
+                                    address = r.address +
+                                        mapOf("city" to newCity, "state" to newState),
+                                )
+                            }
+                        }
+                    }
+                    deferreds.awaitAll()
+                }
+            } else sorted
+
+            _state.update { it.copy(isSearching = false, nominatimResults = enriched) }
             } catch (e: Exception) {
                 android.util.Log.e("CaddieAI/Search", "Search crashed: ${e.message}", e)
                 _state.update { it.copy(isSearching = false) }
@@ -542,6 +583,14 @@ class CourseViewModel @Inject constructor(
     private fun normalizeGolfName(name: String): String {
         var out = cleanCourseName(name).lowercase().trim()
         val suffixes = listOf(
+            // POI marker suffixes — strip BEFORE the descriptive suffixes so
+            // "Riverwood Golf Club Pro Shop" reduces to "Riverwood".
+            " pro shop",
+            " practice range",
+            " driving range",
+            " halfway house",
+            " club house",
+            " clubhouse",
             " golf & country club",
             " golf and country club",
             " municipal golf course",
@@ -760,6 +809,64 @@ class CourseViewModel @Inject constructor(
             val center = features.getJSONObject(0).getJSONArray("center")
             Pair(center.getDouble(1), center.getDouble(0)) // lat, lon
         } catch (_: Exception) { null }
+    }
+
+    /**
+     * Collapses Golf Course API duplicates. The API frequently lists the
+     * same physical course multiple times under different numeric IDs
+     * (e.g. "Riverwood Gc" in Clayton NC has IDs 7032, 17744, 17910 — all
+     * the same place). Two scorecards with the same normalized name + city +
+     * state are merged, keeping the lowest ID (typically the original entry).
+     */
+    private fun dedupGolfApiByName(
+        results: List<com.caddieai.android.data.course.CourseScorecard>,
+    ): List<com.caddieai.android.data.course.CourseScorecard> {
+        return results
+            .sortedBy { it.id.toLongOrNull() ?: Long.MAX_VALUE }
+            .distinctBy {
+                "${normalizeGolfName(it.name)}|${it.city.lowercase().trim()}|${it.state.lowercase().trim()}"
+            }
+    }
+
+    /** relation > way > node — relations and ways carry course geometry. */
+    private fun osmTypePriority(type: String): Int = when (type.lowercase()) {
+        "relation" -> 3
+        "way" -> 2
+        "node" -> 1
+        else -> 0
+    }
+
+    /**
+     * Collapses Nominatim results that point to the same physical course.
+     * Two entries with the same normalized golf name AND coordinates within
+     * 1 km of each other are merged into one — keeping the entry with the
+     * better OSM type (relation > way > node).
+     */
+    private fun distinctByNameAndProximity(results: List<NominatimResult>): List<NominatimResult> {
+        val kept = mutableListOf<NominatimResult>()
+        for (r in results) {
+            val rNorm = normalizeGolfName(r.cleanName)
+            val rLat = r.latitude
+            val rLon = r.longitude
+            val dupIdx = kept.indexOfFirst { existing ->
+                val eNorm = normalizeGolfName(existing.cleanName)
+                if (rNorm.isBlank() || eNorm.isBlank()) return@indexOfFirst false
+                // Exact equality on normalized names — containment would
+                // collapse "Pebble Beach Par-3" into "Pebble Beach Golf Links".
+                if (rNorm != eNorm) return@indexOfFirst false
+                val eLat = existing.latitude
+                val eLon = existing.longitude
+                if (rLat == 0.0 && rLon == 0.0) return@indexOfFirst false
+                if (eLat == 0.0 && eLon == 0.0) return@indexOfFirst false
+                haversineKm(eLat, eLon, rLat, rLon) <= 1.0
+            }
+            if (dupIdx < 0) {
+                kept.add(r)
+            } else if (osmTypePriority(r.osm_type) > osmTypePriority(kept[dupIdx].osm_type)) {
+                kept[dupIdx] = r
+            }
+        }
+        return kept
     }
 
     private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
