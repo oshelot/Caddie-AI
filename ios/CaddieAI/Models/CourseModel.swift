@@ -82,7 +82,7 @@ struct CourseStats: Codable, Sendable {
 // MARK: - Course ID Generator
 
 extension NormalizedCourse {
-    /// Deterministic ID from normalized name + centroid
+    /// Deterministic ID from normalized name + centroid (used for local cache)
     static func generateId(name: String, centroid: GeoJSONPoint) -> String {
         let normalized = name.lowercased()
             .replacingOccurrences(of: " ", with: "-")
@@ -91,5 +91,20 @@ extension NormalizedCourse {
         let latStr = String(format: "%.4f", centroid.latitude)
         let lonStr = String(format: "%.4f", centroid.longitude)
         return "\(normalized)_\(latStr)_\(lonStr)_osm-v\(currentSchemaVersion)"
+    }
+
+    /// Name-only key for the server cache. Coordinates are excluded because
+    /// iOS (MapKit) and Android (Nominatim) return different centroids for
+    /// the same course, breaking cross-platform cache sharing.
+    static func serverCacheKey(name: String) -> String {
+        name.lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "\"", with: "")
+    }
+
+    /// Server cache key for this course instance
+    var serverCacheKey: String {
+        NormalizedCourse.serverCacheKey(name: name)
     }
 }

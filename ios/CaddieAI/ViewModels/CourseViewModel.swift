@@ -78,12 +78,14 @@ final class CourseViewModel {
         let city = cityText.trimmingCharacters(in: .whitespacesAndNewlines)
         let searchTerm = city.isEmpty ? query : "\(query) \(city)"
 
-        // Run both searches in parallel
+        // Run searches + server cache metadata lookup in parallel
         async let nominatimTask = safeNominatimSearch(searchTerm)
         async let mapKitTask = searchWithMapKit(query: searchTerm)
+        async let manifestTask = safeManifestMetadataSearch(query)
 
         let nominatimResults = await nominatimTask
         let mapKitResults = await mapKitTask
+        let manifestEntries = await manifestTask
 
         // Merge: OSM results first, then MapKit results not already covered
         var merged = nominatimResults
@@ -100,6 +102,29 @@ final class CourseViewModel {
             }
             if !isDuplicate {
                 merged.append(mkResult)
+            }
+        }
+
+        // Overlay Google Places-corrected city/state from server cache manifest.
+        // The server cache stores city/state validated by Google Places on upload,
+        // which is more accurate than Nominatim (e.g. Sharp Park → Pacifica, not SF).
+        if !manifestEntries.isEmpty {
+            for i in merged.indices {
+                let resultNameLower = merged[i].name.lowercased()
+                // Find best manifest match by name (substring or exact match)
+                if let match = manifestEntries.first(where: { entry in
+                    let entryNameLower = entry.name.lowercased()
+                    return resultNameLower == entryNameLower
+                        || resultNameLower.contains(entryNameLower)
+                        || entryNameLower.contains(resultNameLower)
+                }) {
+                    if let city = match.city, !city.isEmpty {
+                        merged[i].city = city
+                    }
+                    if let state = match.state, !state.isEmpty {
+                        merged[i].state = state
+                    }
+                }
             }
         }
 
@@ -132,6 +157,20 @@ final class CourseViewModel {
         do {
             return try await NominatimClient.searchCourses(name: query)
         } catch {
+            LoggingService.shared.warning(.map, "nominatim_search_error", metadata: [
+                "query": query, "error": error.localizedDescription,
+            ])
+            return []
+        }
+    }
+
+    // MARK: - Server cache manifest metadata (safe wrapper)
+
+    private func safeManifestMetadataSearch(_ query: String) async -> [CourseManifestEntry] {
+        do {
+            return try await CourseCacheAPIClient.searchManifestMetadata(query: query)
+        } catch {
+            // Non-fatal — if the server cache is unreachable, we still show Nominatim results
             return []
         }
     }
@@ -175,6 +214,9 @@ final class CourseViewModel {
                 )
             }
         } catch {
+            LoggingService.shared.warning(.map, "mapkit_search_error", metadata: [
+                "error": error.localizedDescription,
+            ])
             return []
         }
     }
@@ -213,7 +255,15 @@ final class CourseViewModel {
                     let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
                     return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
                 }()
-                let needsEnrichment = cached.teeNames == nil && !cached.holes.isEmpty && !golfApiKey.isEmpty
+                let needsEnrichment = (cached.teeNames == nil || cached.teeNames?.isEmpty == true) && !cached.holes.isEmpty && !golfApiKey.isEmpty
+                LoggingService.shared.info(.map, "cache_enrichment_check", metadata: [
+                    "courseName": result.name,
+                    "teeNames": (cached.teeNames ?? []).joined(separator: ","),
+                    "teeNamesNil": "\(cached.teeNames == nil)",
+                    "needsEnrichment": "\(needsEnrichment)",
+                    "hasApiKey": "\(!golfApiKey.isEmpty)",
+                    "holeCount": "\(cached.holes.count)",
+                ])
                 if needsEnrichment {
                     LoggingService.shared.info(.map, "cache_check", metadata: [
                         "latencyMs": "\(cacheMs)", "courseName": result.name,
@@ -256,7 +306,11 @@ final class CourseViewModel {
             ingestionStep = "Checking server cache…"
             let serverStart = CFAbsoluteTimeGetCurrent()
             do {
-                if let serverCached = try await CourseCacheAPIClient.getCourse(id: courseId) {
+                if let serverCached = try await CourseCacheAPIClient.searchCourse(
+                    query: result.name,
+                    latitude: result.centroid.latitude,
+                    longitude: result.centroid.longitude
+                ) {
                     guard !Task.isCancelled else {
                         isIngesting = false
                         return
@@ -270,6 +324,48 @@ final class CourseViewModel {
                     selectedCourse = serverCached
                     TelemetryService.shared.recordCoursePlayed(courseName: serverCached.name)
                     isIngesting = false
+
+                    // Update search result with server-corrected city/state
+                    // (server cache uses Google Places validation, more accurate than Nominatim)
+                    if let idx = searchResults.firstIndex(where: { $0.name == result.name }) {
+                        if let city = serverCached.city { searchResults[idx].city = city }
+                        if let state = serverCached.state { searchResults[idx].state = state }
+                    }
+
+                    // If server-cached course is missing tee data, enrich in background
+                    let golfApiKey = {
+                        let profileKey = profileStore?.profile.golfCourseApiKey ?? ""
+                        return profileKey.isEmpty ? (Secrets.golfCourseApiKey ?? "") : profileKey
+                    }()
+                    let needsEnrichment = serverCached.teeNames == nil && !serverCached.holes.isEmpty && !golfApiKey.isEmpty
+                    if needsEnrichment {
+                        LoggingService.shared.info(.map, "server_cache_re_enriching", metadata: [
+                            "courseName": result.name,
+                        ])
+                        let courseName = result.name
+                        Task {
+                            let enriched = await self.enrichWithScorecardData(
+                                courses: [serverCached], courseName: courseName, apiKey: golfApiKey
+                            )
+                            if let course = enriched.first {
+                                self.cacheService?.save(course)
+                                self.selectedCourse = course
+                                // Update server cache with enriched version
+                                if Secrets.courseCacheEndpoint != nil {
+                                    do {
+                                        try await CourseCacheAPIClient.putCourse(course)
+                                        LoggingService.shared.info(.map, "server_cache_upload", metadata: [
+                                            "courseName": course.name, "courseId": course.id, "source": "server_re_enrich",
+                                        ])
+                                    } catch {
+                                        LoggingService.shared.warning(.map, "server_cache_upload_error", metadata: [
+                                            "courseName": course.name, "courseId": course.id, "error": error.localizedDescription, "source": "server_re_enrich",
+                                        ])
+                                    }
+                                }
+                            }
+                        }
+                    }
                     return
                 }
                 LoggingService.shared.info(.map, "server_cache_check", metadata: [
@@ -420,6 +516,11 @@ final class CourseViewModel {
                         self.cacheService?.save(course)
                     }
                     if enrichedCourses.count == 1, let enriched = enrichedCourses.first {
+                        LoggingService.shared.info(.map, "enrich_applying", metadata: [
+                            "courseName": enriched.name,
+                            "teeNames": (enriched.teeNames ?? []).joined(separator: ","),
+                            "totalPar": "\(enriched.totalPar ?? -1)",
+                        ])
                         self.selectedCourse = enriched
                     } else if enrichedCourses.count > 1 {
                         self.availableSubCourses = enrichedCourses
@@ -680,7 +781,11 @@ final class CourseViewModel {
                 longitude: course.centroid.longitude
             )
         } catch {
-            // Weather is optional
+            // Weather is optional — log but don't fail
+            LoggingService.shared.warning(.map, "weather_fetch_error", metadata: [
+                "courseName": course.name,
+                "error": "\(error)",
+            ])
         }
     }
 
@@ -717,6 +822,11 @@ final class CourseViewModel {
             } catch {
                 downloadProgress.removeValue(forKey: courseId)
                 downloadErrorCourseIDs.insert(courseId)
+                LoggingService.shared.error(.map, "background_download_error", metadata: [
+                    "courseId": courseId,
+                    "courseName": result.name,
+                    "error": "\(error)",
+                ])
             }
             downloadTasks.removeValue(forKey: courseId)
         }
@@ -747,7 +857,11 @@ final class CourseViewModel {
         onProgress?(0.10)
         if Secrets.courseCacheEndpoint != nil {
             do {
-                if let serverCached = try await CourseCacheAPIClient.getCourse(id: courseId) {
+                if let serverCached = try await CourseCacheAPIClient.searchCourse(
+                    query: result.name,
+                    latitude: result.centroid.latitude,
+                    longitude: result.centroid.longitude
+                ) {
                     cacheService?.save(serverCached)
                     onProgress?(1.0)
                     return [serverCached]
@@ -755,7 +869,12 @@ final class CourseViewModel {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                // Server cache failure is non-fatal
+                // Server cache failure is non-fatal — log for diagnostics
+                LoggingService.shared.warning(.map, "server_cache_get_error", metadata: [
+                    "courseId": courseId,
+                    "courseName": result.name,
+                    "error": "\(error)",
+                ])
             }
         }
 
@@ -825,7 +944,20 @@ final class CourseViewModel {
         if Secrets.courseCacheEndpoint != nil {
             for course in finalCourses {
                 Task {
-                    try? await CourseCacheAPIClient.putCourse(course)
+                    do {
+                        try await CourseCacheAPIClient.putCourse(course)
+                        LoggingService.shared.info(.map, "server_cache_upload", metadata: [
+                            "courseId": course.id,
+                            "courseName": course.name,
+                            "holeCount": "\(course.holes.count)",
+                        ])
+                    } catch {
+                        LoggingService.shared.error(.map, "server_cache_upload_error", metadata: [
+                            "courseId": course.id,
+                            "courseName": course.name,
+                            "error": "\(error)",
+                        ])
+                    }
                 }
             }
         }
@@ -846,30 +978,44 @@ final class CourseViewModel {
     private func enrichWithScorecardData(courses: [NormalizedCourse], courseName: String, apiKey: String) async -> [NormalizedCourse] {
         // Check rate limit before making Golf API calls
         if let store = apiUsageStore, !store.canMakeGolfAPICall {
+            LoggingService.shared.warning(.map, "enrich_rate_limited", metadata: ["courseName": courseName])
             return courses
         }
 
         do {
             // Search returns summary data; fetch full detail for tee/hole info
+            LoggingService.shared.info(.map, "enrich_searching", metadata: ["courseName": courseName, "apiKeyPrefix": String(apiKey.prefix(4))])
             var results = try await GolfCourseAPIClient.searchCourses(name: courseName, apiKey: apiKey)
             apiUsageStore?.recordGolfAPICall(method: "searchCourses")
             TelemetryService.shared.recordGolfAPICall(method: "searchCourses")
+            LoggingService.shared.info(.map, "enrich_search_results", metadata: ["courseName": courseName, "count": "\(results.count)"])
 
             // If no results, retry with common suffixes stripped
             // (e.g. "Sharp Park Golf Course" → "Sharp Park")
             if results.isEmpty {
-                let stripped = Self.golfNameSuffixes.reduce(courseName) { name, suffix in
+                var stripped = Self.golfNameSuffixes.reduce(courseName) { name, suffix in
                     name.replacingOccurrences(of: suffix, with: "", options: .caseInsensitive)
                 }.trimmingCharacters(in: .whitespaces)
+                // Also strip trailing digits that Nominatim sometimes concatenates
+                // (e.g. "Sharp Park 50" → "Sharp Park")
+                while let last = stripped.last, last.isNumber {
+                    stripped.removeLast()
+                }
+                stripped = stripped.trimmingCharacters(in: .whitespaces)
 
                 if !stripped.isEmpty && stripped != courseName {
+                    LoggingService.shared.info(.map, "enrich_retry_stripped", metadata: ["original": courseName, "stripped": stripped])
                     results = try await GolfCourseAPIClient.searchCourses(name: stripped, apiKey: apiKey)
                     apiUsageStore?.recordGolfAPICall(method: "searchCourses")
                     TelemetryService.shared.recordGolfAPICall(method: "searchCourses")
+                    LoggingService.shared.info(.map, "enrich_retry_results", metadata: ["stripped": stripped, "count": "\(results.count)"])
                 }
             }
 
-            guard let bestMatch = results.first else { return courses }
+            guard let bestMatch = results.first else {
+                LoggingService.shared.warning(.map, "enrich_no_match", metadata: ["courseName": courseName])
+                return courses
+            }
 
             // The search result may have tees already, but fetch detail to be sure
             let detail = try await GolfCourseAPIClient.getCourse(id: bestMatch.id, apiKey: apiKey)
@@ -878,6 +1024,13 @@ final class CourseViewModel {
             let courseData = detail ?? bestMatch
 
             let scorecard = courseData.extractScorecardData()
+            LoggingService.shared.info(.map, "enrich_scorecard", metadata: [
+                "courseName": courseName,
+                "totalPar": "\(scorecard.totalPar ?? 0)",
+                "teeCount": "\(scorecard.teeBoxInfos.count)",
+                "teeNames": scorecard.teeBoxInfos.map(\.name).joined(separator: ","),
+                "isEmpty": "\(scorecard.isEmpty)",
+            ])
             guard !scorecard.isEmpty else { return courses }
 
             return courses.map { course in
@@ -933,6 +1086,10 @@ final class CourseViewModel {
             }
         } catch {
             // Enrichment is best-effort — don't fail ingestion
+            LoggingService.shared.error(.map, "enrich_error", metadata: [
+                "courseName": courseName,
+                "error": "\(error)",
+            ])
             return courses
         }
     }

@@ -53,28 +53,28 @@ enum NominatimClient {
 
         let decoded = try JSONDecoder().decode([NominatimResult].self, from: data)
 
-        return decoded
-            .filter { isGolfCourse($0) }
-            .compactMap { result -> CourseSearchResult? in
-                guard let lat = Double(result.lat),
-                      let lon = Double(result.lon) else { return nil }
+        var results: [CourseSearchResult] = []
+        for result in decoded where isGolfCourse(result) {
+            guard let lat = Double(result.lat),
+                  let lon = Double(result.lon) else { continue }
 
-                let courseName = extractCourseName(from: result)
-                let bbox = parseBoundingBox(result.boundingbox)
-                let centroid = GeoJSONPoint(latitude: lat, longitude: lon)
+            let courseName = extractCourseName(from: result)
+            let bbox = parseBoundingBox(result.boundingbox)
+            let centroid = GeoJSONPoint(latitude: lat, longitude: lon)
 
-                return CourseSearchResult(
-                    id: "\(result.osm_type ?? "node")\(result.osm_id)",
-                    name: courseName,
-                    city: result.address?["city"]
-                        ?? result.address?["town"]
-                        ?? result.address?["village"],
-                    state: result.address?["state"],
-                    centroid: centroid,
-                    boundingBox: bbox,
-                    isCached: false
-                )
-            }
+            let city = extractCity(from: result.address)
+
+            results.append(CourseSearchResult(
+                id: "\(result.osm_type ?? "node")\(result.osm_id)",
+                name: courseName,
+                city: city,
+                state: result.address?["state"],
+                centroid: centroid,
+                boundingBox: bbox,
+                isCached: false
+            ))
+        }
+        return results
     }
 
     // MARK: - Response Types
@@ -113,10 +113,30 @@ enum NominatimClient {
     private static func extractCourseName(from result: NominatimResult) -> String {
         // Use the first component of display_name (before the first comma)
         let full = result.display_name
+        var name: String
         if let commaIndex = full.firstIndex(of: ",") {
-            return String(full[full.startIndex..<commaIndex]).trimmingCharacters(in: .whitespaces)
+            name = String(full[full.startIndex..<commaIndex]).trimmingCharacters(in: .whitespaces)
+        } else {
+            name = full
         }
-        return full
+
+        // Strip trailing digits that Nominatim sometimes concatenates
+        // (e.g. "Sharp Park Golf Course50" → "Sharp Park Golf Course")
+        while let last = name.last, last.isNumber {
+            name.removeLast()
+        }
+        return name.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Extract city from a Nominatim address response.
+    /// Note: Nominatim city data can be inaccurate for golf courses (e.g.,
+    /// Sharp Park shows "San Francisco" instead of "Pacifica"). The server
+    /// cache corrects this via Google Places validation on PUT — so the
+    /// initial search result may show the wrong city, but the cached course
+    /// will have the correct one.
+    private static func extractCity(from address: [String: String]?) -> String? {
+        guard let address else { return nil }
+        return address["city"] ?? address["town"] ?? address["village"]
     }
 
     private static func parseBoundingBox(_ bbox: [String]?) -> CourseBoundingBox? {

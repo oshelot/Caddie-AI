@@ -17,8 +17,18 @@ struct TapDistanceInfo {
 }
 
 struct CourseMapView: View {
-    let course: NormalizedCourse
+    /// Initial course passed at navigation time; enrichment may update it via the view model.
+    private let initialCourse: NormalizedCourse
     @Environment(CourseViewModel.self) private var viewModel
+
+    /// Live course that reflects background enrichment updates (tee data, pars, etc.)
+    private var course: NormalizedCourse {
+        viewModel.selectedCourse ?? initialCourse
+    }
+
+    init(course: NormalizedCourse) {
+        self.initialCourse = course
+    }
     @Environment(ProfileStore.self) private var profileStore
     @Environment(APIUsageStore.self) private var apiUsageStore
     @Environment(SubscriptionManager.self) private var subscriptionManager
