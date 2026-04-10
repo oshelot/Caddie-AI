@@ -123,17 +123,24 @@ class LLMProxyService @Inject constructor(
             "temperature" to JsonPrimitive(0.7),
             "stream"      to JsonPrimitive(true),
         )
-        val request = Request.Builder()
-            .url(BuildConfig.LLM_PROXY_ENDPOINT)
-            .addHeader("x-api-key", BuildConfig.LLM_PROXY_API_KEY)
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Accept", "text/event-stream")
-            .post(Json.encodeToString(JsonObject(bodyMap)).toRequestBody(JSON_MEDIA_TYPE))
-            .build()
+        // BuildConfig fields are static — Kotlin re-reads them per request via
+        // getstatic, so we always pick up whatever the freshly installed APK has.
+        val buildBody = { Json.encodeToString(JsonObject(bodyMap)).toRequestBody(JSON_MEDIA_TYPE) }
+        val buildRequest: () -> Request = {
+            Request.Builder()
+                .url(BuildConfig.LLM_PROXY_ENDPOINT)
+                .addHeader("x-api-key", BuildConfig.LLM_PROXY_API_KEY)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Accept", "text/event-stream")
+                .post(buildBody())
+                .build()
+        }
 
-        val response = httpClient.newCall(request).execute()
+        val response = executeWithRetry(buildRequest, callSite = "stream")
         if (!response.isSuccessful) {
+            val errBody = runCatching { response.body?.string().orEmpty() }.getOrDefault("")
             response.close()
+            logProxyFailure("stream", response.code, errBody)
             error("Streaming proxy error ${response.code}")
         }
 
@@ -187,16 +194,21 @@ class LLMProxyService @Inject constructor(
             bodyMap["response_format"] = JsonObject(mapOf("type" to JsonPrimitive("json_object")))
         }
 
-        val request = Request.Builder()
-            .url(BuildConfig.LLM_PROXY_ENDPOINT)
-            .addHeader("x-api-key", BuildConfig.LLM_PROXY_API_KEY)
-            .addHeader("Content-Type", "application/json")
-            .post(Json.encodeToString(JsonObject(bodyMap)).toRequestBody(JSON_MEDIA_TYPE))
-            .build()
+        // BuildConfig.* are re-read on every call (static getstatic), so we
+        // always pick up the latest installed key/endpoint.
+        val buildRequest: () -> Request = {
+            Request.Builder()
+                .url(BuildConfig.LLM_PROXY_ENDPOINT)
+                .addHeader("x-api-key", BuildConfig.LLM_PROXY_API_KEY)
+                .addHeader("Content-Type", "application/json")
+                .post(Json.encodeToString(JsonObject(bodyMap)).toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+        }
 
-        val responseBody = httpClient.newCall(request).execute().use { response ->
+        val responseBody = executeWithRetry(buildRequest, callSite = "request").use { response ->
             val body = response.body?.string() ?: error("Empty proxy response")
             if (!response.isSuccessful) {
+                logProxyFailure("request", response.code, body)
                 val errMsg = runCatching {
                     (lenientJson.parseToJsonElement(body) as? JsonObject)
                         ?.get("error")?.let { (it as? JsonPrimitive)?.content }
@@ -268,6 +280,70 @@ class LLMProxyService @Inject constructor(
         }
 
         return JsonObject(normalized).toString()
+    }
+
+    /**
+     * Executes a request with one automatic retry on transient failures
+     * (5xx, 408 timeout, IOException). 4xx — including 401/403 auth errors
+     * — are returned immediately because retrying with the same key won't
+     * help and would just amplify rate-limit problems.
+     */
+    private suspend fun executeWithRetry(
+        buildRequest: () -> Request,
+        callSite: String,
+        maxRetries: Int = 1,
+    ): okhttp3.Response {
+        var lastError: Throwable? = null
+        var attempt = 0
+        while (true) {
+            try {
+                val response = httpClient.newCall(buildRequest()).execute()
+                val transient = response.code == 408 || response.code in 500..599
+                if (transient && attempt < maxRetries) {
+                    logger.log(LogLevel.WARN, LogCategory.LLM, "proxy_retry",
+                        mapOf("status" to response.code, "attempt" to attempt, "site" to callSite))
+                    response.close()
+                    attempt++
+                    kotlinx.coroutines.delay(500L * attempt)
+                    continue
+                }
+                return response
+            } catch (e: java.io.IOException) {
+                lastError = e
+                if (attempt < maxRetries) {
+                    logger.log(LogLevel.WARN, LogCategory.LLM, "proxy_retry_io",
+                        mapOf("error" to (e.message ?: "io"), "attempt" to attempt, "site" to callSite))
+                    attempt++
+                    kotlinx.coroutines.delay(500L * attempt)
+                    continue
+                }
+                throw e
+            }
+        }
+    }
+
+    /**
+     * Emits a structured failure log with enough context to diagnose auth
+     * mismatches against CloudWatch (status, key prefix, endpoint host, body
+     * preview). Auth errors (401/403) get an extra ERROR-level event so they
+     * stand out.
+     */
+    private fun logProxyFailure(callSite: String, status: Int, body: String) {
+        val key = BuildConfig.LLM_PROXY_API_KEY
+        val keyPrefix = if (key.length >= 6) key.take(6) else "(empty)"
+        val endpoint = BuildConfig.LLM_PROXY_ENDPOINT
+        val host = runCatching { java.net.URI(endpoint).host }.getOrNull() ?: ""
+        val event = if (status == 401 || status == 403) "proxy_auth_failed" else "proxy_call_failed"
+        val level = if (status == 401 || status == 403) LogLevel.ERROR else LogLevel.WARN
+        logger.log(level, LogCategory.LLM, event, mapOf(
+            "status" to status,
+            "site" to callSite,
+            "keyPrefix" to keyPrefix,
+            "host" to host,
+            "bodyPreview" to body.take(200),
+        ))
+        android.util.Log.e("CaddieAI/Proxy",
+            "$event status=$status site=$callSite key=$keyPrefix… host=$host body=${body.take(200)}")
     }
 
     private fun buildContent(text: String, imageBase64: String?): JsonElement {
