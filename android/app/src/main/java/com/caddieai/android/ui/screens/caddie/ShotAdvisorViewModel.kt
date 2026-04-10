@@ -44,22 +44,39 @@ sealed class AutoDetectState {
     data class Error(val message: String) : AutoDetectState()
 }
 
+/**
+ * KAN-116: Skeleton -> progressive reveal flow (matches iOS).
+ *
+ * - Loading: bottom sheet shows a skeleton/shimmer while the LLM is in flight.
+ *   The deterministic engine still runs silently in this phase to feed the
+ *   LLM prompt and provide a fallback, but its result is never shown.
+ * - Revealing: LLM returned successfully; sections appear one at a time
+ *   driven by `revealStep` (1=hero, 2=execution plan, 3=rationale).
+ * - Complete: all sections visible, follow-up chat enabled.
+ * - Error: LLM failed — fall back to the deterministic recommendation,
+ *   show all sections at once with an error banner. Follow-up chat enabled.
+ */
 sealed class ShotAdvisorState {
     data object Idle : ShotAdvisorState()
     data object Loading : ShotAdvisorState()
-    data class Deterministic(
+    data class Revealing(
         val recommendation: ShotRecommendation,
         val archetype: ShotArchetype,
-        val engineNotes: String,
+        val revealStep: Int,
         val engineMs: Long = 0L,
+        val llmMs: Long = 0L,
     ) : ShotAdvisorState()
-    data class Enhanced(
+    data class Complete(
         val recommendation: ShotRecommendation,
         val archetype: ShotArchetype,
         val engineMs: Long = 0L,
         val llmMs: Long = 0L,
     ) : ShotAdvisorState()
-    data class Error(val message: String, val fallback: ShotRecommendation? = null, val archetype: ShotArchetype? = null) : ShotAdvisorState()
+    data class Error(
+        val message: String,
+        val fallback: ShotRecommendation? = null,
+        val archetype: ShotArchetype? = null,
+    ) : ShotAdvisorState()
 }
 
 @HiltViewModel
@@ -137,8 +154,8 @@ class ShotAdvisorViewModel @Inject constructor(
 
     fun speakAdvice() {
         val rec = when (val s = _state.value) {
-            is ShotAdvisorState.Enhanced -> s.recommendation
-            is ShotAdvisorState.Deterministic -> s.recommendation
+            is ShotAdvisorState.Complete -> s.recommendation
+            is ShotAdvisorState.Revealing -> s.recommendation
             is ShotAdvisorState.Error -> s.fallback
             else -> null
         } ?: return
@@ -168,6 +185,8 @@ class ShotAdvisorViewModel @Inject constructor(
                 "shotType" to ctx.shotType.name, "hasImage" to (imageBase64 != null)),
             message = "Get Advice tapped: ${ctx.distanceToPin}yds, lie=${ctx.lie}, shotType=${ctx.shotType}")
         viewModelScope.launch {
+            // Stay in Loading until either reveal starts or the call errors out.
+            // The bottom sheet uses this state to render its skeleton.
             _state.value = ShotAdvisorState.Loading
 
             val profile = profileStore.getProfile()
@@ -177,48 +196,77 @@ class ShotAdvisorViewModel @Inject constructor(
                         profile.imageAnalysisBetaEnabled
             }
 
-            // Step 1: Instant deterministic recommendation
+            // Run the deterministic engine silently — it feeds the LLM prompt
+            // (via LLMRouter) and serves as the fallback if the LLM call fails.
+            // It is NEVER shown to the user on its own.
             val engineStart = System.currentTimeMillis()
             val engineResult = GolfLogicEngine.analyze(context, profile)
             val deterministicRec = GolfLogicEngine.analyzeToRecommendation(context, profile)
-            val archetype = ExecutionEngine.buildArchetype(engineResult.recommendedClub, context, profile)
+            val deterministicArchetype = ExecutionEngine.buildArchetype(engineResult.recommendedClub, context, profile)
             val engineMs = System.currentTimeMillis() - engineStart
 
-            _state.value = ShotAdvisorState.Deterministic(
-                recommendation = deterministicRec,
-                archetype = archetype,
-                engineNotes = engineResult.notes,
-                engineMs = engineMs,
-            )
-
-            // Step 2: Enhanced LLM recommendation (async)
             val hasApiKey = profile.openAiApiKey.isNotBlank() ||
                     profile.anthropicApiKey.isNotBlank() ||
                     profile.googleApiKey.isNotBlank() ||
                     profile.effectiveTier == com.caddieai.android.data.model.UserTier.PRO
 
-            if (hasApiKey) {
-                val llmStart = System.currentTimeMillis()
-                llmRouter.getRecommendation(context, profile, effectiveImage)
-                    .onSuccess { llmRec ->
-                        val llmMs = System.currentTimeMillis() - llmStart
-                        val llmArchetype = ExecutionEngine.buildArchetype(llmRec.recommendedClub, context, profile)
-                        _state.value = ShotAdvisorState.Enhanced(llmRec, llmArchetype, engineMs, llmMs)
-                        saveToHistory(context, llmRec)
-                    }
-                    .onFailure { e ->
-                        // Keep the deterministic result as fallback
-                        _state.value = ShotAdvisorState.Error(
-                            message = e.message ?: "AI recommendation failed",
-                            fallback = deterministicRec,
-                            archetype = archetype,
-                        )
-                        saveToHistory(context, deterministicRec)
-                    }
-            } else {
-                // No LLM available — save the deterministic result to history
+            if (!hasApiKey) {
+                // No LLM available — surface the deterministic result via the
+                // Error path so the UI shows the same "AI unavailable" affordance
+                // and the user still gets a recommendation.
+                _state.value = ShotAdvisorState.Error(
+                    message = "AI provider not configured — showing analysis-only recommendation",
+                    fallback = deterministicRec,
+                    archetype = deterministicArchetype,
+                )
                 saveToHistory(context, deterministicRec)
+                return@launch
             }
+
+            val llmStart = System.currentTimeMillis()
+            llmRouter.getRecommendation(context, profile, effectiveImage)
+                .onSuccess { llmRec ->
+                    val llmMs = System.currentTimeMillis() - llmStart
+                    val llmArchetype = ExecutionEngine.buildArchetype(llmRec.recommendedClub, context, profile)
+                    startProgressiveReveal(llmRec, llmArchetype, engineMs, llmMs)
+                    saveToHistory(context, llmRec)
+                }
+                .onFailure { e ->
+                    _state.value = ShotAdvisorState.Error(
+                        message = e.message ?: "AI recommendation failed",
+                        fallback = deterministicRec,
+                        archetype = deterministicArchetype,
+                    )
+                    saveToHistory(context, deterministicRec)
+                }
+        }
+    }
+
+    /**
+     * Drives the staggered reveal animation. Mirrors iOS:
+     *   step 1 (hero club/distance)  +300ms after LLM returns
+     *   step 2 (execution plan)      +800ms
+     *   step 3 (rationale)           +1800ms
+     *   Complete                     +500ms
+     */
+    private fun startProgressiveReveal(
+        recommendation: ShotRecommendation,
+        archetype: ShotArchetype,
+        engineMs: Long,
+        llmMs: Long,
+    ) {
+        viewModelScope.launch {
+            // Emit Revealing immediately so the sheet swaps from skeleton to
+            // an empty card layout that's about to fill in.
+            _state.value = ShotAdvisorState.Revealing(recommendation, archetype, 0, engineMs, llmMs)
+            kotlinx.coroutines.delay(300)
+            _state.value = ShotAdvisorState.Revealing(recommendation, archetype, 1, engineMs, llmMs)
+            kotlinx.coroutines.delay(800)
+            _state.value = ShotAdvisorState.Revealing(recommendation, archetype, 2, engineMs, llmMs)
+            kotlinx.coroutines.delay(1800)
+            _state.value = ShotAdvisorState.Revealing(recommendation, archetype, 3, engineMs, llmMs)
+            kotlinx.coroutines.delay(500)
+            _state.value = ShotAdvisorState.Complete(recommendation, archetype, engineMs, llmMs)
         }
     }
 

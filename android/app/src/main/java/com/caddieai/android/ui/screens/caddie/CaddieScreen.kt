@@ -12,6 +12,14 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +45,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GolfCourse
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MyLocation
@@ -83,6 +92,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -170,24 +180,32 @@ fun CaddieScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    // Bottom sheet state
+    // Bottom sheet state — opens as soon as analysis starts so we can show
+    // the skeleton during the LLM round-trip (KAN-116, matches iOS).
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val showBottomSheet = state !is ShotAdvisorState.Idle && state !is ShotAdvisorState.Loading
-    val isEnriching = state is ShotAdvisorState.Deterministic
-    val isEnhanced = state is ShotAdvisorState.Enhanced
+    val showBottomSheet = state !is ShotAdvisorState.Idle
+    val isLoadingPhase = state is ShotAdvisorState.Loading
+    val isCompletePhase = state is ShotAdvisorState.Complete
+    val isErrorPhase = state is ShotAdvisorState.Error
     val sheetRec = when (val s = state) {
-        is ShotAdvisorState.Deterministic -> s.recommendation
-        is ShotAdvisorState.Enhanced -> s.recommendation
+        is ShotAdvisorState.Revealing -> s.recommendation
+        is ShotAdvisorState.Complete -> s.recommendation
         is ShotAdvisorState.Error -> s.fallback
         else -> null
     }
     val sheetArchetype = when (val s = state) {
-        is ShotAdvisorState.Deterministic -> s.archetype
-        is ShotAdvisorState.Enhanced -> s.archetype
+        is ShotAdvisorState.Revealing -> s.archetype
+        is ShotAdvisorState.Complete -> s.archetype
         is ShotAdvisorState.Error -> s.archetype
         else -> null
     }
-    val sheetEngineNotes = (state as? ShotAdvisorState.Deterministic)?.engineNotes ?: ""
+    // revealStep: 0 = nothing yet, 1 = hero, 2 = execution plan, 3 = rationale.
+    // Complete and Error states show every section immediately.
+    val revealStep = when (val s = state) {
+        is ShotAdvisorState.Revealing -> s.revealStep
+        is ShotAdvisorState.Complete, is ShotAdvisorState.Error -> 3
+        else -> 0
+    }
 
     Scaffold(
         topBar = {
@@ -502,37 +520,47 @@ fun CaddieScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // "Enhancing with AI..." banner
-                if (isEnriching) {
-                    item {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Text(
-                                "Enhancing with AI…",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+                // Loading skeleton — replaces the old "deterministic preview"
+                // and "Enhancing with AI…" banner. The user only ever sees
+                // either this skeleton or the final LLM recommendation.
+                if (isLoadingPhase) {
+                    item { ShotAdvisorSkeleton() }
                 }
 
-                // Recommendation card
+                // Recommendation sections — gated by revealStep so they fade
+                // in one at a time during the Revealing phase. Complete and
+                // Error states show every section immediately (revealStep=3).
                 sheetRec?.let { rec ->
                     sheetArchetype?.let { arch ->
                         item {
-                            RecommendationCard(
-                                recommendation = rec,
-                                archetype = arch,
-                                isEnhanced = isEnhanced,
-                                showBadge = isEnhanced,
-                                engineNotes = sheetEngineNotes,
-                            )
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = revealStep >= 1,
+                                enter = androidx.compose.animation.fadeIn() +
+                                    androidx.compose.animation.expandVertically(),
+                            ) {
+                                RecommendationHeroCard(
+                                    recommendation = rec,
+                                    isEnhanced = isCompletePhase || state is ShotAdvisorState.Revealing,
+                                )
+                            }
+                        }
+                        item {
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = revealStep >= 2,
+                                enter = androidx.compose.animation.fadeIn() +
+                                    androidx.compose.animation.expandVertically(),
+                            ) {
+                                ExecutionPlanSection(arch)
+                            }
+                        }
+                        item {
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = revealStep >= 3,
+                                enter = androidx.compose.animation.fadeIn() +
+                                    androidx.compose.animation.expandVertically(),
+                            ) {
+                                RecommendationRationaleSection(rec)
+                            }
                         }
                     }
                 }
@@ -540,8 +568,8 @@ fun CaddieScreen(
                 // Debug latency label (debug builds only)
                 if (com.caddieai.android.BuildConfig.DEBUG) {
                     val (engineMs, llmMs) = when (val s = state) {
-                        is ShotAdvisorState.Enhanced -> Pair(s.engineMs, s.llmMs)
-                        is ShotAdvisorState.Deterministic -> Pair(s.engineMs, 0L)
+                        is ShotAdvisorState.Complete -> Pair(s.engineMs, s.llmMs)
+                        is ShotAdvisorState.Revealing -> Pair(s.engineMs, s.llmMs)
                         else -> Pair(0L, 0L)
                     }
                     if (engineMs > 0 || llmMs > 0) {
@@ -557,8 +585,8 @@ fun CaddieScreen(
                     }
                 }
 
-                // Error banner (AI failed, showing engine fallback)
-                if (state is ShotAdvisorState.Error) {
+                // Error banner (AI failed, showing analysis-only fallback)
+                if (isErrorPhase) {
                     item {
                         Card(
                             shape = CaddieShape.medium,
@@ -569,7 +597,7 @@ fun CaddieScreen(
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(
-                                    "AI unavailable — showing engine recommendation",
+                                    "AI unavailable — showing analysis-only recommendation",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                 )
@@ -583,8 +611,9 @@ fun CaddieScreen(
                     }
                 }
 
-                // Follow-up Q&A — only available once enrichment is done
-                if (!isEnriching) {
+                // Follow-up Q&A — only available once the reveal is finished
+                // (Complete) or the LLM failed (Error fallback shown).
+                if (isCompletePhase || isErrorPhase) {
                     if (conversation.isNotEmpty()) {
                         items(conversation) { (isUser, text) ->
                             ConversationBubble(text = text, isUser = isUser)
@@ -644,14 +673,62 @@ fun CaddieScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+/**
+ * Skeleton shown while the LLM is in flight (KAN-116). Mirrors iOS:
+ * pulsing golf icon, headline, indeterminate spinner.
+ */
 @Composable
-private fun RecommendationCard(
+private fun ShotAdvisorSkeleton() {
+    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "skeleton")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.08f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(
+                durationMillis = 1200,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing,
+            ),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "skeleton-scale",
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(
+            Icons.Default.GolfCourse,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .size(48.dp)
+                .graphicsLayer(scaleX = scale, scaleY = scale),
+        )
+        Text(
+            "Analyzing your shot…",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        CircularProgressIndicator(
+            modifier = Modifier.size(24.dp),
+            strokeWidth = 2.dp,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+/**
+ * Hero card — first section to fade in during the progressive reveal.
+ * Club name + AI badge + target/risk/confidence row.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecommendationHeroCard(
     recommendation: ShotRecommendation,
-    archetype: ShotArchetype,
     isEnhanced: Boolean,
-    showBadge: Boolean = true,
-    engineNotes: String = "",
 ) {
     Card(
         shape = CaddieShape.large,
@@ -659,7 +736,8 @@ private fun RecommendationCard(
             containerColor = if (isEnhanced)
                 MaterialTheme.colorScheme.primaryContainer
             else MaterialTheme.colorScheme.surfaceVariant
-        )
+        ),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -669,11 +747,10 @@ private fun RecommendationCard(
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.weight(1f))
-                if (showBadge) {
+                if (isEnhanced) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 4.dp)
                     ) {
                         Text(
                             "AI",
@@ -684,7 +761,6 @@ private fun RecommendationCard(
                     }
                 }
             }
-
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 LabelValue("Target", "${recommendation.targetDistanceYards} yds")
                 LabelValue("Risk", recommendation.riskLevel.name)
@@ -693,19 +769,41 @@ private fun RecommendationCard(
                     "${(recommendation.confidenceScore * 100).toInt()}%"
                 )
             }
+        }
+    }
+}
 
+/**
+ * Rationale section — last to appear in the progressive reveal. Holds the
+ * narrative copy that the LLM produces (target description, wind/slope
+ * adjustments, execution plan, alternative club).
+ */
+@Composable
+private fun RecommendationRationaleSection(recommendation: ShotRecommendation) {
+    Card(
+        shape = CaddieShape.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (recommendation.targetDescription.isNotBlank()) {
                 Text(recommendation.targetDescription, style = MaterialTheme.typography.bodyMedium)
             }
             if (recommendation.windAdjustmentNote.isNotBlank()) {
-                Text("Wind: ${recommendation.windAdjustmentNote}",
+                Text(
+                    "Wind: ${recommendation.windAdjustmentNote}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (recommendation.slopeAdjustmentNote.isNotBlank()) {
-                Text("Slope: ${recommendation.slopeAdjustmentNote}",
+                Text(
+                    "Slope: ${recommendation.slopeAdjustmentNote}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (recommendation.executionPlan.isNotBlank()) {
                 Text(recommendation.executionPlan, style = MaterialTheme.typography.bodySmall)
@@ -716,14 +814,6 @@ private fun RecommendationCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-
-            // Execution plan card
-            ExecutionPlanSection(archetype)
-
-            if (engineNotes.isNotBlank()) {
-                Text(engineNotes, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
