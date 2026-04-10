@@ -193,29 +193,38 @@ class CourseViewModel @Inject constructor(
             } else nominatimResults
 
             // Convert Golf API results to NominatimResult for the UI.
-            // Only pair with a Nominatim entry when city/state also agree — otherwise
-            // we can graft a California course's coordinates onto a Texas course.
+            // Pair with a Nominatim entry when the *normalized* names match
+            // (Gc / Golf Course / Country Club suffixes stripped) and states
+            // agree. City is NOT required because OSM often tags a course
+            // under a neighboring city ("Sharp Park Golf Course" sits in
+            // Pacifica but is tagged San Francisco in OSM).
+            val usedOsmIds = mutableSetOf<Long>()
             val results = filteredGolfApi.map { scorecard ->
-                val scName = scorecard.name.lowercase()
-                val scCity = scorecard.city.lowercase()
+                val scNorm = normalizeGolfName(scorecard.name)
                 val scState = scorecard.state.lowercase()
                 val osmMatch = filteredNominatim.firstOrNull { nom ->
-                    val nName = nom.name.lowercase()
-                    val nameOk = nName.isNotBlank() && (nName.contains(scName) || scName.contains(nName))
-                    val nc = nomCity(nom)
+                    if (nom.osm_id in usedOsmIds) return@firstOrNull false
+                    val nNorm = normalizeGolfName(nom.cleanName)
+                    val nameOk = nNorm.isNotBlank() && scNorm.isNotBlank() &&
+                        (nNorm == scNorm || nNorm.contains(scNorm) || scNorm.contains(nNorm))
                     val ns = nomState(nom)
-                    val cityOk = scCity.isBlank() || nc.isBlank() || nc.contains(scCity) || scCity.contains(nc)
-                    val stateOk = scState.isBlank() || ns.isBlank() || ns.contains(scState) || scState.contains(ns)
-                    nameOk && cityOk && stateOk
+                    val stateOk = scState.isBlank() || ns.isBlank() ||
+                        ns.contains(scState) || scState.contains(ns)
+                    nameOk && stateOk
                 }
+                if (osmMatch != null && osmMatch.osm_id > 0) usedOsmIds.add(osmMatch.osm_id)
+                // Prefer the longer OSM name when paired — "Sharp Park Golf
+                // Course" reads better than "Sharp Park Gc".
+                val displayName = if (osmMatch != null && osmMatch.cleanName.length > scorecard.name.length)
+                    osmMatch.cleanName else scorecard.name
                 NominatimResult(
                     // Use Golf API id as place_id so courseIdFor() can produce a unique
                     // ID even when there's no OSM match (prevents mass-download collision).
                     place_id = scorecard.id.toLongOrNull() ?: 0L,
                     osm_id = osmMatch?.osm_id ?: 0L,
                     osm_type = osmMatch?.osm_type ?: "",
-                    display_name = "${scorecard.name}, ${scorecard.city}, ${scorecard.state}",
-                    name = scorecard.name,
+                    display_name = "$displayName, ${scorecard.city}, ${scorecard.state}",
+                    name = displayName,
                     lat = osmMatch?.lat ?: "0",
                     lon = osmMatch?.lon ?: "0",
                     type = "golf_course",
@@ -223,20 +232,19 @@ class CourseViewModel @Inject constructor(
                 )
             }
 
-            // Dedup by full name + city only. State is excluded because Golf API uses
-            // "CA" while Nominatim uses "California", which would cause false dupes.
-            fun dedupKey(name: String, city: String) =
-                "${name.lowercase().trim()}|${city.lowercase().trim()}"
-
-            val usedKeys = results.map {
-                dedupKey(it.name, it.address["city"] ?: "")
-            }.toMutableSet()
+            // Fuzzy dedup on normalized names. City is deliberately omitted —
+            // same reason as osmMatch. Also exclude any Nominatim entry already
+            // consumed as an osmMatch above so we don't emit a duplicate row.
+            val dedupNames = results.map { normalizeGolfName(it.name) }.toMutableList()
             val extraNominatim = filteredNominatim.filter { nom ->
-                val key = dedupKey(
-                    nom.name.ifBlank { nom.display_name.substringBefore(",") },
-                    nomCity(nom),
-                )
-                usedKeys.add(key)
+                if (nom.osm_id in usedOsmIds) return@filter false
+                val nNorm = normalizeGolfName(nom.cleanName)
+                val isDup = dedupNames.any { existing ->
+                    nNorm.isNotBlank() && existing.isNotBlank() &&
+                        (existing == nNorm || existing.contains(nNorm) || nNorm.contains(existing))
+                }
+                if (!isDup) dedupNames.add(nNorm)
+                !isDup
             }
 
             val merged = results + extraNominatim
@@ -311,10 +319,15 @@ class CourseViewModel @Inject constructor(
                 return@launch
             }
 
-            // On local miss: race server cache vs full ingestion pipeline
-            // First result with valid data wins
+            // On local miss: race the fuzzy server-cache search against the
+            // full ingestion pipeline. The server does name + centroid matching
+            // so Android and iOS uploads interop even though their coordinates
+            // come from different sources.
             if (serverCacheClient.isEnabled) {
-                val serverDeferred = async { serverCacheClient.getCourse(existingId) }
+                val searchName = cleanCourseName(result.cleanName)
+                val serverDeferred = async {
+                    serverCacheClient.searchCourse(searchName, result.latitude, result.longitude)
+                }
                 val ingestionDeferred = async { ingestCourse(result) }
 
                 val serverCached = serverDeferred.await()
@@ -353,7 +366,7 @@ class CourseViewModel @Inject constructor(
         fun reportBg(p: Float) { onBackgroundProgress?.invoke(p) }
         val profile = profileStore.getProfile()
         val ingestionStart = System.currentTimeMillis()
-        val courseName = result.name.ifBlank { result.display_name.substringBefore(",") }
+        val courseName = cleanCourseName(result.cleanName)
 
         updateProgress(IngestionStep.FETCHING_SCORECARD, 0.1f)
         reportBg(0.15f) // starting Overpass fetch
@@ -495,12 +508,63 @@ class CourseViewModel @Inject constructor(
         }
     }
 
-    /** Computes the stable course ID used for caching, matching selectAndIngestCourse logic. */
-    fun courseIdFor(result: NominatimResult): String = when {
-        result.osm_id > 0 -> result.osm_id.toString()
-        // Golf API id is stashed in place_id by search() — unique per scorecard.
-        result.place_id > 0 -> "golfapi_${result.place_id}"
-        else -> "mapbox_${result.name.lowercase().replace(" ", "_")}_${result.lat}_${result.lon}"
+    /**
+     * Stable course ID shared with iOS via `NormalizedCourse.generateId()` when
+     * we have usable coordinates — this makes Android hit the same server cache
+     * key iOS already populated. Falls back to a Golf API synthetic ID only
+     * when there are no coordinates at all.
+     */
+    fun courseIdFor(result: NominatimResult): String {
+        val lat = result.latitude
+        val lon = result.longitude
+        val name = cleanCourseName(result.cleanName)
+        if ((lat != 0.0 || lon != 0.0) && name.isNotBlank()) {
+            return NormalizedCourse.generateId(name, lat, lon)
+        }
+        if (result.place_id > 0) return "golfapi_${result.place_id}"
+        return "mapbox_${name.lowercase().replace(" ", "_")}_${result.lat}_${result.lon}"
+    }
+
+    /** Strips trailing digits Nominatim sometimes concatenates onto course names. */
+    private fun cleanCourseName(name: String): String {
+        var out = name
+        while (out.isNotEmpty() && out.last().isDigit()) out = out.dropLast(1)
+        return out.trim()
+    }
+
+    /**
+     * Reduces a golf course name to a comparable core: lowercase, trailing
+     * digits dropped, common suffixes ("Golf Course", "Gc", "Country Club"…)
+     * removed. Used when pairing Golf API results with Nominatim entries and
+     * when fuzzy-dedup'ing the merged list. Longer phrases are stripped first
+     * so "Golf & Country Club" isn't half-eaten by "Country Club".
+     */
+    private fun normalizeGolfName(name: String): String {
+        var out = cleanCourseName(name).lowercase().trim()
+        val suffixes = listOf(
+            " golf & country club",
+            " golf and country club",
+            " municipal golf course",
+            " public golf course",
+            " country club",
+            " golf course",
+            " golf club",
+            " golf links",
+            " gc",
+            " cc",
+            " golf",
+        )
+        var changed = true
+        while (changed) {
+            changed = false
+            for (s in suffixes) {
+                if (out.endsWith(s)) {
+                    out = out.removeSuffix(s).trim()
+                    changed = true
+                }
+            }
+        }
+        return out.replace(Regex("\\s+"), " ").trim()
     }
 
     /** Returns the current download state for a search result (checks cache). */
@@ -577,7 +641,19 @@ class CourseViewModel @Inject constructor(
                     ?.let { golfApiClient.getCourse(it, apiKey) }
                 android.util.Log.d("CaddieAI/Tee", "selectCachedCourse refresh: teeNames=${detail?.teeNames}")
                 if (detail != null && detail.teeNames.isNotEmpty()) {
+                    // Merge scorecard pars/yardages into the existing holes so
+                    // the UI shows real pars (not the fallback 4) while keeping
+                    // the OSM-derived geometry we already computed.
+                    val updatedHoles = course.holes.map { existing ->
+                        val scHole = detail.holes.firstOrNull { it.number == existing.number }
+                        if (scHole != null) existing.copy(
+                            par = scHole.par,
+                            yardage = scHole.yardage,
+                            handicapIndex = scHole.handicapIndex,
+                        ) else existing
+                    }
                     val updated = course.copy(
+                        holes = updatedHoles,
                         teeNames = detail.teeNames,
                         holeYardagesByTee = detail.holeYardagesByTee,
                     )

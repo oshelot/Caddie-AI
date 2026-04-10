@@ -27,6 +27,17 @@ data class NominatimResult(
 ) {
     val latitude: Double get() = lat.toDoubleOrNull() ?: 0.0
     val longitude: Double get() = lon.toDoubleOrNull() ?: 0.0
+
+    /**
+     * Human-facing course name. Prefers the `name` field from OSM tags, falls
+     * back to the first comma-delimited segment of `display_name`. Strips any
+     * trailing digits — Nominatim sometimes concatenates house/ref numbers
+     * onto the course name ("Sharp Park Golf Course50, 501, Cabrillo Highway…").
+     */
+    val cleanName: String get() {
+        val raw = if (name.isNotBlank()) name else display_name.substringBefore(",")
+        return raw.trimEnd { it.isDigit() || it.isWhitespace() }.trim()
+    }
     val cityState: String get() = buildString {
         address["city"]?.let { append(it) }
         address["state"]?.let {

@@ -29,15 +29,89 @@ class CourseNormalizer @Inject constructor() {
         val tees = osmElements.filter { it.tags["golf"] == "tee" }
         val fairways = osmElements.filter { it.tags["golf"] == "fairway" }
         val bunkers = osmElements.filter { it.tags["golf"] == "bunker" }
-        val water = osmElements.filter { it.tags["golf"] == "water_hazard" || it.tags["water"] == "hazard" }
+        // KAN-248: also match natural=water — many courses tag water features
+        // with natural=water instead of golf=water_hazard.
+        val water = osmElements.filter {
+            it.tags["golf"] == "water_hazard" ||
+                it.tags["water"] == "hazard" ||
+                it.tags["natural"] == "water"
+        }
 
-        val holes = scorecard.holes.mapIndexed { idx, sc ->
-            val holeNum = sc.number
-            val osmHole = holeElements.firstOrNull {
-                it.tags["ref"]?.toIntOrNull() == holeNum
+        // PASS 1 — build hole-number -> osmHole map (ref matching only; hole
+        // way-lines reliably carry ref tags even when tees/greens don't).
+        val osmHoleByNum: Map<Int, OverpassElement> = buildMap {
+            for (h in holeElements) {
+                val n = h.tags["ref"]?.toIntOrNull() ?: h.tags["hole"]?.toIntOrNull() ?: continue
+                putIfAbsent(n, h)
             }
-            val green = greens.firstOrNull { it.tags["ref"]?.toIntOrNull() == holeNum }
-            val tee = tees.firstOrNull { it.tags["ref"]?.toIntOrNull() == holeNum }
+        }
+        val holeNums = scorecard.holes.map { it.number }
+
+        // PASS 2 — associate greens. Ref match first; fall back to nearest hole
+        // end-point within 547 yards (~500m). Each green assigned at most once.
+        // Each hole keeps its first green.
+        val greenByHole = mutableMapOf<Int, OverpassElement>()
+        val unrefGreens = mutableListOf<OverpassElement>()
+        for (g in greens) {
+            val refNum = g.tags["ref"]?.toIntOrNull()
+            if (refNum != null && refNum in holeNums && refNum !in greenByHole) {
+                greenByHole[refNum] = g
+            } else {
+                unrefGreens.add(g)
+            }
+        }
+        for (g in unrefGreens) {
+            val gCenter = g.geometry.centroid() ?: continue
+            var bestHole: Int? = null
+            var bestDist = Double.MAX_VALUE
+            for (n in holeNums) {
+                if (n in greenByHole) continue
+                val holeLine = osmHoleByNum[n]?.geometry ?: continue
+                val endPt = holeLine.lastOrNull()?.toGeoPoint() ?: continue
+                val d = gCenter.distanceInYards(endPt)
+                if (d < bestDist) { bestDist = d; bestHole = n }
+            }
+            if (bestHole != null && bestDist <= 547.0) {
+                greenByHole[bestHole] = g
+            }
+        }
+
+        // PASS 3 — associate tees. Ref match first; fall back to nearest hole
+        // start-point within 328 yards (~300m). Multiple tees may map to the
+        // same hole (different tee boxes), so only the FIRST becomes the
+        // hole's primary teeBox.
+        val teeByHole = mutableMapOf<Int, OverpassElement>()
+        val unrefTees = mutableListOf<OverpassElement>()
+        for (t in tees) {
+            val refNum = t.tags["ref"]?.toIntOrNull()
+            if (refNum != null && refNum in holeNums && refNum !in teeByHole) {
+                teeByHole[refNum] = t
+            } else if (refNum == null) {
+                unrefTees.add(t)
+            }
+        }
+        for (t in unrefTees) {
+            val tCenter = t.geometry.centroid() ?: continue
+            var bestHole: Int? = null
+            var bestDist = Double.MAX_VALUE
+            for (n in holeNums) {
+                val holeLine = osmHoleByNum[n]?.geometry ?: continue
+                val startPt = holeLine.firstOrNull()?.toGeoPoint() ?: continue
+                val d = tCenter.distanceInYards(startPt)
+                if (d < bestDist) { bestDist = d; bestHole = n }
+            }
+            if (bestHole != null && bestDist <= 328.0) {
+                teeByHole.putIfAbsent(bestHole, t)
+            }
+        }
+
+        // PASS 4 — build final Hole objects. Bunkers and water still attach by
+        // hole-corridor proximity (unchanged, but now using the osmHoleByNum map).
+        val holes = scorecard.holes.map { sc ->
+            val holeNum = sc.number
+            val osmHole = osmHoleByNum[holeNum]
+            val green = greenByHole[holeNum]
+            val tee = teeByHole[holeNum]
             val fairway = fairways.firstOrNull { it.tags["ref"]?.toIntOrNull() == holeNum }
 
             val holeBunkers = bunkers.filter { b ->
@@ -54,7 +128,7 @@ class CourseNormalizer @Inject constructor() {
                 par = sc.par,
                 yardage = sc.yardage,
                 handicapIndex = sc.handicapIndex,
-                teeBox = tee?.geometry?.firstOrNull()?.toGeoPoint(),
+                teeBox = tee?.geometry?.centroid() ?: tee?.geometry?.firstOrNull()?.toGeoPoint(),
                 pin = green?.geometry?.centroid(),
                 fairwayCenterLine = fairway?.geometry
                     ?.takeIf { it.size >= 2 }

@@ -348,7 +348,7 @@ private fun SearchTabContent(
             items(state.nominatimResults) { result ->
                 val dlState = downloadStateFor(result)
                 ListItem(
-                    headlineContent = { Text(result.name.ifBlank { result.display_name.substringBefore(",") }) },
+                    headlineContent = { Text(result.cleanName) },
                     supportingContent = { Text(result.display_name, maxLines = 2) },
                     leadingContent = { Icon(Icons.Default.GolfCourse, null, tint = MaterialTheme.colorScheme.primary) },
                     trailingContent = {

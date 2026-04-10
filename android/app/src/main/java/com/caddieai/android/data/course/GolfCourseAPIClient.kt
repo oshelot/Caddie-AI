@@ -51,12 +51,39 @@ class GolfCourseAPIClient @Inject constructor(
     companion object {
         private const val BASE_URL = "https://api.golfcourseapi.com/v1"
         private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
+        // KAN-248: suffix fallback — many OSM/Nominatim course names include
+        // descriptive suffixes ("Sharp Park Golf Course") that the Golf Course
+        // API doesn't match. When the initial search returns empty we retry
+        // with these suffixes removed. Order matters: longer phrases first so
+        // "Golf & Country Club" is stripped before "Golf" and "Country Club".
+        private val GOLF_NAME_SUFFIXES = listOf(
+            "Golf & Country Club",
+            "Golf and Country Club",
+            "Municipal Golf Course",
+            "Public Golf Course",
+            "Country Club",
+            "Golf Course",
+            "Golf Links",
+            "Golf Club",
+        )
     }
 
     /** Search for a course by name. Returns a list of matching courses. */
     suspend fun searchCourses(query: String, apiKey: String): List<CourseScorecard> {
         if (apiKey.isBlank()) return emptyList()
-        return withContext(Dispatchers.IO) {
+        val initial = searchCoursesRaw(query, apiKey)
+        if (initial.isNotEmpty()) return initial
+        val stripped = stripGolfSuffixes(query)
+        if (stripped.isNotBlank() && !stripped.equals(query, ignoreCase = true)) {
+            logger.log(LogLevel.INFO, LogCategory.API, "golf_api_search_suffix_retry",
+                mapOf("original_len" to query.length, "stripped_len" to stripped.length))
+            return searchCoursesRaw(stripped, apiKey)
+        }
+        return initial
+    }
+
+    private suspend fun searchCoursesRaw(query: String, apiKey: String): List<CourseScorecard> =
+        withContext(Dispatchers.IO) {
             try {
                 logger.log(LogLevel.INFO, LogCategory.API, "golf_api_search", mapOf("query_len" to query.length))
                 val url = "$BASE_URL/search?search_query=${query.urlEncode()}"
@@ -83,6 +110,16 @@ class GolfCourseAPIClient @Inject constructor(
                 emptyList()
             }
         }
+
+    private fun stripGolfSuffixes(name: String): String {
+        var out = name
+        for (suffix in GOLF_NAME_SUFFIXES) {
+            out = out.replace(suffix, "", ignoreCase = true)
+        }
+        // Also strip any trailing digits left over from Nominatim concatenating
+        // house/ref numbers onto the course name ("Sharp Park 50" -> "Sharp Park").
+        out = out.trimEnd { it.isDigit() || it.isWhitespace() }
+        return out.trim().replace(Regex("\\s+"), " ")
     }
 
     /** Fetch detailed scorecard for a course by its ID. */
@@ -148,26 +185,30 @@ private data class GolfAPIDetailResponse(
 
         // Use all tees, deduplicate by canonical name (first occurrence wins).
         // KAN-248: case-insensitive dedup so "RED" (male) and "Red" (female) collapse
-        // to one entry. Canonical display name uses title case ("Red", not "RED").
+        // to one entry. First-seen casing wins. Also strips trailing yardage-like
+        // numbers ("Blue 6432" -> "Blue") that some scorecards bake into tee names.
         val allTeeSets: List<GolfAPITeeSet> = buildList {
             tees.male?.let { addAll(it) }
             tees.female?.let { addAll(it) }
         }
 
+        fun cleanTeeName(raw: String): String =
+            raw.replace(Regex("\\s+\\d{3,}\\s*$"), "").trim()
+
         // lowercase key -> canonical display name (first-seen casing wins, matches iOS)
         val canonicalByKey = linkedMapOf<String, String>()
         allTeeSets.forEach { ts ->
-            val raw = ts.tee_name
-            if (raw.isNotBlank()) {
-                val key = raw.lowercase()
-                if (key !in canonicalByKey) canonicalByKey[key] = raw
+            val cleaned = cleanTeeName(ts.tee_name)
+            if (cleaned.isNotBlank()) {
+                val key = cleaned.lowercase()
+                if (key !in canonicalByKey) canonicalByKey[key] = cleaned
             }
         }
         val teeNamesList = canonicalByKey.values.sorted()
 
         val holeYardagesByTee: Map<String, Map<String, Int>> = allTeeSets
-            .filter { it.tee_name.isNotBlank() }
-            .groupBy { it.tee_name.lowercase() }
+            .filter { cleanTeeName(it.tee_name).isNotBlank() }
+            .groupBy { cleanTeeName(it.tee_name).lowercase() }
             .mapValues { (_, teeSets) ->
                 val teeSet = teeSets.first()
                 // API doesn't include hole_number — use array index + 1
