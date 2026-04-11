@@ -56,22 +56,34 @@ class _ScaffoldPlaceholder extends StatelessWidget {
               ),
               const SizedBox(height: 32),
               // Smoke test for the CaddieIcons SVG integration (KAN-291).
-              // If any of these render as blank space or fail to load,
-              // the asset declaration in pubspec.yaml is wrong — see
-              // docs/design/icons.md and ADR 0007.
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CaddieIcons.flag(size: 40, color: Colors.greenAccent),
-                  const SizedBox(width: 24),
-                  CaddieIcons.golfer(size: 40, color: Colors.white),
-                  const SizedBox(width: 24),
-                  CaddieIcons.distance(size: 40, color: Colors.amberAccent),
-                ],
+              // White card + untinted (source-color, i.e. black) icons
+              // to match how the SVGs were designed: black strokes on
+              // a light background. This isolates "is flutter_svg
+              // rendering the SVGs correctly" from "are my smoke-test
+              // colors right". If these don't show recognizable line
+              // drawings, the issue is flutter_svg or the SVGs
+              // themselves — not the smoke test.
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CaddieIcons.flag(size: 48),
+                    const SizedBox(width: 24),
+                    CaddieIcons.golfer(size: 48),
+                    const SizedBox(width: 24),
+                    CaddieIcons.distance(size: 48),
+                  ],
+                ),
               ),
               const SizedBox(height: 8),
               const Text(
-                'CaddieIcons smoke test (flutter_svg)',
+                'CaddieIcons smoke test — black on white, untinted',
                 style: TextStyle(fontSize: 10, color: Colors.white38),
               ),
             ],
