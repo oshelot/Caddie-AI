@@ -23,6 +23,7 @@ dependencies:
   # drawings (`fill: none; stroke: #000;`), which TTF glyphs cannot
   # represent. See ADR 0007 for the full rationale.
   flutter_svg: ^2.0.0
+  go_router: ^17.2.0
 
 dev_dependencies:
   flutter_test:
