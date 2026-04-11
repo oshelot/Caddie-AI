@@ -214,17 +214,26 @@ abstract final class GolfLogicEngine {
 
   // ── Club selection (iOS lines 181-202) ──────────────────────────
   //
-  // **Known iOS quirk (preserved):** when the effective distance
-  // exceeds every allowed club's carry yards (e.g. 300y target
-  // with a 245y driver, OR a 220y target with a 6-iron lie
-  // restriction), the algorithm falls back to the SHORTEST allowed
-  // club, not the longest. The iOS code initializes
-  // `bestClub = sorted.last?.club` which, after a descending sort,
-  // is the shortest. The loop only updates `bestClub` when it
-  // finds a club that COVERS the distance — and if none do, the
-  // initialization stands. Per ADR 0008 we replicate iOS exactly,
-  // including this quirk. If a future iOS patch fixes it, update
-  // both files in lock-step.
+  // **Normal case** (some club covers the distance): the loop walks
+  // longest → shortest, overwriting `bestClub` each time it finds
+  // a club that still covers, then breaks when it hits one that
+  // doesn't. The final value is the SHORTEST club whose carry ≥
+  // effective distance — the right answer for golf (you don't
+  // crush a 50y shot with a driver).
+  //
+  // **Edge case** (no club covers, e.g. 300y target with a 245y
+  // driver): the loop's first iteration immediately fails the
+  // `>=` check and breaks. `bestClub` stays at its default, which
+  // mirrors iOS's `sorted.last?.club ?? .pitchingWedge` — the
+  // shortest allowed club, or a pitching wedge for an empty bag.
+  // The empty-bag wedge fallback is clearly intentional in iOS;
+  // the "distance exceeds bag" path is an incidental side effect
+  // of that choice rather than an explicit recommendation. Per
+  // ADR 0008 we replicate iOS exactly. If product later wants a
+  // "longest available club" behavior for unreachable targets,
+  // that's a deliberate Flutter-side improvement that needs an
+  // ADR amendment AND a matching update on the iOS side to keep
+  // the byte-identical contract intact.
   static Club selectClub({
     required int effectiveDistance,
     required Map<Club, int> clubDistances,
@@ -237,7 +246,9 @@ abstract final class GolfLogicEngine {
 
     if (entries.isEmpty) return Club.pitchingWedge;
 
-    var bestClub = entries.last.key; // shortest in allowed set (iOS quirk)
+    // Default = shortest allowed club. Mirrors iOS's
+    // `sorted.last?.club ?? .pitchingWedge`. See file comment above.
+    var bestClub = entries.last.key;
     for (final entry in entries) {
       if (entry.value >= effectiveDistance) {
         bestClub = entry.key;

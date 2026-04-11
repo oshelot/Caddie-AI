@@ -387,21 +387,21 @@ void main() {
     });
 
     test(
-        'iOS quirk: when no club covers the distance, returns the SHORTEST '
-        'club in the allowed set (not the longest). Faithfully replicating '
-        'the iOS algorithm per ADR 0008 — see GolfLogicEngine.selectClub '
-        'comments and the iOS source at lines 191-202.', () {
+        'unreachable target: when no club covers the distance, falls back '
+        'to the shortest allowed club. Mirrors the iOS algorithm '
+        '(`sorted.last?.club ?? .pitchingWedge`) — see GolfLogicEngine.selectClub '
+        'comments and ADR 0008. Product can revisit this fallback later '
+        'as a separate Flutter+iOS change.', () {
       final club = GolfLogicEngine.selectClub(
         effectiveDistance: 300,
         clubDistances: _bag,
       );
-      // Defaults to `sorted.last?.club` (shortest after descending sort).
       expect(club, Club.lobWedge);
     });
 
     test(
-        'maxAllowedClub limits the candidate set; same iOS quirk applies '
-        'when nothing in the limited set covers the distance', () {
+        'maxAllowedClub limits the candidate set; the same fallback '
+        'applies when nothing in the limited set covers the distance', () {
       // Max allowed is 6-iron from a fairway bunker. Effective
       // distance 220y exceeds 6-iron carry (170y), so no club in
       // {6i, 7i, 8i, 9i, PW, GW, SW, LW} covers — falls back to
