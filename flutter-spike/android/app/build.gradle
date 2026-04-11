@@ -7,9 +7,11 @@ plugins {
 
 android {
     namespace = "com.caddieai.spike.caddieai_flutter_spike"
-    // Bumped from flutter.compileSdkVersion (34) to 35 because
-    // flutter_plugin_android_lifecycle 2.0.26 requires compileSdk 35.
-    compileSdk = 35
+    // KAN-270 retest 2026-04-11: bumped 35 → 36 because
+    // flutter_plugin_android_lifecycle (transitive from
+    // mapbox_maps_flutter 2.21.1) now requires compileSdk 36.
+    // Was 35 for the original spike on mapbox_maps_flutter 2.12.0.
+    compileSdk = 36
     // mapbox_maps_flutter + flutter_plugin_android_lifecycle both request 26.1.
     ndkVersion = "26.1.10909125"
 

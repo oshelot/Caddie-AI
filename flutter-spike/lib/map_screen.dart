@@ -246,10 +246,12 @@ class _MapScreenState extends State<MapScreen> {
 
     // 4. Hole lines — #FFFFFF @ 0.8, width 2, dasharray [4,3]
     //
-    // iOS-spike note: earlier runs found this layer silently missing on
-    // iOS. Dropping `lineDasharray` to isolate whether that's the cause.
-    // If the layer renders as a solid line, dasharray encoding is the
-    // bug. If it still fails, something else in LineLayer is.
+    // KAN-270 AC #1 retest (2026-04-11): lineDasharray RESTORED to verify
+    // whether SPIKE_REPORT §4 Bug 2 still reproduces on
+    // mapbox_maps_flutter 2.21.1 (was confirmed broken on 2.12.0). If the
+    // layer still silently disappears from the style, file the bug
+    // upstream. If the layer now renders dashes correctly, mark Bug 2 as
+    // fixed in 2.13+ and update the report.
     await _tryAddLayer('hole-lines', () => mbx.LineLayer(
           id: _holeLinesLayer,
           sourceId: _sourceId,
@@ -257,7 +259,7 @@ class _MapScreenState extends State<MapScreen> {
           lineColor: 0xFFFFFFFF,
           lineOpacity: 0.8,
           lineWidth: 2.0,
-          // lineDasharray: [4.0, 3.0],  // iOS-disabled for spike diagnosis
+          lineDasharray: [4.0, 3.0],
         ));
 
     // 5. Greens — #4CAF50 @ 0.6
@@ -278,12 +280,14 @@ class _MapScreenState extends State<MapScreen> {
           fillOpacity: 0.5,
         ));
 
-    // 7. Hole labels — white text, black halo.
+    // 7. Hole labels — white text, black halo, DIN Pro Bold.
     //
-    // iOS-spike note: earlier runs found this layer silently missing on
-    // iOS. Dropping `textFont` (DIN Pro Bold fallback chain) to isolate
-    // whether that's the cause. If the layer renders in the style
-    // default typeface, textFont is the bug.
+    // KAN-270 AC #1 retest (2026-04-11): textFont RESTORED to verify
+    // whether SPIKE_REPORT §4 Bug 3 still reproduces on
+    // mapbox_maps_flutter 2.21.1 (was confirmed broken on 2.12.0). If the
+    // layer still silently disappears from the style, file the bug
+    // upstream. If the layer now renders labels (in any font), Bug 3 is
+    // fixed in 2.13+.
     await _tryAddLayer('hole-labels', () => mbx.SymbolLayer(
           id: _holeLabelsLayer,
           sourceId: _sourceId,
@@ -294,7 +298,7 @@ class _MapScreenState extends State<MapScreen> {
           textHaloColor: 0xFF000000,
           textHaloWidth: 1.5,
           textAllowOverlap: true,
-          // textFont: const ['DIN Pro Bold', 'Arial Unicode MS Bold'], // iOS-disabled
+          textFont: const ['DIN Pro Bold', 'Arial Unicode MS Bold'],
         ));
 
     // Audit — which layers actually made it into the style?
@@ -536,7 +540,7 @@ class _TopBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.55),
+        color: Colors.black.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
@@ -556,7 +560,7 @@ class _DistanceHud extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: const Color(0xFFFFD700), width: 1.5),
       ),
@@ -589,7 +593,7 @@ class _PerfHud extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(6),
       ),
       child: DefaultTextStyle(
@@ -625,7 +629,7 @@ class _HoleSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.black.withOpacity(0.55),
+      color: Colors.black.withValues(alpha: 0.55),
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: SizedBox(
         height: 56,
