@@ -1,16 +1,5 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg id="Capa_2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <defs>
-    <style>
-      .cls-1 {
-        fill: none;
-        stroke: #000;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-        stroke-width: 1.5px;
-      }
-    </style>
-  </defs>
-  <path class="cls-1" d="M16.56,2.87v2.2c0,.54-.3,1.05-.77,1.31l-.3.16c-.94.61-1.51,1.15-1.51,2.1v9.13c0,.84-.32,1.64-.9,2.24l-1.08,1.12-1.08-1.12c-.58-.6-.9-1.4-.9-2.24v-9.13c0-.95-.57-1.48-1.51-2.1l-.3-.16c-.48-.26-.77-.76-.77-1.31v-2.2h9.12Z"/>
-  <line class="cls-1" x1="8.02" y1="5.73" x2="15.98" y2="5.73"/>
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" id="Capa_2" viewBox="0 0 24 24">
+  <path d="M16.56,2.87v2.2c0,.54-.3,1.05-.77,1.31l-.3.16c-.94.61-1.51,1.15-1.51,2.1v9.13c0,.84-.32,1.64-.9,2.24l-1.08,1.12-1.08-1.12c-.58-.6-.9-1.4-.9-2.24v-9.13c0-.95-.57-1.48-1.51-2.1l-.3-.16c-.48-.26-.77-.76-.77-1.31v-2.2h9.12Z" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <line x1="8.02" y1="5.73" x2="15.98" y2="5.73" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
 </svg>

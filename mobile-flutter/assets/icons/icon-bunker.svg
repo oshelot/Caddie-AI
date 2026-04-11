@@ -1,20 +1,9 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg id="Capa_1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <defs>
-    <style>
-      .cls-1 {
-        fill: none;
-        stroke: #000;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-        stroke-width: 1.5px;
-      }
-    </style>
-  </defs>
-  <ellipse class="cls-1" cx="12" cy="12" rx="9.03" ry="7.87"/>
-  <line class="cls-1" x1="6.83" y1="10.8" x2="8.14" y2="10.8"/>
-  <line class="cls-1" x1="12.25" y1="12.41" x2="13.56" y2="12.41"/>
-  <line class="cls-1" x1="13.28" y1="8.63" x2="14.58" y2="8.63"/>
-  <line class="cls-1" x1="8.78" y1="15.83" x2="10.08" y2="15.83"/>
-  <line class="cls-1" x1="15.93" y1="14.95" x2="17.24" y2="14.95"/>
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" id="Capa_1" viewBox="0 0 24 24">
+  <ellipse cx="12" cy="12" rx="9.03" ry="7.87" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></ellipse>
+  <line x1="6.83" y1="10.8" x2="8.14" y2="10.8" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
+  <line x1="12.25" y1="12.41" x2="13.56" y2="12.41" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
+  <line x1="13.28" y1="8.63" x2="14.58" y2="8.63" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
+  <line x1="8.78" y1="15.83" x2="10.08" y2="15.83" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
+  <line x1="15.93" y1="14.95" x2="17.24" y2="14.95" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
 </svg>

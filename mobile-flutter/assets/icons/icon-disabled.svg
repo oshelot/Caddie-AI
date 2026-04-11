@@ -1,25 +1,13 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg id="Capa_2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <defs>
-    <style>
-      .cls-1 {
-        fill: none;
-        stroke: #000;
-        stroke-dasharray: 2.05 4.11;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-        stroke-width: 1.5px;
-      }
-    </style>
-  </defs>
-  <path class="cls-1" d="M11.01,20.95s-1.35-.14-2.22-.53"/>
-  <path class="cls-1" d="M5.94,18.66s-1.01-.9-1.49-1.74"/>
-  <path class="cls-1" d="M3.18,13.82s-.29-1.33-.18-2.28"/>
-  <path class="cls-1" d="M3.79,8.29s.55-1.24,1.2-1.95"/>
-  <path class="cls-1" d="M7.54,4.18s1.17-.68,2.11-.88"/>
-  <path class="cls-1" d="M12.99,3.05s1.35.14,2.22.53"/>
-  <path class="cls-1" d="M18.06,5.34s1.01.9,1.49,1.74"/>
-  <path class="cls-1" d="M20.82,10.18s.29,1.33.18,2.28"/>
-  <path class="cls-1" d="M20.21,15.71s-.55,1.24-1.2,1.95"/>
-  <path class="cls-1" d="M16.46,19.82s-1.17.68-2.11.88"/>
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" id="Capa_2" viewBox="0 0 24 24">
+  <path d="M11.01,20.95s-1.35-.14-2.22-.53" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <path d="M5.94,18.66s-1.01-.9-1.49-1.74" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <path d="M3.18,13.82s-.29-1.33-.18-2.28" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <path d="M3.79,8.29s.55-1.24,1.2-1.95" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <path d="M7.54,4.18s1.17-.68,2.11-.88" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <path d="M12.99,3.05s1.35.14,2.22.53" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <path d="M18.06,5.34s1.01.9,1.49,1.74" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <path d="M20.82,10.18s.29,1.33.18,2.28" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <path d="M20.21,15.71s-.55,1.24-1.2,1.95" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+  <path d="M16.46,19.82s-1.17.68-2.11.88" fill="none" stroke="#000" stroke-dasharray="2.05 4.11" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
 </svg>

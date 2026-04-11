@@ -1,24 +1,13 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg id="Capa_1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <defs>
-    <style>
-      .cls-1 {
-        fill: none;
-        stroke: #000;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-        stroke-width: 1.5px;
-      }
-    </style>
-  </defs>
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" id="Capa_1" viewBox="0 0 24 24">
   <g>
-    <path class="cls-1" d="M2.98,16.02s-.13-2.1.18-3.04c.51-1.54,1.29-1.89,2.4-1.89.97,0,1.62.84,1.68,1.78s-.02,1.23-.32,2.4-.39,1.82-.19,2.76c.12.56.73,3.05-1.05,3.05-1.68,0-2.72-3.46-2.7-5.06Z"/>
-    <path class="cls-1" d="M21.02,16.02s.13-2.1-.18-3.04c-.51-1.54-1.29-1.89-2.4-1.89-.97,0-1.62.84-1.68,1.78s.02,1.23.32,2.4.39,1.82.19,2.76c-.12.56-.73,3.05,1.05,3.05,1.68,0,2.72-3.46,2.7-5.06Z"/>
+    <path d="M2.98,16.02s-.13-2.1.18-3.04c.51-1.54,1.29-1.89,2.4-1.89.97,0,1.62.84,1.68,1.78s-.02,1.23-.32,2.4-.39,1.82-.19,2.76c.12.56.73,3.05-1.05,3.05-1.68,0-2.72-3.46-2.7-5.06Z" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+    <path d="M21.02,16.02s.13-2.1-.18-3.04c-.51-1.54-1.29-1.89-2.4-1.89-.97,0-1.62.84-1.68,1.78s.02,1.23.32,2.4.39,1.82.19,2.76c-.12.56-.73,3.05,1.05,3.05,1.68,0,2.72-3.46,2.7-5.06Z" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
   </g>
-  <line class="cls-1" x1="2.95" y1="7.42" x2="21.05" y2="7.42"/>
+  <line x1="2.95" y1="7.42" x2="21.05" y2="7.42" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
   <g>
-    <line class="cls-1" x1="5.85" y1="4.48" x2="5.85" y2="6.98"/>
-    <line class="cls-1" x1="12" y1="4.48" x2="12" y2="6.98"/>
-    <line class="cls-1" x1="18.15" y1="4.48" x2="18.15" y2="6.98"/>
+    <line x1="5.85" y1="4.48" x2="5.85" y2="6.98" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
+    <line x1="12" y1="4.48" x2="12" y2="6.98" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
+    <line x1="18.15" y1="4.48" x2="18.15" y2="6.98" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
   </g>
 </svg>

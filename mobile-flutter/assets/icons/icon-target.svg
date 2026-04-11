@@ -1,23 +1,12 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg id="Capa_1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <defs>
-    <style>
-      .cls-1 {
-        fill: none;
-        stroke: #000;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-        stroke-width: 1.5px;
-      }
-    </style>
-  </defs>
-  <circle class="cls-1" cx="12" cy="12" r="6.82"/>
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" id="Capa_1" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="6.82" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></circle>
   <g>
-    <line class="cls-1" x1="12" y1="2.93" x2="12" y2="8.43"/>
-    <line class="cls-1" x1="12" y1="15.57" x2="12" y2="21.07"/>
+    <line x1="12" y1="2.93" x2="12" y2="8.43" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
+    <line x1="12" y1="15.57" x2="12" y2="21.07" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
   </g>
   <g>
-    <line class="cls-1" x1="21.07" y1="12" x2="15.57" y2="12"/>
-    <line class="cls-1" x1="8.43" y1="12" x2="2.93" y2="12"/>
+    <line x1="21.07" y1="12" x2="15.57" y2="12" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
+    <line x1="8.43" y1="12" x2="2.93" y2="12" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></line>
   </g>
 </svg>
