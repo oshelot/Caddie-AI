@@ -7,12 +7,13 @@ plugins {
 
 android {
     namespace = "com.caddieai.mobile"
-    // Pinned per spike findings (SPIKE_REPORT §4 / KAN-252):
-    // flutter_plugin_android_lifecycle transitive dep requires compileSdk 35.
+    // Pinned per spike findings (SPIKE_REPORT §4 / KAN-252) and the
+    // 2026-04-11 toolchain refresh (AGP 8.7 + Kotlin 2.1 + Gradle 8.9):
+    // - compileSdk 35 required by flutter_plugin_android_lifecycle
+    // - NDK 27.0 requested by mapbox_maps_flutter on the current toolchain
+    //   (was 26.1 on the older spike toolchain)
     compileSdk = 35
-    // mapbox_maps_flutter 2.12.0 + flutter_plugin_android_lifecycle both
-    // request NDK 26.1.
-    ndkVersion = "26.1.10909125"
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
