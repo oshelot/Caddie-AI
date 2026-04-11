@@ -1,8 +1,8 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <svg xmlns="http://www.w3.org/2000/svg" id="Capa_2" viewBox="0 0 24 24">
   <g>
-    <line x1="12" y1="21.14" x2="12" y2="8.66" stroke-miterlimit="10"></line>
-    <path d="M5.58,13.76l5.58-5.58c.47-.47,1.23-.47,1.7,0l5.58,5.58" stroke-linejoin="round"></path>
+    <line x1="12" y1="21.14" x2="12" y2="8.66" stroke-miterlimit="10" fill="none" stroke="#000" stroke-width="1.5"></line>
+    <path d="M5.58,13.76l5.58-5.58c.47-.47,1.23-.47,1.7,0l5.58,5.58" stroke-linejoin="round" fill="none" stroke="#000" stroke-width="1.5"></path>
   </g>
-  <line x1="5.58" y1="2.86" x2="18.42" y2="2.86" stroke-linejoin="round"></line>
+  <line x1="5.58" y1="2.86" x2="18.42" y2="2.86" stroke-linejoin="round" fill="none" stroke="#000" stroke-width="1.5"></line>
 </svg>

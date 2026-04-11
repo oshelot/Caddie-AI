@@ -77,7 +77,11 @@ class _ScaffoldPlaceholder extends StatelessWidget {
                     const SizedBox(width: 24),
                     CaddieIcons.golfer(size: 48),
                     const SizedBox(width: 24),
-                    CaddieIcons.distance(size: 48),
+                    // `distance` swapped out — design is being redone.
+                    // `target` picked because it's simple geometry
+                    // (circle + 4 crosshair lines) with no transforms,
+                    // so it's a clean smoke-test sample.
+                    CaddieIcons.target(size: 48),
                   ],
                 ),
               ),

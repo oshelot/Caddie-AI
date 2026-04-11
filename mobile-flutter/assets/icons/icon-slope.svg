@@ -2,13 +2,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" id="Capa_1" viewBox="0 0 24 24">
   <g>
     <g>
-      <line x1="8.34" y1="4.01" x2="3.88" y2="8.47" stroke-miterlimit="10"></line>
-      <polyline points="6.92 9.45 2.9 9.45 2.9 5.44" stroke-linejoin="round"></polyline>
+      <line x1="8.34" y1="4.01" x2="3.88" y2="8.47" stroke-miterlimit="10" fill="none" stroke="#000" stroke-width="1.5"></line>
+      <polyline points="6.92 9.45 2.9 9.45 2.9 5.44" stroke-linejoin="round" fill="none" stroke="#000" stroke-width="1.5"></polyline>
     </g>
     <g>
-      <line x1="21.1" y1="9.45" x2="16.64" y2="4.99" stroke-miterlimit="10"></line>
-      <polyline points="15.66 8.03 15.66 4.01 19.67 4.01" stroke-linejoin="round"></polyline>
+      <line x1="21.1" y1="9.45" x2="16.64" y2="4.99" stroke-miterlimit="10" fill="none" stroke="#000" stroke-width="1.5"></line>
+      <polyline points="15.66 8.03 15.66 4.01 19.67 4.01" stroke-linejoin="round" fill="none" stroke="#000" stroke-width="1.5"></polyline>
     </g>
   </g>
-  <path d="M20.94,18.97l-6.9-6.9c-1.13-1.13-2.95-1.13-4.08,0l-6.9,6.9h17.88Z" stroke-linejoin="round"></path>
+  <path d="M20.94,18.97l-6.9-6.9c-1.13-1.13-2.95-1.13-4.08,0l-6.9,6.9h17.88Z" stroke-linejoin="round" fill="none" stroke="#000" stroke-width="1.5"></path>
 </svg>

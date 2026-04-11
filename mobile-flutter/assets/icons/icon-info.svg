@@ -1,9 +1,9 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <svg xmlns="http://www.w3.org/2000/svg" id="Capa_2" viewBox="0 0 24 24">
-  <circle cx="12" cy="12" r="9.06" stroke-miterlimit="10"></circle>
+  <circle cx="12" cy="12" r="9.06" stroke-miterlimit="10" fill="none" stroke="#000" stroke-width="1.5"></circle>
   <g>
-    <path d="M9.97,11.24h1.84c.06,0,.11.05.11.11v5.31" stroke-linejoin="round"></path>
-    <line x1="9.97" y1="17.04" x2="14.03" y2="17.04" stroke-miterlimit="10"></line>
+    <path d="M9.97,11.24h1.84c.06,0,.11.05.11.11v5.31" stroke-linejoin="round" fill="none" stroke="#000" stroke-width="1.5"></path>
+    <line x1="9.97" y1="17.04" x2="14.03" y2="17.04" stroke-miterlimit="10" fill="none" stroke="#000" stroke-width="1.5"></line>
   </g>
-  <line x1="11.92" y1="8.42" x2="11.92" y2="7.31" stroke-linejoin="round"></line>
+  <line x1="11.92" y1="8.42" x2="11.92" y2="7.31" stroke-linejoin="round" fill="none" stroke="#000" stroke-width="1.5"></line>
 </svg>
