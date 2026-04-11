@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Capa_1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+        stroke: #000;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.5px;
+      }
+    </style>
+  </defs>
+  <ellipse class="cls-1" cx="12" cy="12" rx="9.03" ry="7.87"/>
+  <path class="cls-1" d="M7.18,9.33c1.2,0,1.2,1,2.41,1s1.2-1,2.41-1,1.21,1,2.41,1,1.21-1,2.41-1"/>
+  <path class="cls-1" d="M7.18,13.65c1.2,0,1.2,1,2.41,1s1.2-1,2.41-1,1.21,1,2.41,1,1.21-1,2.41-1"/>
+</svg>

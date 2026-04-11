@@ -29,3 +29,20 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Custom CaddieAI icon font, generated from
+  # /home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/ via fantasticon.
+  # See ADR 0006 (icon rendering strategy) and docs/design/icons.md
+  # (regeneration instructions). All UI code references icons via
+  # `CaddieIcons.foo` from lib/core/icons/caddie_icons.dart, never
+  # `Icons.material_*` (CONVENTIONS C-6).
+  fonts:
+    - family: CaddieIcons
+      fonts:
+        - asset: assets/fonts/CaddieIcons.ttf
+
+  # Source SVGs are committed alongside the runtime font for
+  # traceability — anyone who needs to regenerate or modify the icon
+  # set finds the source here.
+  assets:
+    - assets/icons-source/
