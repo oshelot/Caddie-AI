@@ -25,7 +25,7 @@ class CaddieApp extends StatelessWidget {
     return MaterialApp.router(
       title: 'CaddieAI',
       debugShowCheckedModeBanner: false,
-      theme: CaddieTheme.dark,
+      theme: CaddieTheme.light,
       routerConfig: _router,
     );
   }
