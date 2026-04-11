@@ -1,7 +1,8 @@
 # 0005. Monetization plugin
 
-**Status:** Proposed — needs sign-off before KAN-285 (S15 monetization) starts.
+**Status:** Accepted
 **Date proposed:** 2026-04-11
+**Date accepted:** 2026-04-11 (KAN-270 planning pass)
 **Affected stories:** KAN-285 (S15 monetization)
 
 ## Context

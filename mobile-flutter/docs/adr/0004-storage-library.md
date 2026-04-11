@@ -1,7 +1,8 @@
 # 0004. Local storage library
 
-**Status:** Proposed — needs sign-off before KAN-272 (S2 storage) starts. Depends on ADR 0003.
+**Status:** Accepted (depends on ADR 0003, also accepted)
 **Date proposed:** 2026-04-11
+**Date accepted:** 2026-04-11 (KAN-270 planning pass)
 **Affected stories:** KAN-272 (S2 storage)
 
 ## Context

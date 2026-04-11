@@ -1,7 +1,8 @@
 # 0003. Shot history query strategy
 
-**Status:** Proposed — informs ADR 0004 (storage library), should be decided before KAN-272 (S2 storage) starts.
+**Status:** Accepted
 **Date proposed:** 2026-04-11
+**Date accepted:** 2026-04-11 (KAN-270 planning pass)
 **Affected stories:** KAN-272 (S2 storage), KAN-282 (S12 history)
 
 ## Context

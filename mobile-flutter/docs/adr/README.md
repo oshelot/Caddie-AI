@@ -15,11 +15,11 @@ ADR.
 
 | ADR | Title | Status | Affected stories |
 |---|---|---|---|
-| [0001](0001-routing-library.md) | Routing library | Proposed — needs sign-off before KAN-271 starts | KAN-271 (S1 app shell) |
-| [0002](0002-state-management.md) | State management framework | Accepted — pre-decided in KAN-251 epic | All UI stories |
-| [0003](0003-shot-history-query-strategy.md) | Shot history query strategy | Proposed — informs ADR 0004 | KAN-282 (S12 history), KAN-272 (S2 storage) |
-| [0004](0004-storage-library.md) | Local storage library | Proposed — depends on ADR 0003 | KAN-272 (S2 storage) |
-| [0005](0005-monetization-plugin.md) | Monetization plugin | Proposed — needs sign-off before KAN-285 starts | KAN-285 (S15 monetization) |
+| [0001](0001-routing-library.md) | Routing library — `go_router` | Accepted 2026-04-11 | KAN-271 (S1 app shell) |
+| [0002](0002-state-management.md) | State management framework — Riverpod | Accepted 2026-04-10 (pre-decided in KAN-251 epic) | All UI stories |
+| [0003](0003-shot-history-query-strategy.md) | Shot history query strategy — in-memory filtering | Accepted 2026-04-11 | KAN-282 (S12 history), KAN-272 (S2 storage) |
+| [0004](0004-storage-library.md) | Local storage library — `hive_ce` + `flutter_secure_storage` | Accepted 2026-04-11 (depends on ADR 0003) | KAN-272 (S2 storage) |
+| [0005](0005-monetization-plugin.md) | Monetization plugin — `in_app_purchase` | Accepted 2026-04-11 | KAN-285 (S15 monetization) |
 
 ## How to update an ADR
 

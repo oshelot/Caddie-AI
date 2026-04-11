@@ -1,7 +1,8 @@
 # 0001. Routing library
 
-**Status:** Proposed — needs sign-off before KAN-271 (S1 app shell) starts.
+**Status:** Accepted
 **Date proposed:** 2026-04-11
+**Date accepted:** 2026-04-11 (KAN-270 planning pass)
 **Affected stories:** KAN-271 (S1 app shell), all subsequent UI stories
 
 ## Context
