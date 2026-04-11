@@ -240,7 +240,63 @@ If matching the native iOS typeface matters:
 defaults above without further sign-off. Stories that pick option (b)
 must reference a captured ADR in `docs/adr/` before merging.
 
-## 6. Do not merge this scaffold into `main`
+## 6. Icons — always use `CaddieIcons`, never Material defaults
+
+The CaddieAI app has a custom 45-icon set that's part of the brand
+identity. Source set lives in `/home/apatel/Caddie-AI-Iconagraphy/
+caddieai-icons/`; integrated into the scaffold as a generated icon
+font under `lib/core/icons/CaddieIcons` (per **ADR 0006**, implemented
+by **KAN-291** S0 icon foundation story).
+
+**Rule:** every `Icon(...)` widget in feature code MUST use a constant
+from `CaddieIcons`. Never use:
+
+- `Icon(Icons.material_icon_name)` — Flutter's bundled Material set
+- `SvgPicture.asset(...)` — runtime SVG rendering
+- `Image.asset('assets/icons/...')` — raw PNG fallback
+- Hardcoded `IconData` constants outside the `CaddieIcons` class
+
+```dart
+// ✅ correct
+Icon(CaddieIcons.flag, size: 24)
+
+// ❌ wrong — Material default
+Icon(Icons.flag, size: 24)
+
+// ❌ wrong — raw SVG
+SvgPicture.asset('assets/icons/icon-flag.svg', width: 24)
+
+// ❌ wrong — hardcoded glyph
+Icon(IconData(0xe000, fontFamily: 'CaddieIcons'), size: 24)
+```
+
+If a UI story needs an icon that isn't in the set, **add it to the
+set first** via a separate ticket that:
+
+1. Drops the new SVG into `mobile-flutter/assets/icons-source/`
+2. Re-runs the icon font generator
+3. Adds a new constant to `CaddieIcons`
+4. Adds a unit test that the new constant resolves
+5. Updates `docs/design/icons.md` with the new icon's name + intended use
+
+Don't ad-hoc a Material icon "just for now". The whole point of the
+icon set is brand consistency; one Material fallback in feature code
+breaks the contract.
+
+### Sizes and tinting
+
+Use the standard `CaddieIcons` sizes:
+
+- **16 dp** — compact (inline with body text, dense lists)
+- **20 dp** — default (most icon-button uses)
+- **24 dp** — prominent (primary CTAs, tab bar)
+- **32 dp** — hero (empty states, splash)
+
+Tint via `IconTheme.of(context).color` or pass `color:` explicitly.
+Never hardcode an icon color at the call site that doesn't come from
+the theme.
+
+## 7. Do not merge this scaffold into `main`
 
 This directory is a working starting point for the migration, not a
 production artifact. It lives on a feature branch and should stay there

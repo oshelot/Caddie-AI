@@ -8,14 +8,15 @@ detail; the JIRA tickets carry the formal status and dependency links.
 
 | Story | JIRA | Story | JIRA |
 |---|---|---|---|
-| S1 | [KAN-271](https://caddieai.atlassian.net/browse/KAN-271) | S9  | [KAN-279](https://caddieai.atlassian.net/browse/KAN-279) |
-| S2 | [KAN-272](https://caddieai.atlassian.net/browse/KAN-272) | S10 | [KAN-280](https://caddieai.atlassian.net/browse/KAN-280) |
-| S3 | [KAN-273](https://caddieai.atlassian.net/browse/KAN-273) | S11 | [KAN-281](https://caddieai.atlassian.net/browse/KAN-281) |
-| S4 | [KAN-274](https://caddieai.atlassian.net/browse/KAN-274) | S12 | [KAN-282](https://caddieai.atlassian.net/browse/KAN-282) |
-| S5 | [KAN-275](https://caddieai.atlassian.net/browse/KAN-275) | S13 | [KAN-283](https://caddieai.atlassian.net/browse/KAN-283) |
-| S6 | [KAN-276](https://caddieai.atlassian.net/browse/KAN-276) | S14 | [KAN-284](https://caddieai.atlassian.net/browse/KAN-284) |
-| S7 | [KAN-277](https://caddieai.atlassian.net/browse/KAN-277) | S15 | [KAN-285](https://caddieai.atlassian.net/browse/KAN-285) |
-| S8 | [KAN-278](https://caddieai.atlassian.net/browse/KAN-278) | S16 | [KAN-286](https://caddieai.atlassian.net/browse/KAN-286) |
+| **S0** | **[KAN-291](https://caddieai.atlassian.net/browse/KAN-291)** *(icon foundation, blocks all UI)* | S9  | [KAN-279](https://caddieai.atlassian.net/browse/KAN-279) |
+| S1 | [KAN-271](https://caddieai.atlassian.net/browse/KAN-271) | S10 | [KAN-280](https://caddieai.atlassian.net/browse/KAN-280) |
+| S2 | [KAN-272](https://caddieai.atlassian.net/browse/KAN-272) | S11 | [KAN-281](https://caddieai.atlassian.net/browse/KAN-281) |
+| S3 | [KAN-273](https://caddieai.atlassian.net/browse/KAN-273) | S12 | [KAN-282](https://caddieai.atlassian.net/browse/KAN-282) |
+| S4 | [KAN-274](https://caddieai.atlassian.net/browse/KAN-274) | S13 | [KAN-283](https://caddieai.atlassian.net/browse/KAN-283) |
+| S5 | [KAN-275](https://caddieai.atlassian.net/browse/KAN-275) | S14 | [KAN-284](https://caddieai.atlassian.net/browse/KAN-284) |
+| S6 | [KAN-276](https://caddieai.atlassian.net/browse/KAN-276) | S15 | [KAN-285](https://caddieai.atlassian.net/browse/KAN-285) |
+| S7 | [KAN-277](https://caddieai.atlassian.net/browse/KAN-277) | S16 | [KAN-286](https://caddieai.atlassian.net/browse/KAN-286) |
+| S8 | [KAN-278](https://caddieai.atlassian.net/browse/KAN-278) |   |   |
 
 All 16 are linked to the **KAN-251** epic. 28 "Blocks" links capture the
 direct (non-S1) dependencies — S1 (app shell) blocks essentially every
@@ -46,24 +47,63 @@ that apply to **every** story below unless explicitly marked N/A:
   new unit or integration test proving the new contract. Pure-Dart
   tests preferred; no server-cache or device-on dependency in unit
   tests.
+- **C-6.** All `Icon(...)` widgets in feature code use `CaddieIcons`
+  constants — never `Icons.material_icon_name`, never raw SVG, never
+  raw `Image.asset`. New icons go through the icon-set update process
+  (separate ticket). Enforced from KAN-291 (S0) onwards.
 
 ## Story list (16 stories)
 
 Grouped by layer. Order within each layer is not strict, but the
 dependency arrows (`→`) encode hard blockers.
 
-### Foundation (4 stories — parallel)
+### Foundation (5 stories — S0 blocks all UI; S1-S4 parallel after S0)
+
+**KAN-S0. Integrate CaddieAI custom icon set into Flutter scaffold** *(blocks all UI work)*
+- Size: Small-Medium
+- Blocks: KAN-271 (S1), KAN-280 (S10 map), KAN-281 (S11 caddie), and any UI-touching story
+- Added to the plan post-spike during the KAN-270 audit of KAN-88's children.
+  Supersedes the closed KAN-160 (Implement Iconography System) and its 5
+  closed subtasks. Decision recorded in **ADR 0006** (icon font over SVG/PNG).
+- Scope:
+  - Generate an icon font from the 45 SVGs in
+    `/home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/` via `fluttericon`
+  - Build a `CaddieIcons` constants class with 45 named entries
+  - Wire the font into `pubspec.yaml`
+  - Spec doc at `mobile-flutter/docs/design/icons.md` covering sizes,
+    color tinting, padding, and usage rules
+  - Smoke test: render 2-3 icons from `CaddieIcons` in `lib/app.dart`'s
+    placeholder home screen
+  - Unit test: every named constant resolves and the font registers
+  - Add CONVENTIONS C-6 (already drafted) to the enforceable rules list
+  - Commit the original SVGs to `mobile-flutter/assets/icons-source/` for
+    traceability and future regeneration
+- Custom ACs:
+  - All 45 icons accessible from a single `CaddieIcons` import
+  - `flutter analyze` and `flutter test` clean
+  - Spec doc exists with full icon table + size/color/padding rules
+  - Scaffold home screen visibly renders 2-3 icons from the set
+- Cross-cutting: C-5, C-6 (added by this story).
 
 **KAN-S1. App shell: routing, theme, tab bar, and bootstrap**
 - Size: Medium
-- Blocks: everything else in the migration
+- Depends on: **S0 (icon foundation)** — blocks until S0 ships
+- Blocks: every other UI story
 - Scope:
-  - Pick and install routing library (recommend `go_router`).
-  - Port the 4-tab bottom navigation (Caddie / Course / History / Profile).
-  - Dark-mode Material 3 theme matching existing iOS/Android visual language.
+  - Pick and install routing library (`go_router`, per **ADR 0001**).
+  - Port the 4-tab bottom navigation (Caddie / Course / History / Profile)
+    using `CaddieIcons` for the tab icons (per CONVENTIONS C-6 — `home`,
+    `course`, `history`, `profile` icons from the set).
+  - Dark-mode Material 3 theme matching existing iOS/Android visual
+    language. Pull design tokens from KAN-142 if available; otherwise
+    extract from native iOS as a smaller scope.
   - Shared widgets for cards, list rows, HUD badges.
   - Wire `initMapbox()` into `main.dart` — already scaffolded, needs
     to survive the routing integration.
+  - Adopt the canonical naming spec from **KAN-157** (closed Won't Do
+    but the spec is preserved): tab order Caddie → Course → History →
+    Profile, screen titles per the spec table, action buttons named
+    "Ask Caddie" / "Analyze" / "Read Aloud" / "New Shot" / "Speak/Stop".
 - Custom ACs:
   - Tab bar + placeholder screens render on both platforms from a
     cold start in ≤ 2 s.
@@ -71,7 +111,8 @@ dependency arrows (`→`) encode hard blockers.
     back-stack navigation.
   - Theme constants exposed as a `CaddieTheme` class; no hex literals
     inside feature screens.
-- Cross-cutting: C-1, C-5.
+  - All tab icons come from `CaddieIcons`; no `Icons.material_*` calls.
+- Cross-cutting: C-1, C-5, **C-6**.
 
 **KAN-S2. Local storage and profile persistence**
 - Size: Medium
