@@ -1,0 +1,26 @@
+[
+  {
+    "id": "33333333-3333-3333-3333-333333333333",
+    "timestampMs": 1743862980000,
+    "courseId": "wellshire-denver",
+    "courseName": "Wellshire Golf Course",
+    "context": {
+      "distanceYards": 165,
+      "shotType": "APPROACH",
+      "lieType": "FAIRWAY",
+      "windStrength": "MODERATE",
+      "windDirection": "CROSS",
+      "slope": "DOWNHILL",
+      "aggressiveness": "MODERATE",
+      "hazardNotes": "water left"
+    },
+    "recommendation": {
+      "clubName": "6-iron",
+      "swingShape": "STRAIGHT",
+      "confidence": 0.78
+    },
+    "outcome": "GOOD",
+    "actualClubUsed": "6-iron",
+    "notes": "drained the wind adjustment"
+  }
+]

@@ -25,6 +25,18 @@ dependencies:
   flutter_svg: ^2.0.0
   go_router: ^17.2.0
 
+  # KAN-272 (S2) — local storage stack. Per ADR 0004, hive_ce is the
+  # structured store and flutter_secure_storage holds API keys. We
+  # deliberately do NOT pull in hive_ce_generator / freezed / build_runner
+  # for this story — ADR 0004 §"freezed compatibility" explicitly allows
+  # hand-written toJson/fromJson, and avoiding the codegen step keeps the
+  # storage layer cheap to iterate. If a later story needs union types or
+  # value-equality codegen, lift in freezed at that point.
+  hive_ce: ^2.10.0
+  hive_ce_flutter: ^2.0.0
+  path_provider: ^2.1.0
+  flutter_secure_storage: ^9.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
