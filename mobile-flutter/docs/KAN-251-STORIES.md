@@ -251,33 +251,44 @@ dependency arrows (`→`) encode hard blockers.
     `lib/core/mapbox/layer_helpers.dart`. Do NOT copy the raw
     `addLayer` calls from the spike.
   - All 7 layers: boundary, water, bunkers, greens, tees, hole-lines,
-    hole-labels.
+    hole-labels — rendered with the **CONVENTIONS §5 defaults** (solid
+    hole-lines, Mapbox default font for hole-labels). Do **NOT** set
+    `LineLayer.lineDasharray` or `SymbolLayer.textFont` — both are
+    silently dropped on iOS in the pinned `mapbox_maps_flutter` version
+    (SPIKE_REPORT §4 Bugs 2 & 3, confirmed still broken on 2.21.1 in
+    the KAN-270 retest).
   - Bearing-aware `flyTo` via `cameraForCoordinatesPadding` with
     HUD-aware insets (`EdgeInsets(top: 80, left: 40, bottom: 200, right: 40)`).
   - Hole selector + highlight-selected-hole logic.
-  - Tap-to-distance overlay with yellow dashed line.
+  - Tap-to-distance overlay with a **solid** yellow line (Bug 2 means
+    the dashed style on the existing iOS native app cannot be
+    reproduced cross-platform; the spike screenshots show the solid-
+    line equivalent).
   - Player location puck.
 - Custom ACs:
   - `verifyLayersPresent` audit at style-loaded time logs presence
     of all 7 layers; if any are missing, the screen shows a
     dev-facing error banner (`kDebugMode` only) and logs a
     `layer_add_failure` telemetry event with the missing layer id.
+  - Re-audits before the first hole-tap interaction to catch the
+    Bug 2/3 mutated symptom (audit-passing-then-disappearing). If a
+    layer was present at style-load and is missing on first
+    interaction, log a distinct `layer_drop_post_audit` event.
   - Works on both iOS and Android with visual parity (per-layer
-    paint matches the KAN-252 spike's screenshots, modulo the two
-    decisions below).
+    paint matches the KAN-252 spike's screenshots, accepting the
+    documented CONVENTIONS §5 defaults for dashes and typeface).
   - Tap-to-distance pre-warms the tap-line source at style-loaded
     time (addresses the 80.3 ms first-tap outlier from
     `flutter-spike/SPIKE_REPORT.md §5.4`).
   - Layer-render latency ≤ 800 ms on mid-tier devices (measured via
     `layer_render` telemetry event).
 - Cross-cutting: **C-1, C-2, C-3, C-4, C-5** — all of them apply.
-- 🚫 **Blockers until KAN-270 closes:**
-  - AC #4 (dashed hole-lines decision) — do not implement the
-    `lineDasharray` property until the decision is captured on
-    KAN-270. Start with solid lines.
-  - AC #5 (hole-label typeface decision) — do not implement the
-    `textFont` property until the decision is captured on KAN-270.
-    Start with Mapbox default font.
+- ✅ **No longer blocked on KAN-270 AC #4 / AC #5.** The KAN-270 retest
+  forced both decisions toward the simplest path (solid lines, Mapbox
+  default font) — see CONVENTIONS §5. If a follow-up story decides to
+  implement option (b) chunked-LineString dashes or option (b) bundled
+  PBF glyph source, that work lands as a SEPARATE story; this story
+  does not gate on those decisions.
 
 **KAN-S11. Caddie (shot input + AI chat) screen**
 - Size: **Large** — the flagship UX

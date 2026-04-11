@@ -1,26 +1,5 @@
 // Mapbox bootstrap — call this once, very early in `main()`, BEFORE any
-// `MapWidget` is constructed. Encapsulates the workaround for a known
-// upstream bug in mapbox_maps_flutter 2.12.0 (see KAN-252 SPIKE_REPORT
-// §4 Bug 1).
-//
-// ## The bug
-//
-// `MapboxOptions.setAccessToken(String)` is declared `static void` in
-// the public API, but internally fires an **async** pigeon message that
-// takes a platform-channel round-trip to land on the native side.
-//
-// If `runApp()` proceeds before that message lands and a `MapWidget`
-// tries to inflate, the native MapView throws:
-//
-//   com.mapbox.maps.MapboxConfigurationException:
-//   Using MapView, MapSurface, Snapshotter or other Map components
-//   requires providing a valid access token when inflating or creating
-//   the map.
-//
-// The public API gives no clean hook to await the set — so we force a
-// channel round-trip by awaiting an unrelated getter that serializes
-// behind the same pigeon channel. When `getAccessToken()` resolves,
-// we know the set has landed.
+// `MapWidget` is constructed.
 //
 // ## Usage
 //
@@ -42,6 +21,35 @@
 // The token is NEVER hard-coded or committed. If the variable is
 // missing, `initMapbox` throws a `StateError` with a clear message
 // rather than letting the app render a silently-blank map.
+//
+// ## Historical note — `setAccessToken` async race (KAN-252 SPIKE_REPORT §4 Bug 1)
+//
+// On `mapbox_maps_flutter` 2.12.0, `MapboxOptions.setAccessToken(String)`
+// was declared `static void` but internally fired an **async** pigeon
+// message. If `runApp()` proceeded before that message landed and a
+// `MapWidget` tried to inflate, the native MapView threw:
+//
+//   com.mapbox.maps.MapboxConfigurationException:
+//   Using MapView, MapSurface, Snapshotter or other Map components
+//   requires providing a valid access token when inflating or creating
+//   the map.
+//
+// The workaround was to force a channel round-trip by awaiting an
+// unrelated getter behind the same pigeon channel:
+//
+//     MapboxOptions.setAccessToken(token);
+//     await MapboxOptions.getAccessToken(); // forces a round-trip
+//
+// **Verified fixed in `mapbox_maps_flutter` 2.21.1** (KAN-270 AC #1
+// retest, 2026-04-11). Both Android (moto g play 2024) and iOS
+// (iPhone 17) loaded cleanly with the workaround disabled. The
+// workaround has been removed from this function.
+//
+// **Do not reintroduce the `await getAccessToken()` line** thinking
+// it's still needed — verify against the current pinned version
+// (`pubspec.yaml`) before changing this. If the bug ever resurfaces,
+// the symptom is `MapboxConfigurationException` on the first
+// `MapWidget` inflation, repeatable from a cold start.
 
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
@@ -50,8 +58,9 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 /// is baked into the AOT binary; no runtime env lookup is performed.
 const String _kMapboxToken = String.fromEnvironment('MAPBOX_TOKEN');
 
-/// Initializes the Mapbox SDK on the native side. Must be awaited
-/// before any `MapWidget` is constructed anywhere in the app.
+/// Initializes the Mapbox SDK on the native side. Must be called
+/// (and awaited, for safety) before any `MapWidget` is constructed
+/// anywhere in the app.
 ///
 /// Throws [StateError] if `MAPBOX_TOKEN` was not passed at build time.
 Future<void> initMapbox() async {
@@ -62,7 +71,4 @@ Future<void> initMapbox() async {
     );
   }
   MapboxOptions.setAccessToken(_kMapboxToken);
-  // Force the async pigeon message to land before returning.
-  // See the header comment for why this is necessary.
-  await MapboxOptions.getAccessToken();
 }

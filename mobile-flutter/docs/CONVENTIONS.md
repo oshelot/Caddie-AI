@@ -12,12 +12,7 @@ Read §4 (runtime bugs), §5 (device measurements), and §6 (GO rationale
 
 ---
 
-## 1. Mapbox token bootstrap — ALWAYS await
-
-`MapboxOptions.setAccessToken(String)` is declared `void` in the public
-API but internally fires an **async** pigeon message. If `runApp`
-proceeds before that message lands, the first `MapWidget` inflation
-throws `MapboxConfigurationException` (SPIKE_REPORT §4 Bug 1).
+## 1. Mapbox token bootstrap — call `initMapbox()` before `runApp`
 
 **Rule:** every process that ever constructs a `MapWidget` MUST call
 `initMapbox()` from `lib/core/mapbox/mapbox_init.dart` and await it
@@ -36,20 +31,85 @@ The token is read from `--dart-define=MAPBOX_TOKEN=pk.xxx` at build
 time. Never hard-code it, never commit it, and never read it at runtime
 from the environment or a bundled file.
 
-## 2. Style layer adds — ALWAYS use `tryAddLayer` + `verifyLayersPresent`
+### Historical note — the old async-race workaround (do not reintroduce)
 
-On iOS, `style.addLayer(...)` has been observed to silently drop layers
-for reasons that depend on which properties are set. `LineLayer` with
-`lineDasharray` and `SymbolLayer` with `textFont` both reproduce the
-failure on `mapbox_maps_flutter` 2.12.0. See SPIKE_REPORT §4 Bugs 2 and
-3 for concrete repros.
+On `mapbox_maps_flutter` 2.12.0, `setAccessToken` was async-under-the-
+hood and the first `MapWidget` could inflate before the token landed,
+throwing `MapboxConfigurationException`. The workaround was to await
+`MapboxOptions.getAccessToken()` after setting, to force a pigeon
+round-trip (SPIKE_REPORT §4 Bug 1).
 
-The failure is silent: `await style.addLayer(...)` returns without
-throwing, but `style.getLayer(id)` returns null and downstream property
-mutations throw `PlatformException(0, "Layer ... is not in style")`.
+**That bug is fixed in `mapbox_maps_flutter` 2.21.1** (KAN-270 AC #1
+retest, 2026-04-11). Both Android and iOS now load cleanly without the
+await. The workaround has been removed from `initMapbox()` accordingly.
 
-**Rule:** never call `style.addLayer` directly. Use the two helpers in
-`lib/core/mapbox/layer_helpers.dart`:
+**Do not reintroduce `await MapboxOptions.getAccessToken()`** in
+`initMapbox()` unless you've verified the bug has resurfaced in a newer
+`mapbox_maps_flutter` version. If it has, the symptom is
+`MapboxConfigurationException` on the first `MapWidget` inflation,
+repeatable from a cold start.
+
+## 2. Style layer adds — ALWAYS use `tryAddLayer` + `verifyLayersPresent`, AND avoid known-broken properties
+
+On iOS, `style.addLayer(...)` silently drops layers when certain
+properties are set. Confirmed broken on **both** `mapbox_maps_flutter`
+2.12.0 AND 2.21.1 (KAN-270 AC #1 retest):
+
+- **`LineLayer.lineDasharray`** — SPIKE_REPORT §4 Bug 2.
+- **`SymbolLayer.textFont`** — SPIKE_REPORT §4 Bug 3.
+
+Setting either property on the corresponding layer type causes that
+layer to silently disappear from the rendered style on iOS. Android
+handles both properties correctly.
+
+### The symptom mutated between 2.12.0 and 2.21.1 — the audit alone is no longer enough
+
+**On 2.12.0**, the bug was easy to detect: `addLayer` returned ok,
+`getLayer` returned `null` immediately after, and downstream property
+mutations threw `PlatformException(0, "Layer ... is not in style")`.
+A single `verifyLayersPresent` audit at style-loaded time caught it.
+
+**On 2.21.1**, the failure mode changed: `addLayer` returns ok, the
+**immediate audit reports the layer present**, and the layer
+disappears from the rendered style **a few milliseconds later**,
+before the first style mutation. Captured directly from the iPhone 17
+retest log:
+
+```
+[spike] addLayer ok  name=hole-lines id=layer-hole-lines
+[spike] layer_audit {…, layer-hole-lines: true, …}
+[spike] layer_render latencyMs=11 holeCount=18
+... a few ms later, on first hole tap ...
+[spike] highlightHole skipped — layer-hole-lines missing
+... 22 more identical ...
+```
+
+The defensive audit pattern this convention used to recommend is
+**necessary but no longer sufficient**. The audit can no longer be
+trusted as a "layer is committed" signal — it's only a "layer was
+present at the moment we checked" signal.
+
+### Rule
+
+1. **Never use `LineLayer.lineDasharray` or `SymbolLayer.textFont`
+   cross-platform.** Both are confirmed silently-dropped on iOS in
+   the current pinned `mapbox_maps_flutter` version. If a new map
+   story needs dashed lines or a custom font, use one of the
+   workarounds documented in §5 — do not just set the property and
+   hope.
+2. **Never call `style.addLayer` directly.** Use `tryAddLayer` from
+   `lib/core/mapbox/layer_helpers.dart` so silent failures get logged
+   with a clear `name` tag.
+3. **Always call `verifyLayersPresent` immediately after a batch of
+   adds.** It's no longer a sufficient guarantee, but it still
+   catches Bug 2/3-class failures fast enough to fail the build in
+   debug mode and warn the developer, AND it catches any future
+   silent-add bugs that haven't yet mutated to the audit-passing
+   pattern.
+4. **Every style-layer property mutation** (`setStyleLayerProperty`,
+   `updateLayer`) MUST first check the layer exists with
+   `safeGetLayer` and degrade gracefully if it returns null. The
+   pattern lives in the spike's `_highlightHole` for reference.
 
 ```dart
 // Add every layer through tryAddLayer so silent failures get logged.
@@ -59,10 +119,13 @@ await tryAddLayer(map.style, name: 'hole-lines', build: () => LineLayer(
   filter: ['==', ['get', 'type'], 'holeLine'],
   lineColor: 0xFFFFFFFF,
   lineWidth: 2.0,
+  // ⚠️  DO NOT set lineDasharray here — see §5 for the dashed-line
+  //     workaround. SPIKE_REPORT §4 Bug 2.
 ));
 
-// Immediately after a batch of adds, audit which layers actually
-// landed in the style.
+// Audit immediately, then again before each significant mutation
+// batch. The audit catches some failures but is no longer sufficient
+// on its own (see header comment above).
 final presence = await verifyLayersPresent(map.style, [
   _boundaryLayer,
   _waterLayer,
@@ -73,15 +136,11 @@ final presence = await verifyLayersPresent(map.style, [
   _holeLabelsLayer,
 ]);
 if (presence.values.any((present) => !present)) {
-  // Log, degrade gracefully, or surface a dev-facing error banner —
-  // but do NOT proceed as if all layers are present.
+  // Log, degrade gracefully, surface a dev-facing error banner
+  // (kDebugMode only) — but do NOT proceed as if all layers are
+  // present.
 }
 ```
-
-**Rule:** every style-layer property mutation (`setStyleLayerProperty`,
-`updateLayer`) MUST first check the layer exists with `safeGetLayer`.
-Never assume a layer is in the style just because its `addLayer` call
-returned.
 
 ## 3. Performance claims — always specify the measurement method
 
@@ -108,38 +167,78 @@ performance number". It isn't one.
 
 ## 4. `mapbox_maps_flutter` version pinning
 
-The spike validated `mapbox_maps_flutter` **2.12.0**. The latest at time
-of writing is **2.21.1**, ~9 months newer. A retest on 2.21.1 is tracked
-as the first acceptance criterion on **KAN-270** and should happen
-before this project bumps the version.
+This project pins `mapbox_maps_flutter` to a specific tested version.
+The current pin is in `pubspec.yaml`. The KAN-252 spike validated
+**2.12.0** originally and **2.21.1** in the KAN-270 retest — both have
+the same iOS layer-drop bugs (Bugs 2 and 3 in SPIKE_REPORT §4), with
+the symptom mutated between versions.
 
-**Rule:** do NOT bump `mapbox_maps_flutter` without re-running the
-spike's scripted interaction on both platforms and re-auditing layer
-presence. Version bumps have historically introduced iOS-side silent
-layer-add regressions; every bump is a full map-smoke-test event.
+**Rule:** do NOT bump `mapbox_maps_flutter` without:
+1. Re-running the spike's scripted interaction on both platforms.
+2. Auditing layer presence with `verifyLayersPresent` AND visually
+   confirming all 7 course overlay layers render after a few seconds
+   of interaction.
+3. Re-checking whether Bugs 2 and 3 still reproduce. If they're
+   finally fixed upstream, this convention can relax — but only after
+   visual confirmation.
 
-The current Flutter SDK pin (3.24.5 / Dart 3.5.4) caps
-`mapbox_maps_flutter` at 2.12.0 because 2.13+ requires Dart ≥ 3.6.
-Bumping one implies bumping the other and needs a coordinated validation
-pass.
+Version bumps have historically introduced iOS-side silent layer-add
+regressions and silent symptom mutations; **every bump is a full
+map-smoke-test event**.
 
-## 5. Typeface and dashed hole-lines — pending decisions
+## 5. Typeface and dashed hole-lines — decisions are FORCED post-retest
 
-Two cosmetic gaps from the spike need project-level decisions before
-the corresponding map stories can start:
+Two cosmetic gaps from the spike used to be open project decisions.
+After the KAN-270 retest confirmed both bugs persist on `mapbox_maps_
+flutter` 2.21.1, the simplest path is now the only safe-by-default
+path. Stories that render hole-lines or hole-labels can proceed using
+the defaults below; stories that want anything fancier must take on
+the workaround scope explicitly.
 
-- **Hole-line dashes.** `LineLayer.lineDasharray` is unusable
-  cross-platform today (Bug 2). The scaffold falls back to a solid
-  line. See KAN-270 AC #4 for the pending decision.
-- **Hole-label typeface.** `SymbolLayer.textFont` is unusable
-  cross-platform today (Bug 3), and even if it weren't, there is no
-  first-class way to render the iOS native app's `DIN Pro Bold` font
-  through `mapbox_maps_flutter` (Bug 4). The scaffold falls back to the
-  Mapbox default font. See KAN-270 AC #5 for the pending decision.
+### Hole-line dashes (KAN-270 AC #4)
 
-**Rule:** stories that render hole-lines or hole-labels are blocked on
-these decisions. Do not implement them until the decisions are captured
-as comments on KAN-270.
+**Default: solid white hole-lines on both platforms.** This is what
+the scaffold uses today. `LineLayer.lineDasharray` is silently dropped
+on iOS (SPIKE_REPORT §4 Bug 2), so any layer that sets it is
+guaranteed to render incorrectly on iOS regardless of how the audit
+reports.
+
+If a future story needs dashed hole-lines:
+- **(b) Render dashes via chunked LineString features** — split each
+  hole's line of play into many small alternating segments inside the
+  GeoJSON builder. Medium scope. No upstream dependency. **This is the
+  only known workaround.**
+- **(c) Wait for the upstream fix.** Not recommended — Bug 2 has
+  persisted across at least 9 months of releases (2.12.0 → 2.21.1).
+
+### Hole-label typeface (KAN-270 AC #5)
+
+**Default: Mapbox-hosted sans-serif on both platforms** (the Mapbox
+default font for the SATELLITE_STREETS style). This is what the
+scaffold uses today. `SymbolLayer.textFont` is silently dropped on
+iOS (SPIKE_REPORT §4 Bug 3), so any layer that sets it is guaranteed
+to render incorrectly on iOS.
+
+This is a **visual regression from the iOS native app**, which
+renders hole-number labels in `DIN Pro Bold` (an iOS system font that
+Mapbox does not bundle, SPIKE_REPORT §4 Bug 4). Document the
+regression in design / product before committing to migration.
+
+If matching the native iOS typeface matters:
+- **(b) Bundle DIN Pro Bold as a local PBF glyph source on both
+  platforms.** Generate a glyph PBF set from the font file, host it,
+  and call `style.setStyleGlyphURL` at style-load time. Medium effort,
+  done once. **This bypasses both Bug 3 (don't set `textFont`, change
+  the glyph URL instead) and Bug 4 (the URL hosts whatever font you
+  want).**
+- **(c) Switch the iOS native app to sans-serif first.** Smallest
+  Flutter-side effort but requires a coordinated change in the
+  existing iOS codebase before the migration starts. Probably a
+  separate ticket on the native team.
+
+**Rule:** stories that render hole-lines or hole-labels can use the
+defaults above without further sign-off. Stories that pick option (b)
+must reference a captured ADR in `docs/adr/` before merging.
 
 ## 6. Do not merge this scaffold into `main`
 
@@ -171,7 +270,7 @@ mobile-flutter/
     course_geojson_builder_test.dart   # pure-Dart synthetic-fixture tests
   docs/
     CONVENTIONS.md                     # this file
-  pubspec.yaml                         # mapbox_maps_flutter pinned to 2.12.0
+  pubspec.yaml                         # mapbox_maps_flutter version pin (see §4)
 ```
 
 This structure is **minimal by design**. Feature directories
