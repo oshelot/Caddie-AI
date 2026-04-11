@@ -1,9 +1,34 @@
-# 0006. Icon rendering strategy
+# 0006. Icon rendering strategy *(SUPERSEDED)*
 
-**Status:** Accepted
+**Status:** ❌ **Superseded by [ADR 0007](0007-icon-rendering-flutter-svg.md)** on 2026-04-11
 **Date proposed:** 2026-04-11
 **Date accepted:** 2026-04-11 (KAN-270 planning pass)
+**Date superseded:** 2026-04-11 (same day — see "Why this was wrong" below)
 **Affected stories:** KAN-291 (S0 icon foundation), all UI-touching stories (KAN-271 onward)
+
+## Why this was wrong
+
+This ADR was implemented as part of KAN-291 — generated a TTF icon font from the 45 source SVGs via fantasticon, wired it into the scaffold, and confirmed all 16 unit tests passed. **The visual result on a real device was unusable**: the `flag` icon rendered acceptably (mostly thin disconnected curves), but `golfer` and `distance` looked like solid black geometric shapes with no detail, and most other icons were indistinguishable blobs.
+
+The root cause: **all 45 source SVGs use `fill: none; stroke: #000;`** — they're stroke-based line drawings (Material "Outlined" style), not fill-based glyphs. TTF glyphs only support fills; the font conversion dropped every stroke and either left the glyph empty or filled the bounding region with solid black.
+
+The methodology mistake in this ADR is in the "Rationale" section, where I claimed:
+
+> "Re-checked the source SVGs in `/home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/` — they're single-color glyphs (the standard mobile-icon convention). No multi-color information to preserve."
+
+**I never actually opened the SVGs.** I assumed "single color" (technically true — they're all black) and "glyph-style" (wrong — they're stroked, not filled), and asserted verification that hadn't happened. Same class of mistake as the original KAN-252 spike's `mapbox_maps_flutter` version assumption: claimed verification I hadn't done.
+
+The fix is to abandon the icon font path and use `flutter_svg` (which renders the original SVG paths at full fidelity) — see **ADR 0007** for the new decision and the actual SVG inspection that should have happened here.
+
+## Lesson for future ADRs
+
+When an ADR's rationale includes "I checked X" or "I verified Y", that check needs to actually happen, in writing, with the inspection output captured in the ADR. Hand-waving claims of verification are how avoidable mistakes ship.
+
+---
+
+## Original (now-invalid) decision and rationale follows
+
+The text below was the original ADR 0006 content. It is preserved verbatim for the historical record but should NOT be used as a reference. See ADR 0007 for the current decision.
 
 ## Context
 

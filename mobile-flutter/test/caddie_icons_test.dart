@@ -1,76 +1,20 @@
-// Tests for the CaddieIcons constants class. These tests assert that
-// every named icon resolves to a non-null IconData and references the
-// correct font family. They do NOT verify the font file is on disk —
-// that's a runtime concern, not a unit-test concern (the runtime check
-// happens in `lib/app.dart` smoke-test rendering).
+// Tests for the CaddieIcons registry and helper API. These are
+// pure-Dart unit tests — they don't actually load the SVG assets at
+// runtime (that requires a widget test with the Flutter test binding,
+// which is overkill for asserting the registry shape). The smoke test
+// in `lib/app.dart` plus a manual `flutter run` is the runtime check.
 
 import 'package:caddieai/core/icons/caddie_icons.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('CaddieIcons', () {
-    test('all 45 icons are present in the registry', () {
+  group('CaddieIcons registry', () {
+    test('contains exactly 45 icons', () {
       expect(CaddieIcons.all, hasLength(45));
     });
 
-    test('every icon resolves to a non-null IconData', () {
-      for (final entry in CaddieIcons.all.entries) {
-        expect(
-          entry.value,
-          isA<IconData>(),
-          reason: 'icon "${entry.key}" should resolve to an IconData',
-        );
-      }
-    });
-
-    test('every icon uses the CaddieIcons font family', () {
-      for (final entry in CaddieIcons.all.entries) {
-        expect(
-          entry.value.fontFamily,
-          'CaddieIcons',
-          reason: 'icon "${entry.key}" must use the CaddieIcons font family',
-        );
-      }
-    });
-
-    test('every icon has a unique codepoint', () {
-      final codepoints = <int, String>{};
-      for (final entry in CaddieIcons.all.entries) {
-        final cp = entry.value.codePoint;
-        expect(
-          codepoints,
-          isNot(contains(cp)),
-          reason:
-              'codepoint 0x${cp.toRadixString(16)} is duplicated between '
-              '"${codepoints[cp]}" and "${entry.key}"',
-        );
-        codepoints[cp] = entry.key;
-      }
-    });
-
-    test('all codepoints land in the Unicode private-use area', () {
-      // PUA: U+E000..U+F8FF (Basic Multilingual Plane).
-      // fantasticon assigns from 0xF101 upward by default.
-      const puaStart = 0xE000;
-      const puaEnd = 0xF8FF;
-      for (final entry in CaddieIcons.all.entries) {
-        final cp = entry.value.codePoint;
-        expect(
-          cp,
-          inInclusiveRange(puaStart, puaEnd),
-          reason:
-              'codepoint 0x${cp.toRadixString(16)} for icon "${entry.key}" '
-              'must be in the Unicode private-use area '
-              '(U+E000..U+F8FF)',
-        );
-      }
-    });
-
-    test('icon names are camelCase, no kebab-case leakage from JSON', () {
-      // The fantasticon JSON uses kebab-case (e.g. "icon-pin-target") but
-      // the Dart constants must be camelCase (e.g. `pinTarget`). This
-      // test guards against accidentally re-exposing the JSON shape.
+    test('every key is camelCase, no kebab-case leakage', () {
       for (final name in CaddieIcons.all.keys) {
         expect(
           name,
@@ -78,6 +22,111 @@ void main() {
           reason: 'icon name "$name" must be camelCase, not kebab-case',
         );
       }
+    });
+
+    test('every value is an asset path under assets/icons/', () {
+      for (final entry in CaddieIcons.all.entries) {
+        expect(
+          entry.value,
+          startsWith('assets/icons/'),
+          reason: 'icon "${entry.key}" must reference an asset under assets/icons/',
+        );
+        expect(
+          entry.value,
+          endsWith('.svg'),
+          reason: 'icon "${entry.key}" must reference an .svg file',
+        );
+      }
+    });
+
+    test('every asset path is unique (no duplicate file references)', () {
+      final paths = <String, String>{};
+      for (final entry in CaddieIcons.all.entries) {
+        expect(
+          paths,
+          isNot(contains(entry.value)),
+          reason:
+              'asset path "${entry.value}" is duplicated between '
+              '"${paths[entry.value]}" and "${entry.key}"',
+        );
+        paths[entry.value] = entry.key;
+      }
+    });
+
+    test('asset path follows the icon-{kebab-name}.svg convention', () {
+      // Convert camelCase key → kebab-case → expected filename, then
+      // assert the registered path matches.
+      String camelToKebab(String s) =>
+          s.replaceAllMapped(RegExp('[A-Z]'), (m) => '-${m.group(0)!.toLowerCase()}');
+      for (final entry in CaddieIcons.all.entries) {
+        final kebab = camelToKebab(entry.key);
+        final expected = 'assets/icons/icon-$kebab.svg';
+        expect(
+          entry.value,
+          expected,
+          reason:
+              'icon "${entry.key}" should map to "$expected" but is "${entry.value}"',
+        );
+      }
+    });
+  });
+
+  group('CaddieIcons.byName', () {
+    test('returns a non-null Widget for every registered name', () {
+      for (final name in CaddieIcons.all.keys) {
+        final widget = CaddieIcons.byName(name);
+        expect(widget, isA<Widget>(), reason: 'byName("$name") must return a Widget');
+      }
+    });
+
+    test('throws ArgumentError for an unknown name', () {
+      expect(
+        () => CaddieIcons.byName('definitely-not-a-real-icon'),
+        throwsArgumentError,
+      );
+    });
+
+    test('accepts size parameter', () {
+      // We can't easily inspect the rendered widget tree without a
+      // widget test, but we can at least verify the call doesn't throw
+      // for a representative sample of sizes.
+      for (final size in [16.0, 20.0, 24.0, 32.0]) {
+        expect(() => CaddieIcons.byName('flag', size: size), returnsNormally);
+      }
+    });
+
+    test('accepts color parameter', () {
+      expect(
+        () => CaddieIcons.byName('flag', color: const Color(0xFFFF0000)),
+        returnsNormally,
+      );
+    });
+  });
+
+  group('CaddieIcons named getters', () {
+    // Spot-check a representative icon from each category. The
+    // exhaustive enumeration is via the registry tests above.
+    test('Navigation: home returns a Widget', () {
+      expect(CaddieIcons.home(), isA<Widget>());
+    });
+
+    test('Actions: send returns a Widget', () {
+      expect(CaddieIcons.send(), isA<Widget>());
+    });
+
+    test('Status: error returns a Widget', () {
+      expect(CaddieIcons.error(), isA<Widget>());
+    });
+
+    test('Golf-specific: flag returns a Widget', () {
+      expect(CaddieIcons.flag(), isA<Widget>());
+    });
+
+    test('named getter accepts size + color named args', () {
+      expect(
+        CaddieIcons.flag(size: 32, color: const Color(0xFF00FF00)),
+        isA<Widget>(),
+      );
     });
   });
 }

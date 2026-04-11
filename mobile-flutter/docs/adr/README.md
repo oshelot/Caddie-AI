@@ -20,7 +20,8 @@ ADR.
 | [0003](0003-shot-history-query-strategy.md) | Shot history query strategy — in-memory filtering | Accepted 2026-04-11 | KAN-282 (S12 history), KAN-272 (S2 storage) |
 | [0004](0004-storage-library.md) | Local storage library — `hive_ce` + `flutter_secure_storage` | Accepted 2026-04-11 (depends on ADR 0003) | KAN-272 (S2 storage) |
 | [0005](0005-monetization-plugin.md) | Monetization plugin — `in_app_purchase` | Accepted 2026-04-11 | KAN-285 (S15 monetization) |
-| [0006](0006-icon-rendering-strategy.md) | Icon rendering strategy — generated icon font from custom SVG set | Accepted 2026-04-11 | KAN-291 (S0 icon foundation), all UI stories |
+| ~~[0006](0006-icon-rendering-strategy.md)~~ | ~~Icon rendering strategy — generated icon font from custom SVG set~~ | ❌ **Superseded by 0007** on 2026-04-11 (icon font incompatible with stroke-based source SVGs — see ADR for the post-mortem) | — |
+| [0007](0007-icon-rendering-flutter-svg.md) | Icon rendering — `flutter_svg` rendering of source SVGs | Accepted 2026-04-11 | KAN-291 (S0 icon foundation), all UI stories |
 
 ## How to update an ADR
 

@@ -243,41 +243,51 @@ must reference a captured ADR in `docs/adr/` before merging.
 ## 6. Icons — always use `CaddieIcons`, never Material defaults
 
 The CaddieAI app has a custom 45-icon set that's part of the brand
-identity. Source set lives in `/home/apatel/Caddie-AI-Iconagraphy/
-caddieai-icons/`; integrated into the scaffold as a generated icon
-font under `lib/core/icons/CaddieIcons` (per **ADR 0006**, implemented
-by **KAN-291** S0 icon foundation story).
+identity. Source SVGs live in `/home/apatel/Caddie-AI-Iconagraphy/
+caddieai-icons/` and are mirrored into `mobile-flutter/assets/icons/`
+as the runtime asset. They're rendered via `flutter_svg` per
+**ADR 0007** (which superseded the failed icon-font attempt in
+ADR 0006 — see the ADR for the post-mortem).
 
-**Rule:** every `Icon(...)` widget in feature code MUST use a constant
-from `CaddieIcons`. Never use:
+**Rule:** every icon in feature code MUST be rendered via a named
+helper from `CaddieIcons`. Never use:
 
-- `Icon(Icons.material_icon_name)` — Flutter's bundled Material set
-- `SvgPicture.asset(...)` — runtime SVG rendering
-- `Image.asset('assets/icons/...')` — raw PNG fallback
-- Hardcoded `IconData` constants outside the `CaddieIcons` class
+- `Icon(Icons.material_icon_name, ...)` — Flutter's bundled Material set
+- `SvgPicture.asset('assets/icons/icon-foo.svg', ...)` — bypasses the registry
+- `Image.asset('assets/icons/...')` — raw bitmap fallback
+- Inline `IconData(0xXXXX, fontFamily: ...)` constants
 
 ```dart
-// ✅ correct
-Icon(CaddieIcons.flag, size: 24)
+// ✅ correct — named helper, type-safe at call site
+CaddieIcons.flag(size: 24)
+CaddieIcons.flag(size: 32, color: Theme.of(context).colorScheme.primary)
 
 // ❌ wrong — Material default
 Icon(Icons.flag, size: 24)
 
-// ❌ wrong — raw SVG
+// ❌ wrong — bypasses the registry, no type safety
 SvgPicture.asset('assets/icons/icon-flag.svg', width: 24)
 
-// ❌ wrong — hardcoded glyph
-Icon(IconData(0xe000, fontFamily: 'CaddieIcons'), size: 24)
+// ❌ wrong — defunct icon-font path from rejected ADR 0006
+Icon(IconData(0xF11B, fontFamily: 'CaddieIcons'))
 ```
+
+For dynamic / data-driven cases where the icon name comes from a
+variable (e.g. an icon picker, a config-driven menu item), use
+`CaddieIcons.byName('flag', size: 24)`. Throws `ArgumentError` if the
+name isn't in the registry — fail loud, not silent.
 
 If a UI story needs an icon that isn't in the set, **add it to the
 set first** via a separate ticket that:
 
-1. Drops the new SVG into `mobile-flutter/assets/icons-source/`
-2. Re-runs the icon font generator
-3. Adds a new constant to `CaddieIcons`
-4. Adds a unit test that the new constant resolves
-5. Updates `docs/design/icons.md` with the new icon's name + intended use
+1. Drops the new SVG into `/home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/`
+   (the source-of-truth dir) AND mirrors it into
+   `mobile-flutter/assets/icons/` (the runtime asset)
+2. Adds an entry to the `_paths` map in `lib/core/icons/caddie_icons.dart`
+3. Adds a named getter that delegates to `_render('newName', size, color)`
+4. Updates `docs/design/icons.md` with the new icon's name + intended use
+5. Runs `flutter test` — the registry test will fail with a count
+   mismatch until the entry is added (intentional canary)
 
 Don't ad-hoc a Material icon "just for now". The whole point of the
 icon set is brand consistency; one Material fallback in feature code
@@ -292,9 +302,11 @@ Use the standard `CaddieIcons` sizes:
 - **24 dp** — prominent (primary CTAs, tab bar)
 - **32 dp** — hero (empty states, splash)
 
-Tint via `IconTheme.of(context).color` or pass `color:` explicitly.
-Never hardcode an icon color at the call site that doesn't come from
-the theme.
+Tint by passing `color:` to the named getter. Pull theme colors from
+`Theme.of(context).colorScheme.X` rather than hardcoding hex literals
+at the call site. Note: unlike Material's `Icon` widget, `flutter_svg`
+does NOT automatically inherit from `IconTheme` — you must pass
+`color:` explicitly when you want tinting.
 
 ## 7. Do not merge this scaffold into `main`
 

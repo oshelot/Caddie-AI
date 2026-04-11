@@ -16,11 +16,13 @@ dependencies:
   # Do NOT bump without re-running the spike's scripted interaction on
   # both platforms — mapbox_maps_flutter has iOS-side layer-add
   # regressions at several point releases (see SPIKE_REPORT §4).
-  #
-  # Current Flutter SDK pin (3.24.5 / Dart 3.5.4) caps this at 2.12.0.
-  # Bumping either implies bumping both, which is tracked in KAN-270
-  # acceptance criterion #1.
   mapbox_maps_flutter: 2.12.0
+
+  # Renders the CaddieAI custom icon set. Picked over an icon font
+  # (rejected ADR 0006) because the source SVGs are stroke-based line
+  # drawings (`fill: none; stroke: #000;`), which TTF glyphs cannot
+  # represent. See ADR 0007 for the full rationale.
+  flutter_svg: ^2.0.0
 
 dev_dependencies:
   flutter_test:
@@ -30,19 +32,11 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # Custom CaddieAI icon font, generated from
-  # /home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/ via fantasticon.
-  # See ADR 0006 (icon rendering strategy) and docs/design/icons.md
-  # (regeneration instructions). All UI code references icons via
-  # `CaddieIcons.foo` from lib/core/icons/caddie_icons.dart, never
-  # `Icons.material_*` (CONVENTIONS C-6).
-  fonts:
-    - family: CaddieIcons
-      fonts:
-        - asset: assets/fonts/CaddieIcons.ttf
-
-  # Source SVGs are committed alongside the runtime font for
-  # traceability — anyone who needs to regenerate or modify the icon
-  # set finds the source here.
+  # CaddieAI custom icon set — 45 stroke-based SVGs from
+  # /home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/. Rendered via
+  # flutter_svg (see ADR 0007). All UI code references icons via the
+  # named getters in `lib/core/icons/caddie_icons.dart`
+  # (CONVENTIONS C-6). The SVGs ARE the runtime artifact — there is
+  # no font generation step.
   assets:
-    - assets/icons-source/
+    - assets/icons/
