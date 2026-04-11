@@ -4,23 +4,38 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'map_screen.dart';
 
 /// KAN-252 Flutter/Mapbox spike — entry point.
+///
+/// KAN-270 AC #1 retest (2026-04-11): the `setAccessToken` async race
+/// (SPIKE_REPORT §4 Bug 1) was confirmed broken on mapbox_maps_flutter
+/// 2.12.0. This entry point now lets us test both scenarios in one
+/// build by gating the workaround on `--dart-define=BUG1_REPRO=true`.
+///
+/// To repro Bug 1 (no workaround):
+///   flutter run --profile -d <id> \
+///     --dart-define=MAPBOX_TOKEN=pk.xxx \
+///     --dart-define=BUG1_REPRO=true
+///
+/// To run normally (with workaround):
+///   flutter run --profile -d <id> \
+///     --dart-define=MAPBOX_TOKEN=pk.xxx
 Future<void> main() async {
-  // Read the Mapbox public token from --dart-define=MAPBOX_TOKEN=pk.xxx.
-  // Never hard-coded, never committed.
+  WidgetsFlutterBinding.ensureInitialized();
+
   const token = String.fromEnvironment('MAPBOX_TOKEN');
   if (token.isEmpty) {
     runApp(const _MissingTokenApp());
     return;
   }
 
-  // `setAccessToken` is declared void but internally fires an async pigeon
-  // message. If runApp proceeds before that message lands, the native
-  // MapView throws MapboxConfigurationException on inflation. Force a
-  // round-trip by awaiting getAccessToken — it can't resolve until the
-  // set has propagated to the native side.
-  WidgetsFlutterBinding.ensureInitialized();
+  const bug1Repro = bool.fromEnvironment('BUG1_REPRO');
   MapboxOptions.setAccessToken(token);
-  await MapboxOptions.getAccessToken();
+  if (!bug1Repro) {
+    // Workaround: force a pigeon round-trip so the set lands before
+    // any MapWidget tries to inflate. See SPIKE_REPORT §4 Bug 1.
+    await MapboxOptions.getAccessToken();
+  } else {
+    debugPrint('[spike] BUG1_REPRO=true — skipping setAccessToken await');
+  }
 
   runApp(const SpikeApp());
 }
