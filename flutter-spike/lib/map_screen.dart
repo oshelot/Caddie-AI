@@ -187,6 +187,21 @@ class _MapScreenState extends State<MapScreen> {
   // Layer setup
   // -------------------------------------------------------------------------
 
+  /// Wraps a single `style.addLayer` call with diagnostic logging so a
+  /// silent failure on one platform can be pinpointed to a specific layer.
+  Future<void> _tryAddLayer(String name, mbx.Layer Function() build) async {
+    final map = _map;
+    if (map == null) return;
+    final layer = build();
+    try {
+      await map.style.addLayer(layer);
+      debugPrint('[spike] addLayer ok  name=$name id=${layer.id}');
+    } catch (e, st) {
+      debugPrint('[spike] addLayer ERR name=$name id=${layer.id} err=$e');
+      debugPrint('$st');
+    }
+  }
+
   Future<void> _addCourseLayers() async {
     final map = _map;
     final course = _course;
@@ -203,74 +218,104 @@ class _MapScreenState extends State<MapScreen> {
 
     // 1. Boundary — #2E7D32 @ 0.08 (no data in current schema; layer stays
     //    empty but is defined for parity with iOS).
-    await map.style.addLayer(mbx.FillLayer(
-      id: _boundaryLayer,
-      sourceId: _sourceId,
-      filter: ['==', ['get', 'type'], CourseFeatureType.boundary],
-      fillColor: 0xFF2E7D32,
-      fillOpacity: 0.08,
-    ));
+    await _tryAddLayer('boundary', () => mbx.FillLayer(
+          id: _boundaryLayer,
+          sourceId: _sourceId,
+          filter: ['==', ['get', 'type'], CourseFeatureType.boundary],
+          fillColor: 0xFF2E7D32,
+          fillOpacity: 0.08,
+        ));
 
     // 2. Water — #1565C0 @ 0.5
-    await map.style.addLayer(mbx.FillLayer(
-      id: _waterLayer,
-      sourceId: _sourceId,
-      filter: ['==', ['get', 'type'], CourseFeatureType.water],
-      fillColor: 0xFF1565C0,
-      fillOpacity: 0.5,
-    ));
+    await _tryAddLayer('water', () => mbx.FillLayer(
+          id: _waterLayer,
+          sourceId: _sourceId,
+          filter: ['==', ['get', 'type'], CourseFeatureType.water],
+          fillColor: 0xFF1565C0,
+          fillOpacity: 0.5,
+        ));
 
     // 3. Bunkers — #E8D5B7 @ 0.7
-    await map.style.addLayer(mbx.FillLayer(
-      id: _bunkersLayer,
-      sourceId: _sourceId,
-      filter: ['==', ['get', 'type'], CourseFeatureType.bunker],
-      fillColor: 0xFFE8D5B7,
-      fillOpacity: 0.7,
-    ));
+    await _tryAddLayer('bunkers', () => mbx.FillLayer(
+          id: _bunkersLayer,
+          sourceId: _sourceId,
+          filter: ['==', ['get', 'type'], CourseFeatureType.bunker],
+          fillColor: 0xFFE8D5B7,
+          fillOpacity: 0.7,
+        ));
 
     // 4. Hole lines — #FFFFFF @ 0.8, width 2, dasharray [4,3]
-    await map.style.addLayer(mbx.LineLayer(
-      id: _holeLinesLayer,
-      sourceId: _sourceId,
-      filter: ['==', ['get', 'type'], CourseFeatureType.holeLine],
-      lineColor: 0xFFFFFFFF,
-      lineOpacity: 0.8,
-      lineWidth: 2.0,
-      lineDasharray: [4.0, 3.0],
-    ));
+    //
+    // iOS-spike note: earlier runs found this layer silently missing on
+    // iOS. Dropping `lineDasharray` to isolate whether that's the cause.
+    // If the layer renders as a solid line, dasharray encoding is the
+    // bug. If it still fails, something else in LineLayer is.
+    await _tryAddLayer('hole-lines', () => mbx.LineLayer(
+          id: _holeLinesLayer,
+          sourceId: _sourceId,
+          filter: ['==', ['get', 'type'], CourseFeatureType.holeLine],
+          lineColor: 0xFFFFFFFF,
+          lineOpacity: 0.8,
+          lineWidth: 2.0,
+          // lineDasharray: [4.0, 3.0],  // iOS-disabled for spike diagnosis
+        ));
 
     // 5. Greens — #4CAF50 @ 0.6
-    await map.style.addLayer(mbx.FillLayer(
-      id: _greensLayer,
-      sourceId: _sourceId,
-      filter: ['==', ['get', 'type'], CourseFeatureType.green],
-      fillColor: 0xFF4CAF50,
-      fillOpacity: 0.6,
-    ));
+    await _tryAddLayer('greens', () => mbx.FillLayer(
+          id: _greensLayer,
+          sourceId: _sourceId,
+          filter: ['==', ['get', 'type'], CourseFeatureType.green],
+          fillColor: 0xFF4CAF50,
+          fillOpacity: 0.6,
+        ));
 
     // 6. Tees — #81C784 @ 0.5
-    await map.style.addLayer(mbx.FillLayer(
-      id: _teesLayer,
-      sourceId: _sourceId,
-      filter: ['==', ['get', 'type'], CourseFeatureType.tee],
-      fillColor: 0xFF81C784,
-      fillOpacity: 0.5,
-    ));
+    await _tryAddLayer('tees', () => mbx.FillLayer(
+          id: _teesLayer,
+          sourceId: _sourceId,
+          filter: ['==', ['get', 'type'], CourseFeatureType.tee],
+          fillColor: 0xFF81C784,
+          fillOpacity: 0.5,
+        ));
 
-    // 7. Hole labels — white text, black halo (iOS: DIN Pro Bold)
-    await map.style.addLayer(mbx.SymbolLayer(
-      id: _holeLabelsLayer,
-      sourceId: _sourceId,
-      filter: ['==', ['get', 'type'], CourseFeatureType.holeLabel],
-      textFieldExpression: ['get', 'label'],
-      textSize: 14.0,
-      textColor: 0xFFFFFFFF,
-      textHaloColor: 0xFF000000,
-      textHaloWidth: 1.5,
-      textAllowOverlap: true,
-      textFont: const ['DIN Pro Bold', 'Arial Unicode MS Bold'],
-    ));
+    // 7. Hole labels — white text, black halo.
+    //
+    // iOS-spike note: earlier runs found this layer silently missing on
+    // iOS. Dropping `textFont` (DIN Pro Bold fallback chain) to isolate
+    // whether that's the cause. If the layer renders in the style
+    // default typeface, textFont is the bug.
+    await _tryAddLayer('hole-labels', () => mbx.SymbolLayer(
+          id: _holeLabelsLayer,
+          sourceId: _sourceId,
+          filter: ['==', ['get', 'type'], CourseFeatureType.holeLabel],
+          textFieldExpression: ['get', 'label'],
+          textSize: 14.0,
+          textColor: 0xFFFFFFFF,
+          textHaloColor: 0xFF000000,
+          textHaloWidth: 1.5,
+          textAllowOverlap: true,
+          // textFont: const ['DIN Pro Bold', 'Arial Unicode MS Bold'], // iOS-disabled
+        ));
+
+    // Audit — which layers actually made it into the style?
+    final presence = <String, bool>{};
+    for (final id in <String>[
+      _boundaryLayer,
+      _waterLayer,
+      _bunkersLayer,
+      _holeLinesLayer,
+      _greensLayer,
+      _teesLayer,
+      _holeLabelsLayer,
+    ]) {
+      try {
+        final layer = await map.style.getLayer(id);
+        presence[id] = layer != null;
+      } catch (e) {
+        presence[id] = false;
+      }
+    }
+    debugPrint('[spike] layer_audit $presence');
 
     _layersAdded = true;
 
@@ -418,47 +463,57 @@ class _MapScreenState extends State<MapScreen> {
     final map = _map;
     if (map == null || !_layersAdded) return;
 
-    // Mirror the iOS highlight: bump opacity+width on the selected
-    // hole's line, dim everything else. Implemented via style layer
-    // property updates with a `case` expression over the `holeNumber`
-    // property.
-    if (holeNumber == null) {
+    // Bail out if the hole-lines layer wasn't added on this platform.
+    // On iOS (see spike diagnostic), LineLayer has been observed to
+    // silently fail `addLayer`; in that case the highlight is a no-op
+    // rather than a loop of PlatformException traces.
+    final layer = await _safeGetLayer(map, _holeLinesLayer);
+    if (layer == null) {
+      debugPrint('[spike] highlightHole skipped — $_holeLinesLayer missing');
+      return;
+    }
+
+    try {
+      if (holeNumber == null) {
+        await map.style
+            .setStyleLayerProperty(_holeLinesLayer, 'line-opacity', 0.8);
+        await map.style
+            .setStyleLayerProperty(_holeLinesLayer, 'line-width', 2.0);
+        return;
+      }
+      final caseOpacity = [
+        'case',
+        ['==', ['get', 'holeNumber'], holeNumber],
+        1.0,
+        0.4,
+      ];
+      final caseWidth = [
+        'case',
+        ['==', ['get', 'holeNumber'], holeNumber],
+        3.5,
+        1.5,
+      ];
       await map.style.setStyleLayerProperty(
         _holeLinesLayer,
         'line-opacity',
-        0.8,
+        jsonEncode(caseOpacity),
       );
       await map.style.setStyleLayerProperty(
         _holeLinesLayer,
         'line-width',
-        2.0,
+        jsonEncode(caseWidth),
       );
-      return;
+    } catch (e) {
+      debugPrint('[spike] highlightHole ERR $e');
     }
+  }
 
-    final caseOpacity = [
-      'case',
-      ['==', ['get', 'holeNumber'], holeNumber],
-      1.0,
-      0.4,
-    ];
-    final caseWidth = [
-      'case',
-      ['==', ['get', 'holeNumber'], holeNumber],
-      3.5,
-      1.5,
-    ];
-
-    await map.style.setStyleLayerProperty(
-      _holeLinesLayer,
-      'line-opacity',
-      jsonEncode(caseOpacity),
-    );
-    await map.style.setStyleLayerProperty(
-      _holeLinesLayer,
-      'line-width',
-      jsonEncode(caseWidth),
-    );
+  Future<mbx.Layer?> _safeGetLayer(mbx.MapboxMap map, String id) async {
+    try {
+      return await map.style.getLayer(id);
+    } catch (_) {
+      return null;
+    }
   }
 }
 
