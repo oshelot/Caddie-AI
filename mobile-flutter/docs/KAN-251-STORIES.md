@@ -1,8 +1,26 @@
-# KAN-251 — Flutter migration story breakdown (draft)
+# KAN-251 — Flutter migration story breakdown
 
-**Status:** DRAFT for review. These stories have NOT been created in
-JIRA yet. Approve or amend this doc first; creation is a batch
-operation against the shared project.
+**Status:** ACTIVE. All 16 stories created in JIRA on 2026-04-11
+(KAN-270 AC #6 closed). Doc remains the source of truth for per-story
+detail; the JIRA tickets carry the formal status and dependency links.
+
+## Story → JIRA mapping
+
+| Story | JIRA | Story | JIRA |
+|---|---|---|---|
+| S1 | [KAN-271](https://caddieai.atlassian.net/browse/KAN-271) | S9  | [KAN-279](https://caddieai.atlassian.net/browse/KAN-279) |
+| S2 | [KAN-272](https://caddieai.atlassian.net/browse/KAN-272) | S10 | [KAN-280](https://caddieai.atlassian.net/browse/KAN-280) |
+| S3 | [KAN-273](https://caddieai.atlassian.net/browse/KAN-273) | S11 | [KAN-281](https://caddieai.atlassian.net/browse/KAN-281) |
+| S4 | [KAN-274](https://caddieai.atlassian.net/browse/KAN-274) | S12 | [KAN-282](https://caddieai.atlassian.net/browse/KAN-282) |
+| S5 | [KAN-275](https://caddieai.atlassian.net/browse/KAN-275) | S13 | [KAN-283](https://caddieai.atlassian.net/browse/KAN-283) |
+| S6 | [KAN-276](https://caddieai.atlassian.net/browse/KAN-276) | S14 | [KAN-284](https://caddieai.atlassian.net/browse/KAN-284) |
+| S7 | [KAN-277](https://caddieai.atlassian.net/browse/KAN-277) | S15 | [KAN-285](https://caddieai.atlassian.net/browse/KAN-285) |
+| S8 | [KAN-278](https://caddieai.atlassian.net/browse/KAN-278) | S16 | [KAN-286](https://caddieai.atlassian.net/browse/KAN-286) |
+
+All 16 are linked to the **KAN-251** epic. 28 "Blocks" links capture the
+direct (non-S1) dependencies — S1 (app shell) blocks essentially every
+other story but those links are implied by the per-story descriptions
+to avoid UI noise.
 
 **Source of truth for the inventory:** native Swift/SwiftUI app under
 `ios/CaddieAI/` and Kotlin/Compose app under
