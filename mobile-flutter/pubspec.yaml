@@ -37,6 +37,17 @@ dependencies:
   path_provider: ^2.1.0
   flutter_secure_storage: ^9.2.0
 
+  # KAN-274 (S4) — location + permissions foundation. We deliberately
+  # split the responsibilities: `geolocator` for "where am I + heading"
+  # and `permission_handler` for "did the user grant location access".
+  # Both plugins ship their own permission flow, but `permission_handler`
+  # has the better cross-platform model (one Permission enum, one
+  # request flow, one settings deep-link) so we use it as the
+  # authoritative source for permission state. `geolocator` only
+  # consumes already-granted permissions.
+  geolocator: ^13.0.0
+  permission_handler: ^11.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
