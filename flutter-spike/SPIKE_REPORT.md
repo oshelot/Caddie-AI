@@ -13,7 +13,9 @@ See §5.2 for numbers and §6 for the recommendation.
 
 **Both platforms: GO WITH CAVEATS.** Measured on a moto g play 2024 (Android 14, arm64, profile mode) and an iPhone 17 (iOS 26.3.1, profile mode). Every threshold in §3 is met on both platforms; the user's qualitative read on Android was "performed really well, better than before"; iOS rendered cleanly on the first corrected run.
 
-**The spike surfaced four real upstream `mapbox_maps_flutter` 2.12.0 bugs, all documented in §4.** Each has a working workaround in the spike code, but they are load-bearing for the migration plan — the KAN-251 epic should assume at least a half-day of upstream-bug-wrangling per cross-platform map story.
+**The spike surfaced four `mapbox_maps_flutter` 2.12.0 footguns/bugs, all documented in §4.** Each has a working workaround in the spike code.
+
+**⚠️ Important version caveat:** the spike was inadvertently pinned to `mapbox_maps_flutter` 2.12.0 because its Flutter SDK (3.24.5 / Dart 3.5.4) couldn't resolve anything newer. The latest version at time of writing is **2.21.1** (~9 months newer). **None of the bugs in §4 have been retested on 2.21.1** — some or all may already be fixed. Retesting + filtering is tracked as the first acceptance criterion on **KAN-270**. Do **not** treat the §4 bugs as current upstream bugs until that retest is done.
 
 All four "must-have" APIs from the pre-committed GO/NO-GO thresholds **compile, link, and run on device** in `mapbox_maps_flutter` 2.12.0:
 
@@ -84,6 +86,16 @@ Anything between the rows → **GO WITH CAVEATS** (list caveats explicitly in §
 ---
 
 ## 4. API-gap findings (autonomously verified)
+
+> ### ⚠️ Version gap — read this first
+>
+> **All bugs and footguns in this section were observed on `mapbox_maps_flutter` 2.12.0. The current latest at time of writing is 2.21.1 — ~9 months newer.**
+>
+> The spike was pinned to 2.12.0 **not by choice**, but because the spike's Flutter SDK was 3.24.5 (Dart 3.5.4). `mapbox_maps_flutter` 2.13+ requires Dart ≥ 3.6 / Flutter ≥ 3.27, so pub's resolver silently capped us at the last version compatible with our Flutter. This was a spike-methodology gap that should have been caught before the report was written; caught post-hoc during the KAN-270 planning pass.
+>
+> **Implication:** every bug documented below **may already be fixed in 2.21.1**. None of these bugs have been retested on the latest version. **Do not file upstream issues against Mapbox without a retest first** — filing potentially-fixed bugs wastes maintainer time and damages the signal-to-noise of the report.
+>
+> **Pending work (tracked in KAN-270):** bump Flutter to latest stable + `mapbox_maps_flutter` to 2.21.1, re-run the scripted interaction on both devices, and update this section to split "confirmed on 2.21.1" from "2.12.0-only, since fixed". Only the "confirmed on 2.21.1" bugs should be filed upstream.
 
 All four must-have APIs from the threshold table **exist and compile** against `mapbox_maps_flutter` 2.12.0. Caveats and notes from building against them:
 
