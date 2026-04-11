@@ -1,0 +1,47 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace = "com.caddieai.mobile"
+    // Pinned per spike findings (SPIKE_REPORT §4 / KAN-252):
+    // flutter_plugin_android_lifecycle transitive dep requires compileSdk 35.
+    compileSdk = 35
+    // mapbox_maps_flutter 2.12.0 + flutter_plugin_android_lifecycle both
+    // request NDK 26.1.
+    ndkVersion = "26.1.10909125"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        applicationId = "com.caddieai.mobile"
+        // Matches the existing native Android app's minSdk and is the
+        // floor required by mapbox_maps_flutter 2.x.
+        minSdk = 24
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    buildTypes {
+        release {
+            // TODO: Add your own signing config for the release build.
+            // Signing with the debug keys for now, so `flutter run --release` works.
+            signingConfig = signingConfigs.debug
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}

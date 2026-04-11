@@ -1,0 +1,31 @@
+name: caddieai
+description: "CaddieAI mobile — Flutter unified codebase (KAN-251 migration)."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # PINNED to match the version validated by the KAN-252 spike.
+  # Do NOT bump without re-running the spike's scripted interaction on
+  # both platforms — mapbox_maps_flutter has iOS-side layer-add
+  # regressions at several point releases (see SPIKE_REPORT §4).
+  #
+  # Current Flutter SDK pin (3.24.5 / Dart 3.5.4) caps this at 2.12.0.
+  # Bumping either implies bumping both, which is tracked in KAN-270
+  # acceptance criterion #1.
+  mapbox_maps_flutter: 2.12.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
