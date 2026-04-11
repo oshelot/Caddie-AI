@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- KAN-278 (S8) — STT/TTS via the speech_to_text + flutter_tts plugins.
+         RECORD_AUDIO is required by SpeechRecognizer; the system handles
+         the user-facing prompt at runtime via permission_handler. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application
         android:label="CaddieAI"
         android:name="${applicationName}"
@@ -45,6 +49,15 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- KAN-278 (S8) — speech_to_text uses an Intent-based query
+             to discover whether the system speech recognizer is
+             installed. On Android 11+ that probe returns false even
+             when the recognizer IS available unless we explicitly
+             allow it via this <intent> declaration. See the
+             speech_to_text plugin README for the source. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
         </intent>
     </queries>
 </manifest>

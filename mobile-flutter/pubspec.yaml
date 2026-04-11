@@ -48,6 +48,17 @@ dependencies:
   geolocator: ^13.0.0
   permission_handler: ^11.3.0
 
+  # KAN-278 (S8) — speech I/O. `speech_to_text` wraps the platform
+  # native speech recognizers (SFSpeechRecognizer on iOS, the
+  # SpeechRecognizer system service on Android). `flutter_tts` wraps
+  # the platform TTS engines (AVSpeechSynthesizer on iOS, the
+  # android.speech.tts.TextToSpeech engine on Android). Both plugins
+  # surface partial results / progress callbacks via stream-like
+  # APIs, which is what the caddie screen (KAN-S11) needs to render
+  # token-by-token transcription.
+  speech_to_text: ^7.0.0
+  flutter_tts: ^4.0.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
