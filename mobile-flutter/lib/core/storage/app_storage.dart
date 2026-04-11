@@ -37,6 +37,13 @@ abstract final class AppStorage {
   static const String shotHistoryBoxName = 'caddieai_shot_history_v1';
   static const String scorecardBoxName = 'caddieai_scorecards_v1';
 
+  /// Course cache (KAN-275 / S5). Stores `NormalizedCourse` JSON
+  /// payloads keyed by server cache key. Each value is wrapped in
+  /// a small envelope that adds the persistence timestamp so the
+  /// repository can serve TTL-aware reads without parsing the
+  /// course payload itself.
+  static const String courseCacheBoxName = 'caddieai_course_cache_v1';
+
   // Single key inside the profile box. The profile is a singleton —
   // there's only one player per device. The box is a key/value store
   // because Hive doesn't have a "single object" primitive, but we
@@ -72,6 +79,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(profileBoxName),
       Hive.openBox<String>(shotHistoryBoxName),
       Hive.openBox<String>(scorecardBoxName),
+      Hive.openBox<String>(courseCacheBoxName),
     ]);
 
     _initialized = true;
@@ -97,6 +105,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(profileBoxName),
       Hive.openBox<String>(shotHistoryBoxName),
       Hive.openBox<String>(scorecardBoxName),
+      Hive.openBox<String>(courseCacheBoxName),
     ]);
     _initialized = true;
   }
@@ -115,4 +124,6 @@ abstract final class AppStorage {
   static Box<String> get shotHistoryBox =>
       Hive.box<String>(shotHistoryBoxName);
   static Box<String> get scorecardBox => Hive.box<String>(scorecardBoxName);
+  static Box<String> get courseCacheBox =>
+      Hive.box<String>(courseCacheBoxName);
 }
