@@ -54,6 +54,7 @@ import '../../../core/golf/target_strategy.dart';
 import '../../../core/icons/caddie_icons.dart';
 import '../../../core/llm/llm_messages.dart';
 import '../../../core/llm/llm_router.dart';
+import '../../../core/logging/log_event.dart';
 import '../../../core/logging/logging_service.dart';
 import '../../../core/voice/stt_service.dart';
 import '../../../core/voice/tts_service.dart';
@@ -249,36 +250,36 @@ class _CaddieScreenState extends State<CaddieScreen> {
 
     final request = _buildLlmRequest(analysis);
     try {
-      _llmSub = widget.llmRouter
-          .chatCompletionStream(
+      // Use the non-streaming path first — more reliable than SSE
+      // streaming through Lambda Function URL RESPONSE_STREAM mode
+      // where chunked transfer encoding can cause silent failures
+      // on some Android devices. The full response arrives in one
+      // shot; the caddie screen displays it immediately then hands
+      // off to TTS. A future story can re-enable streaming once the
+      // transport supports true chunked reads with timeouts.
+      final response = await widget.llmRouter.chatCompletion(
         request: request,
         tier: widget.tier,
         preferredProvider: widget.preferredProvider,
-      )
-          .listen(
-        (chunk) {
-          if (!mounted) return;
-          setState(() => _llmTranscript.write(chunk));
-        },
-        onError: (Object error) {
-          if (!mounted) return;
-          setState(() {
-            _llmError = '$error';
-            _stage = CaddieFlowStage.engineDone;
-          });
-        },
-        onDone: () async {
-          if (!mounted) return;
-          final fullText = _llmTranscript.toString();
-          if (fullText.isEmpty) {
-            setState(() => _stage = CaddieFlowStage.engineDone);
-            return;
-          }
-          setState(() => _stage = CaddieFlowStage.speaking);
-          await widget.ttsService.speak(fullText, persona: widget.persona);
-        },
       );
+      if (!mounted) return;
+      final text = response.text;
+      if (text.isEmpty) {
+        setState(() => _stage = CaddieFlowStage.engineDone);
+        return;
+      }
+      setState(() {
+        _llmTranscript.write(text);
+        _stage = CaddieFlowStage.speaking;
+      });
+      await widget.ttsService.speak(text, persona: widget.persona);
     } catch (e) {
+      // Log the actual error so CloudWatch captures it for debugging.
+      widget.logger.warning(
+        LogCategory.llm,
+        'llm_call_error',
+        metadata: {'error': '$e', 'tier': widget.tier.name},
+      );
       if (!mounted) return;
       setState(() {
         _llmError = '$e';

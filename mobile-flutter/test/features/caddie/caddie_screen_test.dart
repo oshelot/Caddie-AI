@@ -73,10 +73,11 @@ class FakeLlmProvider implements LlmProvider {
 
   @override
   Future<LlmResponse> chatCompletion(LlmRequest request) async {
+    streamCallCount++;
     if (shouldThrow) {
       throw const LlmException('boom', recoverable: false);
     }
-    return const LlmResponse(text: 'fake');
+    return LlmResponse(text: streamChunks.join(''));
   }
 
   @override
@@ -325,8 +326,8 @@ void main() {
     });
   });
 
-  group('LLM streaming', () {
-    testWidgets('"Ask AI" streams chunks into the transcript', (tester) async {
+  group('LLM call', () {
+    testWidgets('"Ask AI" calls the LLM and renders the transcript', (tester) async {
       llmProvider = FakeLlmProvider(
         streamChunks: const ['Hello.', ' Trust your swing.'],
       );
@@ -349,10 +350,8 @@ void main() {
       await tester.pump();
 
       expect(llmProvider.streamCallCount, 1);
-      // The full transcript should appear (either in the streaming
-      // body or, after the stream completes, in the speaking body).
-      expect(find.textContaining('Hello.'), findsWidgets);
-      expect(find.textContaining('Trust your swing.'), findsWidgets);
+      // The full transcript should appear in one shot (non-streaming).
+      expect(find.textContaining('Hello. Trust your swing.'), findsWidgets);
       logger.dispose();
     });
 
@@ -380,7 +379,7 @@ void main() {
 
   group('TTS playback', () {
     testWidgets(
-        'on stream completion, TTS.speak is called with the assembled '
+        'on LLM completion, TTS.speak is called with the full '
         'transcript and the configured persona', (tester) async {
       llmProvider = FakeLlmProvider(streamChunks: const ['One.', ' Two.']);
       await _pumpScreen(
