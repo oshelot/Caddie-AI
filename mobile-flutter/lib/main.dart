@@ -35,8 +35,38 @@ import 'core/storage/app_storage.dart';
 /// to share the instance. When Riverpod lands (KAN-S7 or earlier),
 /// this should become a `Provider<LoggingService>` and feature code
 /// should switch to consuming it via the provider.
-LoggingService get logger => _logger;
-late final LoggingService _logger;
+///
+/// **Test fallback:** when accessed before `main()` runs (e.g. in
+/// unit tests that pump a route widget directly), the getter
+/// lazy-creates a no-op fallback that's disabled by default. This
+/// keeps the test runtime functional without polluting the
+/// production code path — production builds always assign
+/// `_logger` from `main()` first, so the fallback is never used in
+/// release builds.
+LoggingService get logger {
+  return _logger ??= _buildFallbackLogger();
+}
+
+LoggingService? _logger;
+
+LoggingService _buildFallbackLogger() {
+  return LoggingService(
+    sender: _NoopLogSender(),
+    deviceId: 'unknown',
+    sessionId: 'unknown',
+    enabled: false,
+  );
+}
+
+class _NoopLogSender implements LogSender {
+  @override
+  Future<bool> send({
+    required List<dynamic> entries,
+    required String deviceId,
+    required String sessionId,
+  }) async =>
+      true;
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

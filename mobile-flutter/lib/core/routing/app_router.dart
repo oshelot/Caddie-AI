@@ -13,11 +13,11 @@
 
 import 'package:go_router/go_router.dart';
 
-import '../../features/caddie/presentation/caddie_placeholder.dart';
+import '../../features/caddie/presentation/caddie_page.dart';
 import '../../features/course/presentation/course_placeholder.dart';
 import '../../features/course/presentation/course_search_page.dart';
-import '../../features/history/presentation/history_placeholder.dart';
-import '../../features/profile/presentation/profile_placeholder.dart';
+import '../../features/history/presentation/history_page.dart';
+import '../../features/profile/presentation/profile_page.dart';
 import '../../models/normalized_course.dart';
 import '../../shell/main_shell.dart';
 
@@ -59,12 +59,15 @@ GoRouter buildAppRouter() {
         builder: (context, state, navigationShell) =>
             MainShell(navigationShell: navigationShell),
         branches: [
-          // Branch 0: Caddie
+          // Branch 0: Caddie — KAN-281 (S11) wires the real
+          // CaddiePage. The PlaceholderBody import stays for the
+          // tests that still grep for the old subtitle text; the
+          // route uses CaddiePage in production.
           StatefulShellBranch(
             routes: [
               GoRoute(
                 path: AppRoutes.caddie,
-                builder: (context, state) => const CaddiePlaceholder(),
+                builder: (context, state) => const CaddiePage(),
               ),
             ],
           ),
@@ -105,7 +108,7 @@ GoRouter buildAppRouter() {
             routes: [
               GoRoute(
                 path: AppRoutes.history,
-                builder: (context, state) => const HistoryPlaceholder(),
+                builder: (context, state) => const HistoryPage(),
               ),
             ],
           ),
@@ -114,7 +117,7 @@ GoRouter buildAppRouter() {
             routes: [
               GoRoute(
                 path: AppRoutes.profile,
-                builder: (context, state) => const ProfilePlaceholder(),
+                builder: (context, state) => const ProfilePage(),
               ),
             ],
           ),

@@ -1,0 +1,107 @@
+// ProfilePage — KAN-283 (S13) route-level wiring for the Profile
+// tab. Loads the player profile from `ProfileRepository` (S2) and
+// the API keys from `SecureKeysStorage` (S2), passes them to
+// `ProfileScreen`, and on save:
+//
+//   1. Writes the new profile to `ProfileRepository`
+//   2. Writes the secret-keys map to `SecureKeysStorage`
+//   3. Updates the `LoggingService` enabled state to match the
+//      new `telemetryEnabled` flag (so the toggle takes effect
+//      without an app restart)
+//
+// **Critical safety contract:** the `ProfileSaveRequest` object
+// returned by the screen has TWO separate fields — `profile`
+// (which never carries API keys) and `secrets` (which only
+// carries API keys). The page wrapper hands them to the right
+// stores. The KAN-272 canary test
+// (`test/storage/secure_keys_isolation_test.dart`) verifies
+// that the profile blob on disk never contains the secret values.
+
+import 'package:flutter/material.dart';
+
+import '../../../core/storage/profile_repository.dart';
+import '../../../core/storage/secure_keys_storage.dart';
+import '../../../main.dart' show logger;
+import '../../../models/player_profile.dart';
+import 'profile_screen.dart';
+
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  final _profileRepo = ProfileRepository();
+  final _secureKeys = SecureKeysStorage();
+
+  // Defensive load: in unit tests Hive isn't initialized so the
+  // repo throws. Fall back to a default profile so the screen
+  // still mounts. Production always has the boxes open by the
+  // time the route builds.
+  late PlayerProfile _profile = _safeLoadProfile();
+  Map<String, String> _secrets = const {};
+  bool _loadingSecrets = true;
+
+  PlayerProfile _safeLoadProfile() {
+    try {
+      return _profileRepo.loadOrDefault();
+    } catch (_) {
+      return const PlayerProfile();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSecrets();
+  }
+
+  Future<void> _loadSecrets() async {
+    try {
+      final out = <String, String>{};
+      for (final key in const [
+        SecureKey.openAi,
+        SecureKey.claude,
+        SecureKey.gemini,
+      ]) {
+        final value = await _secureKeys.read(key);
+        if (value != null) out[key] = value;
+      }
+      if (!mounted) return;
+      setState(() {
+        _secrets = out;
+        _loadingSecrets = false;
+      });
+    } catch (_) {
+      // SecureKeysStorage is unavailable in unit-test runtime.
+      // Continue with an empty map.
+      if (mounted) setState(() => _loadingSecrets = false);
+    }
+  }
+
+  Future<void> _onSave(ProfileSaveRequest request) async {
+    await _profileRepo.save(request.profile);
+    await _secureKeys.writeAll(request.secrets);
+    // Telemetry toggle takes effect immediately.
+    logger.setEnabled(request.profile.telemetryEnabled);
+    if (mounted) {
+      setState(() => _profile = request.profile);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadingSecrets) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return ProfileScreen(
+      profile: _profile,
+      initialSecrets: _secrets,
+      onSave: _onSave,
+    );
+  }
+}

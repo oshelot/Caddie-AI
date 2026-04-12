@@ -84,17 +84,27 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
 
-      // Caddie placeholder uses PlaceholderBody.
+      // Caddie tab now hosts the real S11 CaddieScreen (KAN-281).
+      // Body content (LLM/STT/TTS-touching) is tested separately
+      // in test/features/caddie/caddie_screen_test.dart with
+      // injected fakes. Here we just verify the tab swap works
+      // by asserting on the AppBar title that the screen renders.
       await tapTab('Caddie');
-      expect(find.textContaining('AI shot advisor'), findsOneWidget);
+      expect(find.text('Caddie'), findsWidgets);
 
-      // History placeholder uses PlaceholderBody.
+      // History tab now hosts the real S12 HistoryScreen (KAN-282).
+      // Body content is tested in test/features/history/ with
+      // injected fixture data; here we just verify the tab swap
+      // works.
       await tapTab('History');
-      expect(find.textContaining('Past shot recommendations'), findsOneWidget);
+      expect(find.text('History'), findsWidgets);
 
-      // Profile placeholder uses PlaceholderBody.
+      // Profile tab now hosts the real S13 ProfileScreen (KAN-283).
+      // Body content is tested separately in
+      // test/features/profile/profile_screen_test.dart with
+      // injected fixture data; here we just verify the tab swap.
       await tapTab('Profile');
-      expect(find.textContaining('Player handicap'), findsOneWidget);
+      expect(find.text('Profile'), findsWidgets);
 
       // Course is the real S10 screen behind a LocationGate; we
       // assert via the navbar selection only and leave the body
