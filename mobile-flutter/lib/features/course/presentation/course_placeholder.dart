@@ -32,7 +32,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/location/geolocator_location_service.dart';
 import '../../../core/location/location_gate.dart';
 import '../../../core/location/location_service.dart';
-import '../../../core/routing/app_router.dart';
 import '../../../main.dart' show logger;
 import '../../../models/normalized_course.dart';
 import 'course_map_screen.dart';
@@ -106,14 +105,9 @@ class _CoursePlaceholderState extends State<CoursePlaceholder> {
           return CourseMapScreen(
             course: snapshot.data!,
             logger: logger,
-            onAskCaddie: () {
-              // Navigate to the Caddie tab.
-              // ignore: use_build_context_synchronously
-              context.go(AppRoutes.caddie);
-            },
-            // Analyze uses the built-in hole analysis sheet — no
-            // navigation needed. Passing null tells the map screen
-            // to show its own sheet.
+            locationService: _locationService,
+            // Both Ask Caddie and Analyze use built-in sheets.
+            // Passing null triggers the map screen's own handlers.
           );
         },
       ),

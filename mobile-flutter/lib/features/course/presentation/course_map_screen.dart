@@ -58,6 +58,8 @@ import '../../../core/logging/log_event.dart';
 import '../../../core/logging/logging_service.dart';
 import '../../../core/courses/http_transport.dart';
 import '../../../core/mapbox/layer_helpers.dart';
+import '../../../core/location/location_service.dart';
+import 'ask_caddie_sheet.dart';
 import 'hole_analysis_sheet.dart';
 import '../../../core/weather/weather_data.dart';
 import '../../../core/weather/weather_service.dart';
@@ -104,6 +106,7 @@ class CourseMapScreen extends StatefulWidget {
     required this.logger,
     this.onAskCaddie,
     this.onAnalyze,
+    this.locationService,
   });
 
   /// The course to render. Caller is responsible for fetching
@@ -121,6 +124,10 @@ class CourseMapScreen extends StatefulWidget {
   /// Called when the user taps "Analyze". If null, the screen
   /// shows the built-in hole analysis bottom sheet.
   final VoidCallback? onAnalyze;
+
+  /// Location service for on-course GPS. Used by Ask Caddie to
+  /// calculate distance to green from the user's position.
+  final LocationService? locationService;
 
   @override
   State<CourseMapScreen> createState() => _CourseMapScreenState();
@@ -343,12 +350,32 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
               selectedHole: _selectedHole,
               selectedTee: _selectedTee,
               onHoleSelected: _selectHole,
-              onAskCaddie: widget.onAskCaddie,
+              onAskCaddie: widget.onAskCaddie ?? (widget.locationService != null ? () => _showAskCaddie() : null),
               onAnalyze: widget.onAnalyze ?? () => _showHoleAnalysis(),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  void _showAskCaddie() {
+    final holeNum = _selectedHole;
+    if (holeNum == null) return;
+    final hole = widget.course.holes.cast<NormalizedHole?>().firstWhere(
+          (h) => h!.number == holeNum,
+          orElse: () => null,
+        );
+    if (hole == null) return;
+    final locService = widget.locationService;
+    if (locService == null) return;
+    showAskCaddieSheet(
+      context: context,
+      course: widget.course,
+      hole: hole,
+      selectedTee: _selectedTee,
+      weather: _weather,
+      locationService: locService,
     );
   }
 
