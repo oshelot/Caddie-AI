@@ -154,4 +154,17 @@ class NormalizedCourse {
           .toList(growable: false),
     );
   }
+
+  /// Name-only key for the server cache. Coordinates are deliberately
+  /// excluded so iOS (MapKit) and Android/Flutter (Nominatim/Places)
+  /// converge on the same cache entry for the same course — different
+  /// providers report slightly different centroids for the same place.
+  /// Mirrors `ios/CaddieAI/Models/CourseModel.swift:99-104` exactly.
+  static String serverCacheKey(String name) {
+    return name
+        .toLowerCase()
+        .replaceAll(' ', '-')
+        .replaceAll("'", '')
+        .replaceAll('"', '');
+  }
 }

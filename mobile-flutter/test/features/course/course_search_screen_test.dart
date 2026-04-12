@@ -26,6 +26,7 @@
 //      event with the canonical metadata fields
 
 import 'package:caddieai/core/courses/course_search_results.dart';
+import 'package:caddieai/core/courses/places_client.dart';
 import 'package:caddieai/core/logging/log_event.dart';
 import 'package:caddieai/core/logging/log_sender.dart';
 import 'package:caddieai/core/logging/logging_service.dart';
@@ -80,12 +81,13 @@ const _entry2 = CourseSearchEntry(
 
 Future<void> _pumpScreen(
   WidgetTester tester, {
-  required Future<CourseSearchOutcome> Function(String) onSearch,
+  required Future<CourseSearchOutcome> Function(String, String) onSearch,
   required void Function(CourseSearchEntry) onSelectCourse,
   required LoggingService logger,
   bool locationGranted = false,
   CourseSearchEntry? demoEntry,
   Duration debounce = Duration.zero,
+  Future<List<PlaceAutocompleteSuggestion>> Function(String)? onCityAutocomplete,
 }) async {
   await tester.pumpWidget(MaterialApp(
     home: CourseSearchScreen(
@@ -95,6 +97,7 @@ Future<void> _pumpScreen(
       locationGranted: locationGranted,
       initialDemoEntry: demoEntry,
       debounce: debounce,
+      onCityAutocomplete: onCityAutocomplete,
     ),
   ));
   await tester.pump();
@@ -114,7 +117,7 @@ void main() {
         (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async => CourseSearchOutcome.empty,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
         onSelectCourse: (_) {},
         logger: logger,
         demoEntry: _entry1,
@@ -127,7 +130,7 @@ void main() {
         (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async => CourseSearchOutcome.empty,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
         onSelectCourse: (_) {},
         logger: logger,
       );
@@ -139,7 +142,7 @@ void main() {
       CourseSearchEntry? selected;
       await _pumpScreen(
         tester,
-        onSearch: (_) async => CourseSearchOutcome.empty,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
         onSelectCourse: (e) => selected = e,
         logger: logger,
         demoEntry: _entry1,
@@ -156,7 +159,7 @@ void main() {
       String? receivedQuery;
       await _pumpScreen(
         tester,
-        onSearch: (q) async {
+        onSearch: (q, _) async {
           callCount++;
           receivedQuery = q;
           return const CourseSearchOutcome(entries: [_entry1, _entry2]);
@@ -186,7 +189,7 @@ void main() {
     testWidgets('renders both result entries', (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async =>
+        onSearch: (_, __) async =>
             const CourseSearchOutcome(entries: [_entry1, _entry2]),
         onSelectCourse: (_) {},
         logger: logger,
@@ -207,7 +210,7 @@ void main() {
       CourseSearchEntry? selected;
       await _pumpScreen(
         tester,
-        onSearch: (_) async =>
+        onSearch: (_, __) async =>
             const CourseSearchOutcome(entries: [_entry1, _entry2]),
         onSelectCourse: (e) => selected = e,
         logger: logger,
@@ -229,7 +232,7 @@ void main() {
         (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async => CourseSearchOutcome.empty,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
         onSelectCourse: (_) {},
         logger: logger,
       );
@@ -245,7 +248,7 @@ void main() {
     testWidgets('error state when onSearch throws', (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async => throw Exception('boom'),
+        onSearch: (_, __) async => throw Exception('boom'),
         onSelectCourse: (_) {},
         logger: logger,
       );
@@ -264,7 +267,7 @@ void main() {
         (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async =>
+        onSearch: (_, __) async =>
             const CourseSearchOutcome(entries: [], error: '503'),
         onSelectCourse: (_) {},
         logger: logger,
@@ -284,7 +287,7 @@ void main() {
         (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async => CourseSearchOutcome.empty,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
         onSelectCourse: (_) {},
         logger: logger,
         locationGranted: false,
@@ -299,7 +302,7 @@ void main() {
         (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async => CourseSearchOutcome.empty,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
         onSelectCourse: (_) {},
         logger: logger,
         locationGranted: true,
@@ -311,13 +314,131 @@ void main() {
     });
   });
 
+  group('city autocomplete (KAN-29 port)', () {
+    testWidgets('city field is hidden when no autocomplete callback is given',
+        (tester) async {
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+      );
+      expect(find.byKey(CourseSearchKeys.cityField), findsNothing);
+      expect(find.byKey(CourseSearchKeys.courseNameField), findsOneWidget);
+    });
+
+    testWidgets('city field renders when autocomplete callback is supplied',
+        (tester) async {
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+        onCityAutocomplete: (_) async => const [],
+      );
+      expect(find.byKey(CourseSearchKeys.cityField), findsOneWidget);
+    });
+
+    testWidgets('typing into the city field calls the autocomplete callback '
+        'after the debounce', (tester) async {
+      var calls = 0;
+      String? receivedInput;
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+        debounce: const Duration(milliseconds: 50),
+        onCityAutocomplete: (input) async {
+          calls++;
+          receivedInput = input;
+          return const [
+            PlaceAutocompleteSuggestion(
+              description: 'Denver, CO, USA',
+              mainText: 'Denver',
+              secondaryText: 'CO, USA',
+            ),
+          ];
+        },
+      );
+      await tester.enterText(find.byKey(CourseSearchKeys.cityField), 'DEN');
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.pump();
+      expect(calls, 1);
+      expect(receivedInput, 'DEN');
+      expect(find.text('Denver'), findsOneWidget);
+      expect(find.text('CO, USA'), findsOneWidget);
+    });
+
+    testWidgets('tapping a suggestion fills the city field and hides the list',
+        (tester) async {
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+        onCityAutocomplete: (_) async => const [
+          PlaceAutocompleteSuggestion(
+            description: 'Pacifica, CA, USA',
+            mainText: 'Pacifica',
+            secondaryText: 'CA, USA',
+          ),
+        ],
+      );
+      await tester.enterText(find.byKey(CourseSearchKeys.cityField), 'Pac');
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(CourseSearchKeys.citySuggestionTile), findsOneWidget);
+
+      await tester.tap(find.byKey(CourseSearchKeys.citySuggestionTile));
+      await tester.pump();
+
+      // Field is filled, suggestions hidden.
+      final field = tester.widget<TextField>(
+        find.byKey(CourseSearchKeys.cityField),
+      );
+      expect(field.controller!.text, 'Pacifica, CA, USA');
+      expect(find.byKey(CourseSearchKeys.citySuggestionTile), findsNothing);
+    });
+
+    testWidgets('city is forwarded to onSearch on the next search', (tester) async {
+      String? receivedQuery;
+      String? receivedCity;
+      await _pumpScreen(
+        tester,
+        onSearch: (q, c) async {
+          receivedQuery = q;
+          receivedCity = c;
+          return CourseSearchOutcome.empty;
+        },
+        onSelectCourse: (_) {},
+        logger: logger,
+        onCityAutocomplete: (_) async => const [],
+      );
+      await tester.enterText(
+        find.byKey(CourseSearchKeys.cityField),
+        'Pacifica, CA, USA',
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(CourseSearchKeys.courseNameField),
+        'sharp',
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(receivedQuery, 'sharp');
+      expect(receivedCity, 'Pacifica, CA, USA');
+      logger.dispose();
+    });
+  });
+
   group('telemetry contract — log_search_latency', () {
     testWidgets(
         'every completed search emits a log_search_latency event with the '
         'canonical metadata fields', (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async =>
+        onSearch: (_, __) async =>
             const CourseSearchOutcome(entries: [_entry1, _entry2]),
         onSelectCourse: (_) {},
         logger: logger,
@@ -343,7 +464,7 @@ void main() {
         'resultCount=0', (tester) async {
       await _pumpScreen(
         tester,
-        onSearch: (_) async => throw Exception('network down'),
+        onSearch: (_, __) async => throw Exception('network down'),
         onSelectCourse: (_) {},
         logger: logger,
       );

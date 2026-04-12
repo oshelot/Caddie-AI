@@ -1,40 +1,45 @@
-// CourseSearchScreen — KAN-279 (S9). The new default content of the
-// Course tab. Replaces the direct-to-map experience that
-// `CoursePlaceholder` provided in S10.
+// CourseSearchScreen — KAN-279 (S9), updated for the KAN-296 / KAN-29
+// 3-source search rewrite.
 //
-// **What this screen does:**
-//   1. Renders a search input that debounces user typing
-//      (default 350 ms — well under the 1 s AC target).
-//   2. On debounce fire, calls a caller-supplied
-//      `Future<CourseSearchResults> Function(String query)`
-//      callback. The route widget wires this to
-//      `CourseCacheClient.searchManifest` (KAN-S5) in production
-//      and to a fake list in tests.
+// **What this screen does (post-rewrite, mirrors iOS CourseSearchView
+// + CourseViewModel exactly):**
+//
+//   1. Renders a "Course name" search input + an optional "City"
+//      input. The city field has a debounced autocomplete dropdown
+//      driven by an injected callback (the page wrapper wires this
+//      to `PlacesClient.autocomplete`, which proxies Google Places
+//      Autocomplete via the KAN-296 Lambda routes).
+//   2. On Search button tap, calls `onSearch(query, city)` exactly
+//      once. The page wrapper does the parallel fan-out to
+//      Nominatim + Google Places + manifest metadata, runs the
+//      `CourseSearchMerger`, and returns the merged outcome.
 //   3. Renders the result list with name + city/state subtitle.
-//      Tapping a result invokes `onSelectCourse` — the route
-//      widget handles fetching the full `NormalizedCourse` and
-//      navigating to the map.
+//      Tapping invokes `onSelectCourse` — the page wrapper handles
+//      fetching the full `NormalizedCourse` and navigating.
 //   4. Renders distinct empty states for "no results", "location
 //      required" (when the user toggles nearby search but
-//      permission isn't granted), and "ready to search" (the
-//      initial idle state).
+//      permission isn't granted), and "ready to search" (the idle
+//      state).
 //   5. Logs `log_search_latency` to `LoggingService` on every
-//      completed search with `latencyMs` + `query` length +
-//      `resultCount` + `hasLocation` metadata. This is the C-3
-//      measurement contract — the actual ≤ 1 s target is verified
-//      by the production CloudWatch dashboard.
+//      completed search with the canonical metadata fields.
 //
-// **Why a callback for `onSearch` instead of taking a
-// `CourseCacheClient` directly:** the widget tests need to drive
-// scripted result sequences (empty, populated, error) without
-// standing up a fake HTTP transport. Production wires the
-// callback to the real client at the route level.
+// **Why a callback for `onSearch` instead of taking the clients
+// directly:** the widget tests need to drive scripted result
+// sequences (empty, populated, error) without standing up fake
+// HTTP transports for three different services. Production wires
+// the callback at the route level.
+//
+// **iOS reference:** the layout, the city/name interaction, and the
+// debounce all match `ios/CaddieAI/Views/CourseTab/CourseSearchView.swift`
+// and the search flow in
+// `ios/CaddieAI/ViewModels/CourseViewModel.swift:70-152`.
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../../../core/courses/course_search_results.dart';
+import '../../../core/courses/places_client.dart';
 import '../../../core/icons/caddie_icons.dart';
 import '../../../core/logging/log_event.dart';
 import '../../../core/logging/logging_service.dart';
@@ -58,6 +63,17 @@ class CourseSearchOutcome {
       CourseSearchOutcome(entries: []);
 }
 
+/// Widget keys exposed for tests so we can find the two TextFields
+/// + the search button without depending on widget order.
+abstract final class CourseSearchKeys {
+  CourseSearchKeys._();
+
+  static const courseNameField = Key('course-search-name-field');
+  static const cityField = Key('course-search-city-field');
+  static const searchButton = Key('course-search-button');
+  static const citySuggestionTile = Key('course-search-city-suggestion');
+}
+
 class CourseSearchScreen extends StatefulWidget {
   const CourseSearchScreen({
     super.key,
@@ -67,16 +83,21 @@ class CourseSearchScreen extends StatefulWidget {
     this.locationGranted = false,
     this.debounce = const Duration(milliseconds: 350),
     this.initialDemoEntry,
+    this.onCityAutocomplete,
   });
 
-  /// Called once per debounced search. Gets the trimmed query
-  /// (never empty — the screen short-circuits before calling).
+  /// Called once per Search-button tap (or debounced typing fire if
+  /// the screen is configured with a non-zero debounce). Receives
+  /// the trimmed course-name query and the trimmed city string
+  /// (which may be empty).
+  ///
   /// Returns a `CourseSearchOutcome` so callers can distinguish
   /// "no results" from "request errored". The screen catches
   /// thrown exceptions and converts them to outcome errors.
-  final Future<CourseSearchOutcome> Function(String query) onSearch;
+  final Future<CourseSearchOutcome> Function(String query, String city)
+      onSearch;
 
-  /// Called when the user taps a result. The route widget is
+  /// Called when the user taps a result. The page wrapper is
   /// responsible for fetching the full `NormalizedCourse` and
   /// navigating to the map screen.
   final void Function(CourseSearchEntry entry) onSelectCourse;
@@ -87,39 +108,51 @@ class CourseSearchScreen extends StatefulWidget {
   final LoggingService logger;
 
   /// Whether location permission is currently granted. The "Use
-  /// my location" toggle in the search bar is disabled when
-  /// false; tapping it shows the "location required" empty state.
-  /// The route widget computes this from `LocationService`.
+  /// my location" toggle is disabled when false; tapping it shows
+  /// the "location required" hint.
   final bool locationGranted;
 
   /// Debounce delay between the last keystroke and the actual
-  /// search call. Default 350 ms. Tests pass `Duration.zero` to
-  /// run searches synchronously.
+  /// search call. Default 350 ms. Tests pass `Duration.zero` for
+  /// determinism.
   final Duration debounce;
 
   /// Optional offline-development entry that always shows in the
-  /// idle state. The route widget passes the Sharp Park fallback
-  /// fixture entry so engineers without a configured course
-  /// cache endpoint can still tap into the map screen.
+  /// idle state. The page wrapper passes the Sharp Park fallback
+  /// fixture entry so engineers without a configured course cache
+  /// endpoint can still tap into the map screen.
   final CourseSearchEntry? initialDemoEntry;
+
+  /// Callback the screen invokes when the user types in the City
+  /// field. Returns the autocomplete suggestions for the current
+  /// input. Pass `null` to disable the city field entirely
+  /// (existing tests do this).
+  final Future<List<PlaceAutocompleteSuggestion>> Function(String input)?
+      onCityAutocomplete;
 
   @override
   State<CourseSearchScreen> createState() => _CourseSearchScreenState();
 }
 
 class _CourseSearchScreenState extends State<CourseSearchScreen> {
-  final TextEditingController _controller = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _cityController = TextEditingController();
   Timer? _debounceTimer;
+  Timer? _cityDebounceTimer;
   bool _isSearching = false;
   CourseSearchOutcome? _lastOutcome;
   String _lastQuery = '';
   bool _useNearby = false;
   bool _showLocationRequiredHint = false;
+  List<PlaceAutocompleteSuggestion> _citySuggestions = const [];
+  bool _suppressNextCityAutocomplete = false;
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
-    _controller.dispose();
+    _cityDebounceTimer?.cancel();
+    _nameController.dispose();
+    _cityController.dispose();
     super.dispose();
   }
 
@@ -137,16 +170,56 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
     _debounceTimer = Timer(widget.debounce, () => _runSearch(trimmed));
   }
 
+  void _onCityChanged(String value) {
+    if (_suppressNextCityAutocomplete) {
+      _suppressNextCityAutocomplete = false;
+      return;
+    }
+    if (widget.onCityAutocomplete == null) return;
+    _cityDebounceTimer?.cancel();
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      setState(() => _citySuggestions = const []);
+      return;
+    }
+    _cityDebounceTimer = Timer(widget.debounce, () async {
+      final suggestions = await widget.onCityAutocomplete!(trimmed);
+      if (!mounted) return;
+      setState(() => _citySuggestions = suggestions);
+    });
+  }
+
+  void _onSelectCitySuggestion(PlaceAutocompleteSuggestion suggestion) {
+    // Setting the controller text fires onChanged, which would
+    // immediately re-run the autocomplete with the same value.
+    // Suppress that single re-fire so the suggestion list collapses
+    // cleanly.
+    _suppressNextCityAutocomplete = true;
+    _cityController.text = suggestion.description;
+    _cityController.selection = TextSelection.fromPosition(
+      TextPosition(offset: suggestion.description.length),
+    );
+    setState(() => _citySuggestions = const []);
+  }
+
+  Future<void> _runSearchFromButton() async {
+    final query = _nameController.text.trim();
+    if (query.isEmpty) return;
+    await _runSearch(query);
+  }
+
   Future<void> _runSearch(String query) async {
     if (!mounted) return;
     setState(() {
       _isSearching = true;
       _lastQuery = query;
+      _citySuggestions = const [];
     });
     final start = DateTime.now();
+    final city = _cityController.text.trim();
     CourseSearchOutcome outcome;
     try {
-      outcome = await widget.onSearch(query);
+      outcome = await widget.onSearch(query, city);
     } catch (e) {
       outcome = CourseSearchOutcome(entries: const [], error: '$e');
     }
@@ -161,6 +234,7 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
         'query': query,
         'resultCount': '${outcome.entries.length}',
         'hasLocation': '${widget.locationGranted && _useNearby}',
+        'cityProvided': '${city.isNotEmpty}',
       },
     );
     setState(() {
@@ -171,8 +245,8 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
 
   void _toggleNearby(bool value) {
     if (value && !widget.locationGranted) {
-      // The location-required hint replaces the result body
-      // until the user either grants permission or untoggles.
+      // The location-required hint replaces the result body until
+      // the user either grants permission or untoggles.
       setState(() {
         _useNearby = false;
         _showLocationRequiredHint = true;
@@ -207,12 +281,18 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
       body: Column(
         children: [
           _SearchBar(
-            controller: _controller,
-            onChanged: _onQueryChanged,
+            nameController: _nameController,
+            cityController: _cityController,
+            onNameChanged: _onQueryChanged,
+            onCityChanged: _onCityChanged,
+            onSubmit: _runSearchFromButton,
             useNearby: _useNearby,
             onToggleNearby: _toggleNearby,
             locationGranted: widget.locationGranted,
             isSearching: _isSearching,
+            citySuggestions: _citySuggestions,
+            onSelectCitySuggestion: _onSelectCitySuggestion,
+            cityFieldEnabled: widget.onCityAutocomplete != null,
           ),
           Expanded(child: _buildBody(theme)),
         ],
@@ -274,20 +354,32 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
 
 class _SearchBar extends StatelessWidget {
   const _SearchBar({
-    required this.controller,
-    required this.onChanged,
+    required this.nameController,
+    required this.cityController,
+    required this.onNameChanged,
+    required this.onCityChanged,
+    required this.onSubmit,
     required this.useNearby,
     required this.onToggleNearby,
     required this.locationGranted,
     required this.isSearching,
+    required this.citySuggestions,
+    required this.onSelectCitySuggestion,
+    required this.cityFieldEnabled,
   });
 
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
+  final TextEditingController nameController;
+  final TextEditingController cityController;
+  final ValueChanged<String> onNameChanged;
+  final ValueChanged<String> onCityChanged;
+  final VoidCallback onSubmit;
   final bool useNearby;
   final ValueChanged<bool> onToggleNearby;
   final bool locationGranted;
   final bool isSearching;
+  final List<PlaceAutocompleteSuggestion> citySuggestions;
+  final ValueChanged<PlaceAutocompleteSuggestion> onSelectCitySuggestion;
+  final bool cityFieldEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -298,15 +390,17 @@ class _SearchBar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
-            controller: controller,
-            onChanged: onChanged,
+            key: CourseSearchKeys.courseNameField,
+            controller: nameController,
+            onChanged: onNameChanged,
+            onSubmitted: (_) => onSubmit(),
             // autofocus intentionally OFF — `autofocus: true` blocks
             // unit tests waiting for the focus engine to settle. The
             // production UX gets focus on tap, which is fine for the
             // search-first flow.
             textInputAction: TextInputAction.search,
             decoration: InputDecoration(
-              hintText: 'Search by name (e.g. Sharp Park)',
+              hintText: 'Course name (e.g. Sharp Park)',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: isSearching
                   ? const Padding(
@@ -323,6 +417,53 @@ class _SearchBar extends StatelessWidget {
               ),
             ),
           ),
+          if (cityFieldEnabled) ...[
+            const SizedBox(height: 8),
+            TextField(
+              key: CourseSearchKeys.cityField,
+              controller: cityController,
+              onChanged: onCityChanged,
+              onSubmitted: (_) => onSubmit(),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'City (optional)',
+                prefixIcon: const Icon(Icons.location_city_outlined),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            if (citySuggestions.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Material(
+                  elevation: 1,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Column(
+                    children: [
+                      for (final suggestion in citySuggestions)
+                        ListTile(
+                          key: CourseSearchKeys.citySuggestionTile,
+                          dense: true,
+                          leading: const Icon(
+                            Icons.place_outlined,
+                            size: 18,
+                          ),
+                          title: Text(
+                            suggestion.mainText.isNotEmpty
+                                ? suggestion.mainText
+                                : suggestion.description,
+                          ),
+                          subtitle: suggestion.secondaryText.isNotEmpty
+                              ? Text(suggestion.secondaryText)
+                              : null,
+                          onTap: () => onSelectCitySuggestion(suggestion),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
@@ -345,6 +486,18 @@ class _SearchBar extends StatelessWidget {
                   ),
                 ),
             ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: CourseSearchKeys.searchButton,
+              onPressed: nameController.text.trim().isEmpty || isSearching
+                  ? null
+                  : onSubmit,
+              icon: const Icon(Icons.search),
+              label: const Text('Search'),
+            ),
           ),
         ],
       ),

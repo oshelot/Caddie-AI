@@ -14,6 +14,19 @@
 
 import '../../models/normalized_course.dart';
 
+/// Provenance of a `CourseSearchEntry` — which of the three parallel
+/// search sources produced it. The page wrapper uses this to decide
+/// how to resolve a tap into a `NormalizedCourse`:
+///   - `manifest`: `cacheKey` is a real server cache key; fetch directly
+///   - `nominatim` / `googlePlaces`: `cacheKey` is synthesized; the page
+///     wrapper has to derive a server cache key from the name and try
+///     the cache; if 404, the course isn't in the shared cache yet.
+enum CourseSearchSource {
+  manifest,
+  nominatim,
+  googlePlaces,
+}
+
 /// One row in a search response. Used by the Course search screen
 /// (KAN-S9) to render the result list before the user commits to
 /// fetching a full course.
@@ -26,11 +39,15 @@ class CourseSearchEntry {
     required this.latitude,
     required this.longitude,
     this.courseId,
+    this.source = CourseSearchSource.manifest,
+    this.formattedAddress,
   });
 
-  /// Server cache key. Pass this to
-  /// `CourseCacheClient.fetchCourse(cacheKey)` to get the full
-  /// `NormalizedCourse` payload.
+  /// Server cache key when [source] is `manifest`. For Nominatim and
+  /// Google Places sources this is synthesized from the OSM id or the
+  /// Google Place id, not a real server cache key — the page wrapper
+  /// short-circuits on a non-manifest source and resolves the entry
+  /// via name-based cache lookup instead.
   final String cacheKey;
 
   /// Display name (e.g. "Wellshire Golf Course").
@@ -52,6 +69,36 @@ class CourseSearchEntry {
   /// Optional opaque server identifier (for endpoints that key
   /// by id rather than cacheKey).
   final String? courseId;
+
+  /// Which search source produced this entry. Defaults to
+  /// `manifest` so existing manifest-only callers (and tests written
+  /// before the 3-source merge) keep the same shape.
+  final CourseSearchSource source;
+
+  /// Google Places-formatted address ("1 Sharp Park Rd, Pacifica, CA
+  /// 94044, USA"). Only set for `googlePlaces` source entries — the
+  /// merge step uses it as a tie-breaker for ambiguous fuzzy matches.
+  final String? formattedAddress;
+
+  /// Returns a copy of this entry with the supplied fields replaced.
+  /// Used by the merger step to overlay manifest city/state onto
+  /// Nominatim/Places results without copying every field by hand.
+  CourseSearchEntry copyWith({
+    String? city,
+    String? state,
+  }) {
+    return CourseSearchEntry(
+      cacheKey: cacheKey,
+      name: name,
+      city: city ?? this.city,
+      state: state ?? this.state,
+      latitude: latitude,
+      longitude: longitude,
+      courseId: courseId,
+      source: source,
+      formattedAddress: formattedAddress,
+    );
+  }
 
   factory CourseSearchEntry.fromJson(Map<String, dynamic> json) {
     return CourseSearchEntry(
