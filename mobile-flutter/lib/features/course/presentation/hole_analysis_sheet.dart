@@ -397,9 +397,11 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
   List<Widget> _buildQuickFacts(ThemeData theme, HoleAnalysis a) {
     final facts = <Widget>[];
 
-    // Per-tee yardages
+    // Per-tee yardages — filtered with the same combo-tee logic
+    // as the map screen's tee picker (KAN-182).
     if (a.yardagesByTee != null && a.yardagesByTee!.isNotEmpty) {
-      final sorted = a.yardagesByTee!.entries.toList()
+      final filtered = _filterComboTees(a.yardagesByTee!);
+      final sorted = filtered.entries.toList()
         ..sort((x, y) => y.value.compareTo(x.value));
       for (final e in sorted) {
         facts.add(_factRow(
@@ -474,6 +476,22 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
     }
 
     return facts;
+  }
+
+  /// KAN-182: filter combo tees (e.g. "Bronze/Gold") when both
+  /// standalone components exist.
+  Map<String, int> _filterComboTees(Map<String, int> yardagesByTee) {
+    final standalones = yardagesByTee.keys
+        .where((t) => !t.contains('/'))
+        .map((t) => t.toLowerCase())
+        .toSet();
+    return Map.fromEntries(
+      yardagesByTee.entries.where((e) {
+        if (!e.key.contains('/')) return true;
+        final parts = e.key.split('/').map((p) => p.trim().toLowerCase());
+        return !parts.every((p) => standalones.contains(p));
+      }),
+    );
   }
 
   Widget _factRow({

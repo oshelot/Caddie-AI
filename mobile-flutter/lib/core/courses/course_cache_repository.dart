@@ -27,6 +27,7 @@
 import 'dart:collection';
 import 'dart:convert';
 
+import '../geo/geo.dart';
 import '../../models/normalized_course.dart';
 import '../storage/app_storage.dart';
 import 'course_search_results.dart';
@@ -82,20 +83,53 @@ class CachedCourseEnvelope {
       },
       'teeNames': course.teeNames,
       'teeYardageTotals': course.teeYardageTotals,
-      'holes': course.holes
-          .map((h) => {
-                'number': h.number,
-                'par': h.par,
-                'strokeIndex': h.strokeIndex,
-                'yardages': h.yardages,
-                'teeAreas': const [],
-                'lineOfPlay': null,
-                'green': null,
-                'pin': null,
-                'bunkers': const [],
-                'water': const [],
-              })
-          .toList(),
+      'holes': course.holes.map((h) => _serializeHole(h)).toList(),
+    };
+  }
+  static Map<String, dynamic> _serializeHole(NormalizedHole h) {
+    return {
+      'number': h.number,
+      'par': h.par,
+      'strokeIndex': h.strokeIndex,
+      'yardages': h.yardages,
+      'teeAreas': h.teeAreas
+          .map((t) => _serializePolygon(t))
+          .toList(growable: false),
+      'lineOfPlay': h.lineOfPlay != null
+          ? _serializeLineString(h.lineOfPlay!)
+          : null,
+      'green': h.green != null ? _serializePolygon(h.green!) : null,
+      'pin': h.pin != null
+          ? {'latitude': h.pin!.lat, 'longitude': h.pin!.lon}
+          : null,
+      'bunkers': h.bunkers
+          .map((b) => _serializePolygon(b))
+          .toList(growable: false),
+      'water': h.water
+          .map((w) => _serializePolygon(w))
+          .toList(growable: false),
+    };
+  }
+
+  static Map<String, dynamic> _serializePolygon(Polygon p) {
+    final ring = p.outerRing.map((pt) => [pt.lon, pt.lat]).toList();
+    // Close the ring if not already closed.
+    if (ring.length >= 3) {
+      final first = ring.first;
+      final last = ring.last;
+      if (first[0] != last[0] || first[1] != last[1]) {
+        ring.add([first[0], first[1]]);
+      }
+    }
+    return {
+      'coordinates': [ring],
+    };
+  }
+
+  static Map<String, dynamic> _serializeLineString(LineString l) {
+    return {
+      'coordinates':
+          l.points.map((pt) => [pt.lon, pt.lat]).toList(growable: false),
     };
   }
 }
