@@ -252,4 +252,12 @@ class _CanonicalEvents {
   /// frame. Emitted by the TTS service (KAN-S8). Metadata:
   /// `latencyMs`, `voiceGender`, `voiceAccent`. Filter: `TtsLatencyMs`.
   String get ttsLatency => 'tts_latency';
+
+  /// Course search latency from typing-stop (debounce fire) to
+  /// the search-result list rendering. Emitted by the course
+  /// search screen (KAN-S9). Metadata: `latencyMs`, `query`,
+  /// `resultCount`, `hasLocation`. CloudWatch filter:
+  /// `CourseSearchLatencyMs`. Used to verify the AC's "results
+  /// within 1 s of typing stop" target.
+  String get searchLatency => 'log_search_latency';
 }

@@ -15,8 +15,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/caddie/presentation/caddie_placeholder.dart';
 import '../../features/course/presentation/course_placeholder.dart';
+import '../../features/course/presentation/course_search_page.dart';
 import '../../features/history/presentation/history_placeholder.dart';
 import '../../features/profile/presentation/profile_placeholder.dart';
+import '../../models/normalized_course.dart';
 import '../../shell/main_shell.dart';
 
 /// Top-level routes used by the bottom navigation. Exposed as constants
@@ -26,7 +28,18 @@ abstract final class AppRoutes {
   AppRoutes._();
 
   static const caddie = '/caddie';
+
+  /// Course tab default — the search screen (KAN-S9). When the user
+  /// taps a result, the search page navigates to [courseMap] with
+  /// the resolved `NormalizedCourse` as the route's `extra`.
   static const course = '/course';
+
+  /// Course map screen (KAN-S10). Pushed from the search screen
+  /// with a `NormalizedCourse` as `extra`. If `extra` is null
+  /// (e.g. deep link or hot-restart), the screen falls back to
+  /// the bundled Sharp Park fixture.
+  static const courseMap = '/course/map';
+
   static const history = '/history';
   static const profile = '/profile';
 }
@@ -56,11 +69,34 @@ GoRouter buildAppRouter() {
             ],
           ),
           // Branch 1: Course
+          //
+          // Two routes nested inside the Course tab branch:
+          //   /course        → CourseSearchPage (KAN-S9, the new
+          //                    default landing for the tab)
+          //   /course/map    → CoursePlaceholder (KAN-S10 map),
+          //                    pushed from the search page with
+          //                    the resolved NormalizedCourse as
+          //                    `extra`. The map page reads it from
+          //                    `GoRouterState.extra`. Falls back to
+          //                    the Sharp Park fixture if `extra`
+          //                    is null (e.g. on hot-restart).
           StatefulShellBranch(
             routes: [
               GoRoute(
                 path: AppRoutes.course,
-                builder: (context, state) => const CoursePlaceholder(),
+                builder: (context, state) => const CourseSearchPage(),
+                routes: [
+                  GoRoute(
+                    path: 'map',
+                    builder: (context, state) {
+                      final extra = state.extra;
+                      return CoursePlaceholder(
+                        injectedCourse:
+                            extra is NormalizedCourse ? extra : null,
+                      );
+                    },
+                  ),
+                ],
               ),
             ],
           ),
