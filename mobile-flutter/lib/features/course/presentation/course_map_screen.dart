@@ -122,7 +122,7 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
   static final mbx.MbxEdgeInsets _holePadding = mbx.MbxEdgeInsets(
     top: 80,
     left: 40,
-    bottom: 200,
+    bottom: 260, // room for the bottom info panel
     right: 40,
   );
 
@@ -193,10 +193,10 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: _HoleSelector(
-              holeCount: course.holes.length,
-              selected: _selectedHole,
-              onSelected: _selectHole,
+            child: _BottomPanel(
+              course: course,
+              selectedHole: _selectedHole,
+              onHoleSelected: _selectHole,
             ),
           ),
         ],
@@ -694,44 +694,139 @@ class _LayerDiagnosticBanner extends StatelessWidget {
   }
 }
 
-class _HoleSelector extends StatelessWidget {
-  const _HoleSelector({
-    required this.holeCount,
-    required this.selected,
-    required this.onSelected,
+/// Bottom panel matching iOS CourseMapScreen bottom sheet:
+/// course name, hole info (par + yardage + SI), action buttons,
+/// and the hole selector strip.
+class _BottomPanel extends StatelessWidget {
+  const _BottomPanel({
+    required this.course,
+    required this.selectedHole,
+    required this.onHoleSelected,
   });
 
-  final int holeCount;
-  final int? selected;
-  final ValueChanged<int?> onSelected;
+  final NormalizedCourse course;
+  final int? selectedHole;
+  final ValueChanged<int?> onHoleSelected;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black.withValues(alpha: 0.55),
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: SizedBox(
-        height: 56,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          itemCount: holeCount + 1, // +1 for the "All" chip
-          itemBuilder: (context, i) {
-            if (i == 0) {
-              return _chip(
-                label: 'All',
-                active: selected == null,
-                onTap: () => onSelected(null),
-              );
-            }
-            final holeNum = i;
-            return _chip(
-              label: '$holeNum',
-              active: selected == holeNum,
-              onTap: () => onSelected(holeNum),
+    final theme = Theme.of(context);
+    final hole = selectedHole == null
+        ? null
+        : course.holes.cast<NormalizedHole?>().firstWhere(
+              (h) => h!.number == selectedHole,
+              orElse: () => null,
             );
-          },
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.outline.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Course name + hole info
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          course.name,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        _holeInfoText(hole, theme),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Hole selector strip
+            SizedBox(
+              height: 48,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                itemCount: course.holes.length + 1,
+                itemBuilder: (context, i) {
+                  if (i == 0) {
+                    return _chip(
+                      label: 'All',
+                      active: selectedHole == null,
+                      onTap: () => onHoleSelected(null),
+                    );
+                  }
+                  final num = i;
+                  return _chip(
+                    label: '$num',
+                    active: selectedHole == num,
+                    onTap: () => onHoleSelected(num),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 4),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _holeInfoText(NormalizedHole? hole, ThemeData theme) {
+    if (hole == null) {
+      return Text(
+        '${course.holes.length} holes',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.outline,
+        ),
+      );
+    }
+    final parts = <String>[
+      'Hole ${hole.number}',
+      if (hole.par > 0) 'Par ${hole.par}',
+    ];
+    // Show yardage from the first tee box that has data
+    if (hole.yardages.isNotEmpty) {
+      final firstYds = hole.yardages.values.first;
+      parts.add('$firstYds yds');
+    }
+    if (hole.strokeIndex != null) {
+      parts.add('SI ${hole.strokeIndex}');
+    }
+    return Text(
+      parts.join('  '),
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.outline,
       ),
     );
   }
@@ -742,17 +837,19 @@ class _HoleSelector extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 3),
       child: ChoiceChip(
         label: Text(label),
         selected: active,
         onSelected: (_) => onTap(),
-        selectedColor: Colors.amber,
+        selectedColor: Colors.blue,
         labelStyle: TextStyle(
-          color: active ? Colors.black : Colors.white,
+          color: active ? Colors.white : null,
           fontWeight: FontWeight.bold,
+          fontSize: 13,
         ),
-        backgroundColor: Colors.white24,
+        backgroundColor: Colors.grey.shade200,
+        visualDensity: VisualDensity.compact,
       ),
     );
   }
