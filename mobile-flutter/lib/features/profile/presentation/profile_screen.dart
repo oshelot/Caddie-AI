@@ -1,20 +1,19 @@
-// ProfileScreen — KAN-283 (S13). Editor for the player profile.
-// The screen takes a `PlayerProfile` and notifies the parent
-// (via `onSave`) when the user commits changes. The parent is
-// responsible for persisting via `ProfileRepository` and writing
-// secure-store API keys via `SecureKeysStorage`.
+// ProfileScreen — KAN-283 (S13), restructured to match the iOS
+// ProfileView.swift and Android ProfileScreen.kt card-based layout.
 //
 // **Architecture: pure widget with constructor injection.** The
-// page wrapper does the I/O; the leaf widget is a pure form
-// renderer + edit state.
+// page wrapper does the I/O; the leaf widget is a pure form.
+//
+// **Structure (mirrors iOS ProfileView.swift:18-132 exactly):**
+//   Card: Player Info — handicap, miss tendency, aggressiveness
+//   Card: Caddie Voice & Personality — accent, gender, personality
+//   Nav links: Your Bag, Swing Info, Tee Box Preference
+//   Card: Features — scoring toggle, image analysis toggle (paid)
+//   Card: Settings — API Settings (inline), debug toggle (debug only)
+//   Nav link: Contact Info
 //
 // **Critical safety invariant:** API keys are entered via this
-// screen but **never appear on the `PlayerProfile` model** —
-// they're handed to the parent via the `onSaveApiKeys` callback,
-// which writes them to `SecureKeysStorage`. The dedicated test
-// `test/storage/secure_keys_isolation_test.dart` (S2) is the
-// canary; this screen MUST NOT add an apiKey field to the
-// PlayerProfile copy it builds in `_save()`.
+// screen but **never appear on the `PlayerProfile` model**.
 
 import 'dart:async';
 
@@ -25,22 +24,19 @@ import '../../../core/icons/caddie_icons.dart';
 import '../../../core/monetization/subscription_service.dart';
 import '../../../core/storage/secure_keys_storage.dart';
 import '../../../models/player_profile.dart';
+import 'contact_info_screen.dart';
+import 'swing_info_screen.dart';
+import 'tee_box_preference_screen.dart';
+import 'your_bag_screen.dart';
 
-/// One round-trippable bundle of changes the user can save. The
-/// page wrapper unpacks this into a `PlayerProfile` write and a
-/// secret-keys write.
+/// One round-trippable bundle of changes the user can save.
 class ProfileSaveRequest {
   const ProfileSaveRequest({
     required this.profile,
     required this.secrets,
   });
 
-  /// The new profile (NEVER contains API key fields).
   final PlayerProfile profile;
-
-  /// Secret-key updates keyed by `SecureKey` constants. Empty
-  /// values are sentinels meaning "delete this key from secure
-  /// storage". Pass to `SecureKeysStorage.writeAll`.
   final Map<String, String?> secrets;
 }
 
@@ -56,23 +52,8 @@ class ProfileScreen extends StatefulWidget {
 
   final PlayerProfile profile;
   final Future<void> Function(ProfileSaveRequest request) onSave;
-
-  /// Pre-populated secret values to display in the API settings
-  /// section (the page wrapper reads them from
-  /// `SecureKeysStorage.read` before passing them in). The
-  /// screen edits them locally; the changes flow back to the
-  /// parent via `onSave`.
   final Map<String, String> initialSecrets;
-
-  /// Optional injected subscription service. When provided AND
-  /// [showDebugSection] is true, the screen renders the KAN-95
-  /// debug section with a "Force Pro tier" toggle bound to
-  /// `SubscriptionService.debugForcePro`.
   final SubscriptionService? subscriptionService;
-
-  /// Whether to render the KAN-95 debug section. Defaults to
-  /// `kDebugMode`, so release builds never see it. Tests pass
-  /// `true` explicitly to exercise the toggle.
   final bool showDebugSection;
 
   @override
@@ -81,13 +62,8 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   late PlayerProfile _draft = widget.profile;
-  late final TextEditingController _nameController =
-      TextEditingController(text: widget.profile.name);
-  late final TextEditingController _emailController =
-      TextEditingController(text: widget.profile.email);
 
   // API key controllers — values land in secure storage on save.
-  // Initialized from the parent's `initialSecrets` map.
   late final TextEditingController _openAiKeyController =
       TextEditingController(text: widget.initialSecrets[SecureKey.openAi] ?? '');
   late final TextEditingController _claudeKeyController =
@@ -97,9 +73,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   bool _saving = false;
 
-  // KAN-95 debug section state. Mirrors SubscriptionService.isSubscribed
-  // and rebuilds via the stream subscription so the caption flips
-  // immediately when the user toggles "Force Pro".
+  // KAN-95 debug section state.
   StreamSubscription<bool>? _subSubscription;
   late bool _isSubscribed = widget.subscriptionService?.isSubscribed ?? false;
 
@@ -121,8 +95,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void dispose() {
     _subSubscription?.cancel();
-    _nameController.dispose();
-    _emailController.dispose();
     _openAiKeyController.dispose();
     _claudeKeyController.dispose();
     _geminiKeyController.dispose();
@@ -131,12 +103,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    final updated = _draft.copyWith(
-      name: _nameController.text.trim(),
-      email: _emailController.text.trim(),
-    );
     final request = ProfileSaveRequest(
-      profile: updated,
+      profile: _draft,
       secrets: {
         SecureKey.openAi: _openAiKeyController.text.trim(),
         SecureKey.claude: _claudeKeyController.text.trim(),
@@ -150,6 +118,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
       const SnackBar(content: Text('Profile saved')),
     );
   }
+
+  // ── sub-screen navigation helpers ──────────────────────────────
+
+  Future<void> _pushSubScreen(Widget screen) async {
+    final result = await Navigator.push<PlayerProfile>(
+      context,
+      MaterialPageRoute(builder: (_) => screen),
+    );
+    if (result != null && mounted) {
+      setState(() => _draft = result);
+    }
+  }
+
+  // ── build ──────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -181,28 +163,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
-          // ── Player Info card ─────────────────────────────────────
-          // Mirrors Android ProfileScreen.kt:88-123
+          // ── Section 1: Player Info ──────────────────────────────
+          // iOS ProfileView.swift:18-37
           _ProfileCard(
             title: 'Player Info',
             theme: theme,
             children: [
-              TextField(
-                key: const Key('profile-name-field'),
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              TextField(
-                key: const Key('profile-email-field'),
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  border: OutlineInputBorder(),
-                ),
-              ),
               _SliderRow(
                 key: const Key('profile-handicap-slider'),
                 label: 'Handicap',
@@ -216,38 +182,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               _stringDropdown(
+                key: const Key('profile-miss-tendency'),
+                label: 'Miss Tendency',
+                value: _draft.missTendency,
+                options: const ['none', 'left', 'right', 'thin', 'fat'],
+                onChanged: (v) =>
+                    setState(() => _draft = _draft.copyWith(missTendency: v)),
+              ),
+              _stringDropdown(
                 key: const Key('profile-aggressiveness'),
-                label: 'Aggressiveness',
+                label: 'Default Aggressiveness',
                 value: _draft.aggressiveness,
                 options: const ['conservative', 'normal', 'aggressive'],
                 onChanged: (v) =>
                     setState(() => _draft = _draft.copyWith(aggressiveness: v)),
               ),
-              _stringDropdown(
-                key: const Key('profile-tee-box'),
-                label: 'Preferred tee box',
-                value: _draft.preferredTeeBox,
-                options: const [
-                  'championship',
-                  'blue',
-                  'white',
-                  'senior',
-                  'forward',
-                ],
-                onChanged: (v) =>
-                    setState(() => _draft = _draft.copyWith(preferredTeeBox: v)),
-              ),
             ],
           ),
-          // ── Caddie Voice & Personality card ──────────────────────
-          // Mirrors Android ProfileScreen.kt:126-151
+          // ── Section 2: Caddie Voice & Personality ───────────────
+          // iOS ProfileView.swift:39-61
           _ProfileCard(
             title: 'Caddie Voice & Personality',
             theme: theme,
             children: [
               _stringDropdown(
+                key: const Key('profile-voice-accent'),
+                label: 'Accent',
+                value: _draft.caddieVoiceAccent,
+                options: const ['american', 'british', 'australian', 'indian'],
+                onChanged: (v) => setState(
+                  () => _draft = _draft.copyWith(caddieVoiceAccent: v),
+                ),
+              ),
+              _stringDropdown(
                 key: const Key('profile-voice-gender'),
-                label: 'Voice gender',
+                label: 'Gender',
                 value: _draft.caddieVoiceGender,
                 options: const ['male', 'female'],
                 onChanged: (v) => setState(
@@ -255,71 +224,104 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               _stringDropdown(
-                key: const Key('profile-voice-accent'),
-                label: 'Voice accent',
-                value: _draft.caddieVoiceAccent,
+                key: const Key('profile-persona'),
+                label: 'Personality',
+                value: _draft.caddiePersona,
                 options: const [
-                  'american',
-                  'british',
-                  'scottish',
-                  'irish',
-                  'australian',
+                  'professional',
+                  'supportiveGrandparent',
+                  'collegeBuddy',
+                  'drillSergeant',
+                  'chillSurfer',
                 ],
                 onChanged: (v) => setState(
-                  () => _draft = _draft.copyWith(caddieVoiceAccent: v),
+                  () => _draft = _draft.copyWith(caddiePersona: v),
                 ),
               ),
             ],
           ),
-          // ── Features card ───────────────────────────────────────
-          // Mirrors Android ProfileScreen.kt:178-208 and
+          // ── Section 3: Navigation links ─────────────────────────
+          // iOS ProfileView.swift:63-86
+          _NavLinkRow(
+            icon: Icons.shopping_bag_outlined,
+            title: 'Your Bag',
+            subtitle: '${_draft.clubDistances.length}/13 clubs',
+            onTap: () => _pushSubScreen(YourBagScreen(profile: _draft)),
+          ),
+          _NavLinkRow(
+            icon: Icons.sports_golf_outlined,
+            title: 'Swing Info',
+            subtitle: 'Shape, tendencies, short game',
+            onTap: () => _pushSubScreen(SwingInfoScreen(profile: _draft)),
+          ),
+          _NavLinkRow(
+            icon: Icons.flag_outlined,
+            title: 'Tee Box Preference',
+            subtitle: _teeBoxDisplayName(_draft.preferredTeeBox),
+            onTap: () => _pushSubScreen(
+                TeeBoxPreferenceScreen(profile: _draft)),
+          ),
+          const SizedBox(height: 8),
+          // ── Section 4: Features ─────────────────────────────────
           // iOS ProfileView.swift:88-103
           _ProfileCard(
             title: 'Features',
             theme: theme,
             children: [
               SwitchListTile(
-                key: const Key('profile-telemetry-toggle'),
-                title: const Text('Telemetry'),
-                subtitle: const Text(
-                  'Send anonymous usage stats to help improve recommendations.',
-                ),
-                value: _draft.telemetryEnabled,
-                onChanged: (v) => setState(
-                    () => _draft = _draft.copyWith(telemetryEnabled: v)),
-              ),
-              SwitchListTile(
                 key: const Key('profile-scoring-toggle'),
-                title: const Text('Scoring'),
-                subtitle: const Text(
-                  'Track per-round scorecards in the History tab.',
-                ),
+                title: const Text('Enable Scorecard'),
                 value: _draft.scoringEnabled,
                 onChanged: (v) => setState(
                     () => _draft = _draft.copyWith(scoringEnabled: v)),
               ),
-              SwitchListTile(
-                key: const Key('profile-beta-image-toggle'),
-                title: const Text('Beta: image analysis'),
-                subtitle: const Text(
-                  'Upload a hole photo for the AI to analyze (paid tier).',
+              if (_draft.scoringEnabled &&
+                  _draft.email.isEmpty &&
+                  _draft.phone.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 16, color: theme.colorScheme.outline),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Add a phone or email in Contact Info to identify '
+                          'your scorecards.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                value: _draft.betaImageAnalysisEnabled,
-                onChanged: (v) => setState(
-                  () => _draft = _draft.copyWith(betaImageAnalysisEnabled: v),
+              if (_isSubscribed)
+                SwitchListTile(
+                  key: const Key('profile-beta-image-toggle'),
+                  title: const Text('Image Analysis (BETA)'),
+                  subtitle: const Text(
+                    'Attach a photo of your lie for AI analysis.',
+                  ),
+                  value: _draft.betaImageAnalysisEnabled,
+                  onChanged: (v) => setState(
+                    () => _draft = _draft.copyWith(betaImageAnalysisEnabled: v),
+                  ),
                 ),
-              ),
             ],
           ),
-          // ── AI Provider card ────────────────────────────────────
-          // Mirrors Android ApiSettingsScreen.kt (inline version)
+          // ── Section 5: Settings ─────────────────────────────────
+          // iOS ProfileView.swift:105-124
           _ProfileCard(
-            title: 'AI Provider',
+            title: 'Settings',
             theme: theme,
             children: [
+              // AI Provider + keys inline (a future story can
+              // extract to a separate route matching iOS/Android)
               _stringDropdown(
                 key: const Key('profile-llm-provider'),
-                label: 'LLM provider',
+                label: 'AI Provider',
                 value: _draft.llmProvider,
                 options: const ['openAI', 'claude', 'gemini'],
                 onChanged: (v) =>
@@ -333,18 +335,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onChanged: (v) =>
                     setState(() => _draft = _draft.copyWith(userTier: v)),
               ),
+              SwitchListTile(
+                key: const Key('profile-telemetry-toggle'),
+                title: const Text('Share Usage Data'),
+                subtitle: const Text(
+                  'Sends anonymous usage stats to help improve CaddieAI.',
+                ),
+                value: _draft.telemetryEnabled,
+                onChanged: (v) => setState(
+                    () => _draft = _draft.copyWith(telemetryEnabled: v)),
+              ),
+              if (_shouldShowDebugSection) ...[
+                const Divider(),
+                Text(
+                  'Debug',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+                SwitchListTile(
+                  key: const Key('profile-debug-force-pro'),
+                  title: const Text('Force Pro tier'),
+                  subtitle: Text(
+                    'Effective tier: ${_isSubscribed ? 'Pro' : 'Free'}',
+                    key: const Key('profile-debug-effective-tier'),
+                  ),
+                  value: widget.subscriptionService!.debugForcePro,
+                  onChanged: (v) {
+                    widget.subscriptionService!.debugForcePro = v;
+                    setState(() {});
+                  },
+                ),
+              ],
             ],
           ),
-          // ── API Keys card ───────────────────────────────────────
-          // Mirrors Android ApiSettingsScreen.kt:83-109 and
-          // iOS APISettingsView.swift:114-169 (inline version —
-          // a future story can extract to a separate route)
+          // ── Section 5b: API Keys card ──────────────────────────
           _ProfileCard(
             title: 'API Keys',
             theme: theme,
-            subtitle: 'Stored securely in the platform Keychain '
-                '(iOS) / EncryptedSharedPreferences (Android). '
-                'Never appear in the profile blob.',
+            subtitle: 'Stored in platform Keychain / '
+                'EncryptedSharedPreferences.',
             children: [
               TextField(
                 key: const Key('profile-openai-key-field'),
@@ -375,34 +405,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ],
           ),
-          // ── Settings / Debug card ───────────────────────────────
-          // Mirrors Android ProfileScreen.kt:212-244 and
-          // iOS ProfileView.swift:105-124 (debug section only
-          // in debug builds)
-          if (_shouldShowDebugSection)
-            _ProfileCard(
-              title: 'Debug',
-              theme: theme,
-              subtitle: 'Visible in sideload builds only. Forces '
-                  'the runtime tier to Pro so paid-tier code paths '
-                  'can be exercised without a real purchase. '
-                  'In-memory only.',
-              children: [
-                SwitchListTile(
-                  key: const Key('profile-debug-force-pro'),
-                  title: const Text('Force Pro tier'),
-                  subtitle: Text(
-                    'Effective tier: ${_isSubscribed ? 'Pro' : 'Free'}',
-                    key: const Key('profile-debug-effective-tier'),
-                  ),
-                  value: widget.subscriptionService!.debugForcePro,
-                  onChanged: (v) {
-                    widget.subscriptionService!.debugForcePro = v;
-                    setState(() {});
-                  },
-                ),
-              ],
-            ),
+          // ── Section 6: Contact Info ─────────────────────────────
+          // iOS ProfileView.swift:126-132
+          _NavLinkRow(
+            icon: Icons.email_outlined,
+            title: 'Contact Info',
+            subtitle: _draft.name.isNotEmpty
+                ? _draft.name
+                : 'Send feedback or set up your info',
+            onTap: () =>
+                _pushSubScreen(ContactInfoScreen(profile: _draft)),
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -426,7 +440,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       items: options
           .map((o) => DropdownMenuItem<String>(
                 value: o,
-                child: Text(o),
+                child: Text(_displayName(o)),
               ))
           .toList(),
       onChanged: (v) {
@@ -434,12 +448,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
   }
+
+  static String _displayName(String raw) {
+    // camelCase → Title Case with spaces
+    return raw
+        .replaceAllMapped(
+          RegExp(r'([a-z])([A-Z])'),
+          (m) => '${m[1]} ${m[2]}',
+        )
+        .replaceFirst(raw[0], raw[0].toUpperCase());
+  }
+
+  static String _teeBoxDisplayName(String value) {
+    switch (value) {
+      case 'championship':
+        return 'Black / Championship';
+      case 'blue':
+        return 'Blue';
+      case 'white':
+        return 'White';
+      case 'senior':
+        return 'Gold / Silver';
+      case 'forward':
+        return 'Red / Forward';
+      default:
+        return value;
+    }
+  }
 }
 
-/// Material 3 Card wrapper matching Android ProfileScreen.kt's
-/// `ElevatedCard` sections. Title rendered in primary color
-/// (titleSmall, semibold) with optional subtitle caption.
-/// Children are separated by 12dp inside 16dp card padding.
+// ── presentational sub-widgets ─────────────────────────────────────
+
 class _ProfileCard extends StatelessWidget {
   const _ProfileCard({
     required this.title,
@@ -459,7 +498,9 @@ class _ProfileCard extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 16),
       child: Card(
         elevation: 1,
-        shape: RoundedCornerShape12._instance,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -495,12 +536,52 @@ class _ProfileCard extends StatelessWidget {
   }
 }
 
-/// Matches `CaddieShape.large` from the Android native.
-class RoundedCornerShape12 {
-  RoundedCornerShape12._();
-  static final _instance = RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(12),
-  );
+/// Navigation link row matching iOS NavigationLink with icon +
+/// title + subtitle + trailing chevron, and Android NavLinkRow
+/// (ProfileScreen.kt:263-299).
+class _NavLinkRow extends StatelessWidget {
+  const _NavLinkRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: ListTile(
+          leading: Icon(icon, size: 28, color: theme.colorScheme.primary),
+          title: Text(
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            subtitle,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
+      ),
+    );
+  }
 }
 
 class _SliderRow extends StatelessWidget {

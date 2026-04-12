@@ -72,8 +72,13 @@ void main() {
       expect(find.text('Player Info'), findsOneWidget);
       expect(find.text('Caddie Voice & Personality'), findsOneWidget);
       expect(find.text('Features'), findsOneWidget);
-      expect(find.text('AI Provider'), findsOneWidget);
+      expect(find.text('Settings'), findsOneWidget);
       expect(find.text('API Keys'), findsOneWidget);
+      // Navigation links
+      expect(find.text('Your Bag'), findsOneWidget);
+      expect(find.text('Swing Info'), findsOneWidget);
+      expect(find.text('Tee Box Preference'), findsOneWidget);
+      expect(find.text('Contact Info'), findsOneWidget);
     });
 
     testWidgets('initial values are populated from the profile',
@@ -83,20 +88,14 @@ void main() {
         profile: _baselineProfile,
         onSave: (_) async {},
       );
-      // Identity field controllers seeded with the profile values.
-      final nameField = tester.widget<TextField>(
-        find.byKey(const Key('profile-name-field')),
-      );
-      expect(nameField.controller!.text, 'Baseline Player');
-      final emailField = tester.widget<TextField>(
-        find.byKey(const Key('profile-email-field')),
-      );
-      expect(emailField.controller!.text, 'baseline@example.com');
+      // Handicap slider is seeded with the profile value.
+      final slider = tester.widget<Slider>(find.byType(Slider));
+      expect(slider.value, closeTo(12.5, 0.1));
     });
   });
 
   group('save flow', () {
-    testWidgets('editing the name → saved profile reflects the change',
+    testWidgets('saving preserves the current draft state',
         (tester) async {
       ProfileSaveRequest? captured;
       await _pumpScreen(
@@ -104,16 +103,14 @@ void main() {
         profile: _baselineProfile,
         onSave: (req) async => captured = req,
       );
-      await tester.enterText(
-        find.byKey(const Key('profile-name-field')),
-        'New Name',
-      );
       await tester.tap(find.byKey(const Key('profile-save-button')));
       await tester.pump();
       await tester.pump();
 
       expect(captured, isNotNull);
-      expect(captured!.profile.name, 'New Name');
+      // Profile fields preserved from the baseline.
+      expect(captured!.profile.handicap, 12.5);
+      expect(captured!.profile.aggressiveness, 'normal');
     });
 
     testWidgets('toggling a feature flag flows into the save request',
