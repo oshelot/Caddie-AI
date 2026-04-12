@@ -37,10 +37,13 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/courses/course_cache_client.dart';
 import '../../../core/courses/course_cache_repository.dart';
+import '../../../core/courses/course_normalizer.dart';
 import '../../../core/courses/course_search_merger.dart';
 import '../../../core/courses/course_search_results.dart';
 import '../../../core/courses/http_transport.dart';
 import '../../../core/courses/nominatim_client.dart';
+import '../../../core/courses/osm_parser.dart';
+import '../../../core/courses/overpass_client.dart';
 import '../../../core/courses/places_client.dart';
 import '../../../core/location/geolocator_location_service.dart';
 import '../../../core/location/location_service.dart';
@@ -278,10 +281,49 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
           );
         }
 
+        // Step 3: If no server cache hit, discover via Overpass
+        // (the full OSM ingestion pipeline). Mirrors iOS
+        // CourseViewModel.swift:392-465 (Overpass → parse →
+        // normalize → save → upload to server cache).
+        if (course == null) {
+          try {
+            final overpass = OverpassClient(_transport);
+            // Use the search result's lat/lon to build a bounding
+            // box. The Overpass client adds its own 0.002 buffer.
+            const buffer = 0.015; // ~1.7km each side
+            final overpassResponse = await overpass.fetchCourseFeatures(
+              entry.latitude - buffer,
+              entry.longitude - buffer,
+              entry.latitude + buffer,
+              entry.longitude + buffer,
+            );
+            final features = OsmParser.parse(overpassResponse);
+            final normalizer = CourseNormalizer();
+            course = normalizer.normalize(
+              features: features,
+              courseName: entry.name,
+              osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
+              city: entry.city.isNotEmpty ? entry.city : null,
+              state: entry.state.isNotEmpty ? entry.state : null,
+            );
+
+            // Upload to server cache so other users get an instant
+            // hit next time (fire-and-forget, non-blocking).
+            if (course != null && cacheKeyForSave != null) {
+              _cacheClient.putCourse(cacheKeyForSave, course).ignore();
+            }
+          } catch (e) {
+            // Overpass failure is non-fatal — fall through to the
+            // error message below.
+            // ignore: avoid_print
+            print('Overpass ingestion failed: $e');
+          }
+        }
+
         if (course == null) {
           errorMessage =
-              '${entry.name} is not in the shared course cache yet. '
-              'It needs to be discovered from the iOS app first.';
+              'Could not load ${entry.name}. The course may not '
+              'have detailed mapping data in OpenStreetMap yet.';
         }
       }
     } catch (e) {
