@@ -257,47 +257,56 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         );
       } else {
         // Step 1: Check local disk cache (instant, no network).
-        // Mirrors iOS CourseViewModel.swift:236 local cache check.
         cacheKeyForSave = NormalizedCourse.serverCacheKey(entry.name);
         final repo = _cacheRepository;
         if (repo != null) {
           final cached = repo.load(cacheKeyForSave);
           if (cached != null) {
             course = cached.course;
+            // ignore: avoid_print
+            print('DOWNLOAD: local cache HIT for ${entry.name}');
           }
         }
 
-        // Step 2: If no local cache hit, try the server cache via
-        // fuzzy full-course search. This is the primary download
-        // path — mirrors iOS CourseCacheAPIClient.searchCourse()
-        // (CourseViewModel.swift:304-384). The server returns the
-        // FULL NormalizedCourse payload (geometry, holes, tee data)
-        // for the best fuzzy match.
+        // Step 2: Fuzzy-search the server cache.
         if (course == null) {
+          // ignore: avoid_print
+          print('DOWNLOAD: trying server cache for ${entry.name}');
           course = await _cacheClient.searchFullCourse(
             query: entry.name,
             latitude: entry.latitude,
             longitude: entry.longitude,
           );
+          if (course != null) {
+            // ignore: avoid_print
+            print('DOWNLOAD: server cache HIT — ${course.holes.length} holes');
+          } else {
+            // ignore: avoid_print
+            print('DOWNLOAD: server cache MISS');
+          }
         }
 
-        // Step 3: If no server cache hit, discover via Overpass
-        // (the full OSM ingestion pipeline). Mirrors iOS
-        // CourseViewModel.swift:392-465 (Overpass → parse →
-        // normalize → save → upload to server cache).
+        // Step 3: Discover via Overpass.
         if (course == null) {
+          // ignore: avoid_print
+          print('DOWNLOAD: starting Overpass ingestion for ${entry.name}');
           try {
             final overpass = OverpassClient(_transport);
-            // Use the search result's lat/lon to build a bounding
-            // box. The Overpass client adds its own 0.002 buffer.
-            const buffer = 0.015; // ~1.7km each side
+            const buffer = 0.015;
             final overpassResponse = await overpass.fetchCourseFeatures(
               entry.latitude - buffer,
               entry.longitude - buffer,
               entry.latitude + buffer,
               entry.longitude + buffer,
             );
+            // ignore: avoid_print
+            print('DOWNLOAD: Overpass returned ${overpassResponse.elements.length} elements');
             final features = OsmParser.parse(overpassResponse);
+            // ignore: avoid_print
+            print('DOWNLOAD: parsed ${features.holeLines.length} holes, '
+                '${features.greens.length} greens, '
+                '${features.tees.length} tees, '
+                '${features.pins.length} pins');
             final normalizer = CourseNormalizer();
             course = normalizer.normalize(
               features: features,
@@ -306,17 +315,21 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               city: entry.city.isNotEmpty ? entry.city : null,
               state: entry.state.isNotEmpty ? entry.state : null,
             );
-
-            // Upload to server cache so other users get an instant
-            // hit next time (fire-and-forget, non-blocking).
-            if (course != null && cacheKeyForSave != null) {
-              _cacheClient.putCourse(cacheKeyForSave, course).ignore();
+            if (course != null) {
+              // ignore: avoid_print
+              print('DOWNLOAD: normalized ${course.holes.length} holes');
+              if (cacheKeyForSave != null) {
+                _cacheClient.putCourse(cacheKeyForSave, course).ignore();
+              }
+            } else {
+              // ignore: avoid_print
+              print('DOWNLOAD: normalizer returned null');
             }
-          } catch (e) {
-            // Overpass failure is non-fatal — fall through to the
-            // error message below.
+          } catch (e, st) {
             // ignore: avoid_print
-            print('Overpass ingestion failed: $e');
+            print('DOWNLOAD: Overpass failed: $e');
+            // ignore: avoid_print
+            print('DOWNLOAD: stack: $st');
           }
         }
 

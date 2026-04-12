@@ -127,10 +127,16 @@ class CourseSearchEntry {
       name: json['name'] as String? ?? '',
       city: json['city'] as String? ?? '',
       state: json['state'] as String? ?? '',
-      latitude: (json['lat'] ?? json['latitude'] as num).toDouble(),
-      longitude: (json['lon'] ?? json['longitude'] as num).toDouble(),
+      latitude: _parseDouble(json['lat'] ?? json['latitude']),
+      longitude: _parseDouble(json['lon'] ?? json['longitude']),
       courseId: json['courseId'] as String?,
     );
+  }
+
+  static double _parseDouble(dynamic v) {
+    if (v == null) return 0.0;
+    if (v is num) return v.toDouble();
+    return double.tryParse('$v') ?? 0.0;
   }
 }
 
