@@ -252,46 +252,51 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         course = NormalizedCourse.fromJson(
           jsonDecode(raw) as Map<String, dynamic>,
         );
-      } else if (entry.source == CourseSearchSource.manifest) {
-        // Manifest entries carry a real server cache key — fetch directly.
-        course = await _cacheClient.fetchCourse(entry.cacheKey);
-        cacheKeyForSave = entry.cacheKey;
-        if (course == null) {
-          errorMessage = 'Course not found in cache.';
-        }
       } else {
-        // Nominatim / Google Places entry. The cacheKey is synthesized;
-        // derive a real server cache key from the name and try the
-        // cache. If it's a miss, the course hasn't been ingested yet —
-        // the Overpass ingestion pipeline that builds new cache entries
-        // is iOS-only today; the user has to use a manifest result.
-        final cacheKey = NormalizedCourse.serverCacheKey(entry.name);
-        course = await _cacheClient.fetchCourse(cacheKey);
-        cacheKeyForSave = cacheKey;
+        // Step 1: Check local disk cache (instant, no network).
+        // Mirrors iOS CourseViewModel.swift:236 local cache check.
+        cacheKeyForSave = NormalizedCourse.serverCacheKey(entry.name);
+        final repo = _cacheRepository;
+        if (repo != null) {
+          final cached = repo.load(cacheKeyForSave);
+          if (cached != null) {
+            course = cached.course;
+          }
+        }
+
+        // Step 2: If no local cache hit, try the server cache via
+        // fuzzy full-course search. This is the primary download
+        // path — mirrors iOS CourseCacheAPIClient.searchCourse()
+        // (CourseViewModel.swift:304-384). The server returns the
+        // FULL NormalizedCourse payload (geometry, holes, tee data)
+        // for the best fuzzy match.
+        if (course == null) {
+          course = await _cacheClient.searchFullCourse(
+            query: entry.name,
+            latitude: entry.latitude,
+            longitude: entry.longitude,
+          );
+        }
+
         if (course == null) {
           errorMessage =
-              '${entry.name} hasn\u2019t been loaded into the shared '
-              'course cache yet. Load it from the iOS app first, or '
-              'search for a course that\u2019s already been discovered '
-              '(e.g. Sharp Park, Kennedy, Broadlands).';
+              '${entry.name} is not in the shared course cache yet. '
+              'It needs to be discovered from the iOS app first.';
         }
       }
     } catch (e) {
       errorMessage = '$e';
     }
 
-    // Story D: write to the local disk cache before navigating, so
-    // the next visit to the Saved tab shows the course. Mirrors
-    // CourseViewModel.swift's startIngestion → cache.save flow. The
-    // fixture path skips the save (kLocalFixtureCacheKey is a
-    // sentinel, not a real server cache key).
+    // Step 3: Save to local disk cache so the Saved tab shows it
+    // and subsequent opens are instant. Mirrors iOS
+    // CourseViewModel.swift:456 cacheService.save(course).
     final repo = _cacheRepository;
     if (course != null && cacheKeyForSave != null && repo != null) {
       try {
         await repo.save(cacheKeyForSave, course);
       } catch (_) {
-        // Non-fatal: navigation still proceeds even if the local
-        // save fails (e.g. Hive box not open in test runtime).
+        // Non-fatal: navigation still proceeds.
       }
     }
 

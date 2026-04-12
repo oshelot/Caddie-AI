@@ -112,6 +112,42 @@ class CourseCacheClient {
     return _parseManifestList(response.body);
   }
 
+  /// Fuzzy-searches the server cache and returns the FULL
+  /// `NormalizedCourse` payload of the best match. This is the
+  /// same endpoint as `searchManifest` but WITHOUT `mode=metadata`,
+  /// so the server returns the complete course JSON (geometry,
+  /// holes, tee data) instead of just the manifest entry.
+  ///
+  /// Mirrors iOS `CourseCacheAPIClient.searchCourse()` — the
+  /// primary "download a course" path when the user taps a search
+  /// result. Returns null on 404 (no match in the server cache).
+  Future<NormalizedCourse?> searchFullCourse({
+    required String query,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final url = _buildSearchUrl(
+      query: query,
+      latitude: latitude,
+      longitude: longitude,
+      metadataOnly: false,
+    );
+    final response = await _send('GET', url);
+    if (response.isNotFound) return null;
+    if (!response.isSuccess) {
+      throw CourseClientException(
+        'Full search failed for "$query"',
+        statusCode: response.statusCode,
+      );
+    }
+    try {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return NormalizedCourse.fromJson(json);
+    } catch (e) {
+      throw CourseClientException('Malformed course payload: $e');
+    }
+  }
+
   // ── single course fetch ──────────────────────────────────────────
 
   /// Fetches one course by server cache key. Returns null on a
