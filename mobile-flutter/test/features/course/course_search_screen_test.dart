@@ -434,16 +434,16 @@ void main() {
       await tester.enterText(find.byKey(CourseSearchKeys.cityField), 'Pac');
       await tester.pump();
       await tester.pump();
-      expect(find.byKey(CourseSearchKeys.citySuggestionTile), findsOneWidget);
+      expect(find.byKey(Key('course-search-city-suggestion-0')), findsOneWidget);
 
-      await tester.tap(find.byKey(CourseSearchKeys.citySuggestionTile));
+      await tester.tap(find.byKey(Key('course-search-city-suggestion-0')));
       await tester.pump();
 
       final field = tester.widget<TextField>(
         find.byKey(CourseSearchKeys.cityField),
       );
       expect(field.controller!.text, 'Pacifica, CA, USA');
-      expect(find.byKey(CourseSearchKeys.citySuggestionTile), findsNothing);
+      expect(find.byKey(Key('course-search-city-suggestion-0')), findsNothing);
     });
 
     testWidgets('city is forwarded to onSearch on the next button tap',

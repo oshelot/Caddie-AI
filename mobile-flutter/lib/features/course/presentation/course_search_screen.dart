@@ -541,23 +541,23 @@ class _SearchBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   child: Column(
                     children: [
-                      for (final suggestion in citySuggestions)
+                      for (int i = 0; i < citySuggestions.length; i++)
                         ListTile(
-                          key: CourseSearchKeys.citySuggestionTile,
+                          key: Key('course-search-city-suggestion-$i'),
                           dense: true,
                           leading: const Icon(
                             Icons.place_outlined,
                             size: 18,
                           ),
                           title: Text(
-                            suggestion.mainText.isNotEmpty
-                                ? suggestion.mainText
-                                : suggestion.description,
+                            citySuggestions[i].mainText.isNotEmpty
+                                ? citySuggestions[i].mainText
+                                : citySuggestions[i].description,
                           ),
-                          subtitle: suggestion.secondaryText.isNotEmpty
-                              ? Text(suggestion.secondaryText)
+                          subtitle: citySuggestions[i].secondaryText.isNotEmpty
+                              ? Text(citySuggestions[i].secondaryText)
                               : null,
-                          onTap: () => onSelectCitySuggestion(suggestion),
+                          onTap: () => onSelectCitySuggestion(citySuggestions[i]),
                         ),
                     ],
                   ),

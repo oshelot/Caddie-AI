@@ -270,9 +270,10 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         cacheKeyForSave = cacheKey;
         if (course == null) {
           errorMessage =
-              '${entry.name} isn\u2019t in the shared cache yet. '
-              'Pick a result that already shows in the cache, or check '
-              'back later.';
+              '${entry.name} hasn\u2019t been loaded into the shared '
+              'course cache yet. Load it from the iOS app first, or '
+              'search for a course that\u2019s already been discovered '
+              '(e.g. Sharp Park, Kennedy, Broadlands).';
         }
       }
     } catch (e) {

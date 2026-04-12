@@ -181,6 +181,7 @@ class LlmRouter {
   }) {
     final candidates = <LlmProvider>[];
     if (tier == LlmTier.paid) {
+      // Paid tier: proxy first (managed backend, no user key needed).
       if (proxy.isAvailable) candidates.add(proxy);
     }
     // Preferred direct provider first.
@@ -195,6 +196,14 @@ class LlmRouter {
       if (p != null && p.isAvailable && !candidates.contains(p)) {
         candidates.add(p);
       }
+    }
+    // Free tier: proxy is the last-resort fallback when no direct
+    // provider is configured (the user hasn't entered any API keys
+    // yet). The proxy Lambda calls Bedrock and doesn't enforce tier
+    // gating — it's CaddieAI's managed backend. This keeps the
+    // caddie functional out-of-the-box for new users.
+    if (tier == LlmTier.free && proxy.isAvailable && !candidates.contains(proxy)) {
+      candidates.add(proxy);
     }
     return candidates;
   }
