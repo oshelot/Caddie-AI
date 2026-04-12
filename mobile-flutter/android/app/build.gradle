@@ -5,6 +5,59 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// ── KAN-296 / KAN-251: dart-defines from local.properties ─────────────────
+//
+// Reads `mobile-flutter/android/local.properties` and forwards every known
+// secret as a Flutter `--dart-define` so the Dart side's
+// `String.fromEnvironment(KEY)` calls actually resolve. Without this, IDE
+// "Run" launches (which don't pass --dart-define on the command line) end
+// up with empty endpoints and the course-search/places/LLM clients all
+// silently short-circuit.
+//
+// **How it talks to the Flutter Gradle Plugin:** the plugin reads
+// `project.findProperty("dart-defines")` (FlutterPlugin.kt:597) and
+// forwards the value to the Dart toolchain as `--DartDefines=<value>`.
+// The expected wire format is comma-separated, where each `KEY=VALUE`
+// pair is UTF-8 → base64-encoded individually
+// (build_info.dart:1081 `_defineEncoder = utf8.encoder.fuse(base64.encoder)`).
+//
+// **Precedence:** if the user passes `flutter run --dart-define=K=V` from
+// the CLI, gradle is invoked with `-Pdart-defines=...` and we leave that
+// alone. The injection only fires when the property is unset (the IDE-run
+// path). Tests are unaffected — they read constants from
+// `String.fromEnvironment(..., defaultValue: '')` and inject fakes.
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader("UTF-8") { reader -> localProperties.load(reader) }
+}
+
+if (project.findProperty("dart-defines") == null) {
+    def secretKeys = [
+        "COURSE_CACHE_ENDPOINT",
+        "COURSE_CACHE_API_KEY",
+        "MAPBOX_TOKEN",
+        "LLM_PROXY_ENDPOINT",
+        "LLM_PROXY_API_KEY",
+        "LOGGING_ENDPOINT",
+        "LOGGING_API_KEY",
+        "GOLF_COURSE_API_KEY",
+        "SUBSCRIPTION_PRODUCT_ID",
+        "APP_VERSION",
+        "BUILD_NUMBER",
+    ]
+    def encodedDefines = []
+    secretKeys.each { key ->
+        def value = localProperties.getProperty(key)
+        if (value != null && !value.isEmpty()) {
+            encodedDefines.add("${key}=${value}".bytes.encodeBase64().toString())
+        }
+    }
+    if (!encodedDefines.isEmpty()) {
+        project.ext.set("dart-defines", encodedDefines.join(","))
+    }
+}
+
 android {
     namespace = "com.caddieai.mobile"
     // Pinned per spike findings (SPIKE_REPORT §4 / KAN-252) and the
