@@ -13,10 +13,12 @@ import 'package:flutter/material.dart';
 import '../../../core/courses/http_transport.dart';
 import '../../../core/golf/golf_enums.dart' as golf;
 import '../../../core/golf/shot_context.dart';
+import '../../../core/llm/direct_openai_provider.dart';
 import '../../../core/llm/llm_messages.dart';
 import '../../../core/llm/llm_proxy_provider.dart';
 import '../../../core/llm/llm_router.dart';
 import '../../../core/storage/profile_repository.dart';
+import '../../../core/storage/secure_keys_storage.dart';
 import '../../../core/voice/flutter_tts_service.dart';
 import '../../../core/voice/speech_to_text_service.dart';
 import '../../../core/voice/voice_settings.dart';
@@ -33,29 +35,65 @@ class CaddiePage extends StatefulWidget {
 
 class _CaddiePageState extends State<CaddiePage> {
   final _profileRepo = ProfileRepository();
+  final _secureKeys = SecureKeysStorage();
 
   late final SpeechToTextService _stt =
       SpeechToTextService(logger: logger);
   late final FlutterTtsService _tts = FlutterTtsService(logger: logger);
 
-  late final LlmRouter _router = _buildRouter();
+  LlmRouter? _router;
+  bool _loadingKeys = true;
 
-  LlmRouter _buildRouter() {
+  @override
+  void initState() {
+    super.initState();
+    _loadKeysAndBuildRouter();
+  }
+
+  Future<void> _loadKeysAndBuildRouter() async {
+    // Read user-supplied API keys from secure storage so direct
+    // providers can be constructed for free-tier users.
+    String openAiKey = '';
+    try {
+      openAiKey = await _secureKeys.read(SecureKey.openAi) ?? '';
+    } catch (_) {
+      // SecureKeysStorage unavailable in unit-test runtime.
+    }
+
+    final transport = DartIoHttpTransport();
+
+    // Proxy provider — used for paid tier (Lambda → Bedrock).
     const proxyEndpoint =
         String.fromEnvironment('LLM_PROXY_ENDPOINT', defaultValue: '');
     const proxyApiKey =
         String.fromEnvironment('LLM_PROXY_API_KEY', defaultValue: '');
-    final transport = DartIoHttpTransport();
     final proxy = LlmProxyProvider(
       endpoint: proxyEndpoint,
       apiKey: proxyApiKey,
       transport: transport,
     );
-    return LlmRouter(
-      providers: const {},
-      proxy: proxy,
-      logger: logger,
+
+    // Direct providers — used for free tier with user-supplied keys.
+    final openAi = DirectOpenAiProvider(
+      userApiKey: openAiKey,
+      transport: transport,
     );
+
+    if (!mounted) return;
+    setState(() {
+      _router = LlmRouter(
+        providers: {
+          LlmProviderId.openAi: openAi,
+          // TODO: DirectClaudeProvider and DirectGeminiProvider for
+          // free-tier users who choose those providers. For now,
+          // only OpenAI direct is wired; Claude/Gemini keys are
+          // stored in SecureKeysStorage but not consumed here yet.
+        },
+        proxy: proxy,
+        logger: logger,
+      );
+      _loadingKeys = false;
+    });
   }
 
   @override
@@ -66,6 +104,12 @@ class _CaddiePageState extends State<CaddiePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loadingKeys || _router == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     // Defensive: in unit tests Hive isn't initialized, so the
     // profile load throws. Catch and use a default. Production
     // always has the boxes open by the time the route builds.
@@ -88,7 +132,7 @@ class _CaddiePageState extends State<CaddiePage> {
 
     return CaddieScreen(
       profile: preferences,
-      llmRouter: _router,
+      llmRouter: _router!,
       sttService: _stt,
       ttsService: _tts,
       logger: logger,
