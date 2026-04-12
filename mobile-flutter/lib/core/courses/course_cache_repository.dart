@@ -80,6 +80,8 @@ class CachedCourseEnvelope {
         'latitude': course.centroid.lat,
         'longitude': course.centroid.lon,
       },
+      'teeNames': course.teeNames,
+      'teeYardageTotals': course.teeYardageTotals,
       'holes': course.holes
           .map((h) => {
                 'number': h.number,

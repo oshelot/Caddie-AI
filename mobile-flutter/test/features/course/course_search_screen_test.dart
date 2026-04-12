@@ -103,6 +103,10 @@ class _FakeFavorites {
           _favorites.add(k);
           return true;
         },
+        deleteCourse: (k) async {
+          _saved.remove(k);
+          _favorites.remove(k);
+        },
       );
 }
 

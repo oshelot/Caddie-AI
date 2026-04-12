@@ -122,6 +122,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       listSaved: repo.listSaved,
       isFavorite: repo.isFavorite,
       toggleFavorite: repo.toggleFavorite,
+      deleteCourse: repo.evict,
     );
   })();
 

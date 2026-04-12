@@ -74,21 +74,20 @@ class FavoritesController {
     required this.listSaved,
     required this.isFavorite,
     required this.toggleFavorite,
+    required this.deleteCourse,
   });
 
-  /// Returns every course currently in the disk cache as a
-  /// `CourseSearchEntry` row. The screen filters this list into
-  /// "favorites" and "other" for the Saved tab, and into
-  /// "favorites only" for the Search-tab quick-list.
+  /// Returns every course currently in the disk cache.
   final List<CourseSearchEntry> Function() listSaved;
 
-  /// Synchronous favorite-state lookup for live-search rows.
+  /// Synchronous favorite-state lookup.
   final bool Function(String cacheKey) isFavorite;
 
-  /// Toggles favorite state. Returns the new state. The screen
-  /// calls setState after the future resolves so the star icons
-  /// rebuild immediately.
+  /// Toggles favorite state. Returns the new state.
   final Future<bool> Function(String cacheKey) toggleFavorite;
+
+  /// Deletes a course from the local disk cache.
+  final Future<void> Function(String cacheKey) deleteCourse;
 }
 
 /// Widget keys exposed for tests so we can find the two TextFields
@@ -280,7 +279,15 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
     if (controller == null) return;
     await controller.toggleFavorite(entry.cacheKey);
     if (!mounted) return;
-    setState(() {}); // refresh stars + Favorites/Saved lists
+    setState(() {});
+  }
+
+  Future<void> _onDeleteCourse(CourseSearchEntry entry) async {
+    final controller = widget.favoritesController;
+    if (controller == null) return;
+    await controller.deleteCourse(entry.cacheKey);
+    if (!mounted) return;
+    setState(() {});
   }
 
   @override
@@ -416,12 +423,14 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
             entries: favorites,
             onSelect: widget.onSelectCourse,
             onToggleFavorite: _onToggleFavorite,
+            onDelete: _onDeleteCourse,
           ),
         if (other.isNotEmpty)
           _SavedOtherSection(
             entries: other,
             onSelect: widget.onSelectCourse,
             onToggleFavorite: _onToggleFavorite,
+            onDelete: _onDeleteCourse,
           ),
       ],
     );
@@ -633,11 +642,13 @@ class _FavoritesSection extends StatelessWidget {
     required this.entries,
     required this.onSelect,
     required this.onToggleFavorite,
+    this.onDelete,
   });
 
   final List<CourseSearchEntry> entries;
   final void Function(CourseSearchEntry) onSelect;
   final Future<void> Function(CourseSearchEntry) onToggleFavorite;
+  final Future<void> Function(CourseSearchEntry)? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -652,6 +663,7 @@ class _FavoritesSection extends StatelessWidget {
             isStarFilled: true,
             onSelect: onSelect,
             onToggleFavorite: onToggleFavorite,
+            onDelete: onDelete,
           ),
       ],
     );
@@ -663,11 +675,13 @@ class _SavedOtherSection extends StatelessWidget {
     required this.entries,
     required this.onSelect,
     required this.onToggleFavorite,
+    this.onDelete,
   });
 
   final List<CourseSearchEntry> entries;
   final void Function(CourseSearchEntry) onSelect;
   final Future<void> Function(CourseSearchEntry) onToggleFavorite;
+  final Future<void> Function(CourseSearchEntry)? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -682,6 +696,7 @@ class _SavedOtherSection extends StatelessWidget {
             isStarFilled: false,
             onSelect: onSelect,
             onToggleFavorite: onToggleFavorite,
+            onDelete: onDelete,
           ),
       ],
     );
@@ -721,17 +736,42 @@ class _CourseRow extends StatelessWidget {
     required this.isStarFilled,
     required this.onSelect,
     required this.onToggleFavorite,
+    this.onDelete,
   });
 
   final CourseSearchEntry entry;
-
-  /// Tri-state:
-  /// - `true`  → filled star (yellow), tap removes from favorites
-  /// - `false` → outline star, tap adds to favorites
-  /// - `null`  → no star icon at all (search-result rows)
   final bool? isStarFilled;
   final void Function(CourseSearchEntry) onSelect;
   final Future<void> Function(CourseSearchEntry)? onToggleFavorite;
+  final Future<void> Function(CourseSearchEntry)? onDelete;
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    // KAN-181: exact iOS copy for the confirmation dialog.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Course?'),
+        content: Text(
+          'Course data for ${entry.name} is cached for faster loading. '
+          'If you plan to play here again, consider keeping it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await onDelete!(entry);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -740,7 +780,7 @@ class _CourseRow extends StatelessWidget {
       if (entry.state.isNotEmpty) entry.state,
     ];
     final subtitle = subtitleParts.isEmpty ? null : subtitleParts.join(', ');
-    return ListTile(
+    Widget tile = ListTile(
       leading: CaddieIcons.course(size: 28),
       title: Text(entry.name),
       subtitle: subtitle == null ? null : Text(subtitle),
@@ -761,6 +801,25 @@ class _CourseRow extends StatelessWidget {
                   : () => onToggleFavorite!(entry),
             ),
     );
+    // Wrap in Dismissible for swipe-to-delete on Saved tab rows.
+    if (onDelete != null) {
+      tile = Dismissible(
+        key: ValueKey('dismiss-${entry.cacheKey}'),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (_) async {
+          await _confirmDelete(context);
+          return false; // dialog handles the delete; don't auto-remove
+        },
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 20),
+          color: Colors.red,
+          child: const Icon(Icons.delete, color: Colors.white),
+        ),
+        child: tile,
+      );
+    }
+    return tile;
   }
 }
 
