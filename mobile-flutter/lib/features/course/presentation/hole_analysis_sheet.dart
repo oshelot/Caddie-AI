@@ -1,20 +1,16 @@
-// HoleAnalysisSheet — bottom sheet showing hole analysis with
-// Quick Facts (computed from geometry) and LLM Strategy text.
-// Port of iOS CourseMapView.swift:582-867 HoleAnalysisSheet.
-
-import 'dart:convert';
+// HoleAnalysisSheet — full port of iOS CourseMapView.swift:582-867.
+// Bottom sheet with 4 sections: Header, Quick Facts, Strategy,
+// and Ask a follow-up.
 
 import 'package:flutter/material.dart';
 
+import '../../../core/courses/hole_analysis_engine.dart';
 import '../../../core/courses/http_transport.dart';
-import '../../../core/geo/geo.dart';
 import '../../../core/llm/llm_messages.dart';
 import '../../../core/llm/llm_proxy_provider.dart';
 import '../../../core/weather/weather_data.dart';
 import '../../../models/normalized_course.dart';
 
-/// Shows the hole analysis bottom sheet. Call from the course map
-/// screen's Analyze button.
 Future<void> showHoleAnalysisSheet({
   required BuildContext context,
   required NormalizedCourse course,
@@ -56,263 +52,194 @@ class _HoleAnalysisContent extends StatefulWidget {
 }
 
 class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
-  String? _strategy;
+  late final HoleAnalysis _analysis;
+  String? _strategyAdvice;
   bool _loadingStrategy = false;
   String? _strategyError;
+
+  // Follow-up conversation state
+  final TextEditingController _followUpController = TextEditingController();
+  final List<LlmMessage> _conversationHistory = [];
+  String? _followUpResponse;
+  bool _loadingFollowUp = false;
+
+  static const _systemPrompt =
+      'You are an expert golf caddie with 20+ years of PGA Tour '
+      'experience. Standing on the tee box with your player, give a '
+      'focused tee shot recommendation. Be specific and actionable in '
+      'a natural, conversational caddie tone. Cover ONLY the tee shot: '
+      'what club to hit and why, where to aim, what to avoid. If '
+      'weather data is provided, factor wind into club selection. Keep '
+      'it to 2-3 short sentences. Do NOT use markdown. Speak directly '
+      'to the player.';
 
   @override
   void initState() {
     super.initState();
+    _analysis = HoleAnalysisEngine.analyze(
+      hole: widget.hole,
+      selectedTee: widget.selectedTee,
+      weather: widget.weather,
+    );
     _fetchStrategy();
   }
 
-  Future<void> _fetchStrategy() async {
+  @override
+  void dispose() {
+    _followUpController.dispose();
+    super.dispose();
+  }
+
+  LlmProxyProvider? _buildProxy() {
     const endpoint =
         String.fromEnvironment('LLM_PROXY_ENDPOINT', defaultValue: '');
     const apiKey =
         String.fromEnvironment('LLM_PROXY_API_KEY', defaultValue: '');
-    if (endpoint.isEmpty || apiKey.isEmpty) {
-      setState(() => _strategy = _buildDeterministicSummary());
+    if (endpoint.isEmpty || apiKey.isEmpty) return null;
+    return LlmProxyProvider(
+      endpoint: endpoint,
+      apiKey: apiKey,
+      transport: DartIoHttpTransport(),
+    );
+  }
+
+  Future<void> _fetchStrategy() async {
+    final proxy = _buildProxy();
+    if (proxy == null) {
+      setState(() => _strategyAdvice = _analysis.deterministicSummary);
       return;
     }
 
     setState(() => _loadingStrategy = true);
 
+    final userMessage = _buildAnalysisPrompt();
+    _conversationHistory.addAll([
+      const LlmMessage(role: 'system', content: _systemPrompt),
+      LlmMessage(role: 'user', content: userMessage),
+    ]);
+
     try {
-      final proxy = LlmProxyProvider(
-        endpoint: endpoint,
-        apiKey: apiKey,
-        transport: DartIoHttpTransport(),
-      );
-      final facts = _computeQuickFacts();
-      final prompt = _buildStrategyPrompt(facts);
       final response = await proxy.chatCompletion(LlmRequest(
-        messages: [
-          const LlmMessage(
-            role: 'system',
-            content: 'You are an expert golf caddie with 20+ years of '
-                'PGA Tour experience. Standing on the tee box with your '
-                'player, give a focused tee shot recommendation. Be '
-                'specific and actionable in a natural, conversational '
-                'caddie tone. Cover ONLY the tee shot: what club to hit '
-                'and why, where to aim, what to avoid. If weather data '
-                'is provided, factor wind into club selection. Keep it '
-                'to 2-3 short sentences. Do NOT use markdown.',
-          ),
-          LlmMessage(role: 'user', content: prompt),
-        ],
+        messages: _conversationHistory,
         maxTokens: 500,
       ));
       if (!mounted) return;
+      _conversationHistory.add(
+        LlmMessage(role: 'assistant', content: response.text),
+      );
       setState(() {
-        _strategy = response.text;
+        _strategyAdvice = response.text;
         _loadingStrategy = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _strategy = _buildDeterministicSummary();
+        _strategyAdvice = _analysis.deterministicSummary;
         _strategyError = '$e';
         _loadingStrategy = false;
       });
     }
   }
 
-  List<_QuickFact> _computeQuickFacts() {
-    final hole = widget.hole;
-    final tee = widget.selectedTee;
-    final facts = <_QuickFact>[];
+  Future<void> _submitFollowUp() async {
+    final question = _followUpController.text.trim();
+    if (question.isEmpty || _loadingFollowUp) return;
 
-    // Tee yardage
-    if (tee != null && hole.yardages.containsKey(tee)) {
-      facts.add(_QuickFact(
-        label: tee,
-        value: '${hole.yardages[tee]} yds',
-        color: Colors.green,
+    final proxy = _buildProxy();
+    if (proxy == null) return;
+
+    _followUpController.clear();
+    setState(() {
+      _loadingFollowUp = true;
+      _followUpResponse = null;
+    });
+
+    _conversationHistory.add(LlmMessage(role: 'user', content: question));
+
+    try {
+      final response = await proxy.chatCompletion(LlmRequest(
+        messages: _conversationHistory,
+        maxTokens: 500,
       ));
-    } else if (hole.yardages.isNotEmpty) {
-      final first = hole.yardages.entries.first;
-      facts.add(_QuickFact(
-        label: first.key,
-        value: '${first.value} yds',
-        color: Colors.green,
-      ));
+      if (!mounted) return;
+      _conversationHistory.add(
+        LlmMessage(role: 'assistant', content: response.text),
+      );
+      setState(() {
+        _followUpResponse = response.text;
+        _loadingFollowUp = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _followUpResponse = 'Sorry, I couldn\'t answer that: $e';
+        _loadingFollowUp = false;
+      });
     }
-
-    // Fairway width estimate from line of play
-    final lop = hole.lineOfPlay;
-    if (lop != null && lop.points.length >= 2) {
-      final totalMeters = _lineDistanceMeters(lop);
-      final totalYards = metersToYards(totalMeters).round();
-      if (totalYards > 0) {
-        // Estimate fairway width at landing zone — simplified
-        // version of iOS HoleAnalysisEngine.swift:148-184.
-        // We approximate using the average spacing between the
-        // line-of-play points if there are enough.
-        facts.add(_QuickFact(
-          label: 'Hole length',
-          value: '$totalYards yds (measured)',
-          color: Colors.green,
-        ));
-      }
-    }
-
-    // Green dimensions
-    final green = hole.green;
-    if (green != null && green.outerRing.length >= 3) {
-      final dims = _greenDimensions(green);
-      if (dims != null) {
-        facts.add(_QuickFact(
-          label: 'Green',
-          value: '${dims.depthYds} yds deep x ${dims.widthYds} yds wide',
-          color: Colors.green,
-        ));
-      }
-    }
-
-    // Bunkers
-    if (hole.bunkers.isNotEmpty) {
-      for (final bunker in hole.bunkers) {
-        final desc = _hazardDescription(bunker, hole, 'Bunker');
-        facts.add(_QuickFact(label: 'Bunker', value: desc, color: Colors.orange));
-      }
-    }
-
-    // Water
-    for (final water in hole.water) {
-      final desc = _hazardDescription(water, hole, 'Water');
-      facts.add(_QuickFact(label: 'Water', value: desc, color: Colors.orange));
-    }
-
-    // Weather
-    final w = widget.weather;
-    if (w != null) {
-      final bearing = hole.teeToGreenBearing();
-      final relWind = w.relativeWindDirection(bearing);
-      final windDir = switch (relWind) {
-        RelativeWindDirection.into => 'into',
-        RelativeWindDirection.helping => 'helping',
-        RelativeWindDirection.crossRightToLeft => 'cross R-to-L',
-        RelativeWindDirection.crossLeftToRight => 'cross L-to-R',
-      };
-      facts.add(_QuickFact(
-        label: 'Weather',
-        value: '${w.temperatureF.round()}\u00B0F, '
-            '${w.windSpeedMph.round()} mph wind ($windDir on this hole)',
-        icon: Icons.air,
-      ));
-    }
-
-    return facts;
   }
 
-  String _buildStrategyPrompt(List<_QuickFact> facts) {
-    final hole = widget.hole;
+  String _buildAnalysisPrompt() {
+    final a = _analysis;
     final buf = StringBuffer()
       ..writeln('Course: ${widget.course.name}')
-      ..writeln('Hole ${hole.number}, Par ${hole.par}');
-    for (final f in facts) {
-      buf.writeln('${f.label}: ${f.value}');
+      ..writeln('Hole ${a.holeNumber}, Par ${a.par ?? "?"}')
+      ..writeln();
+
+    if (a.yardagesByTee != null && a.yardagesByTee!.isNotEmpty) {
+      for (final e in a.yardagesByTee!.entries) {
+        buf.writeln('${e.key} tees: ${e.value} yds');
+      }
+    } else if (a.totalDistanceYards != null) {
+      buf.writeln('Distance: ~${a.totalDistanceYards} yds');
+    }
+
+    if (a.dogleg != null) {
+      buf.writeln('Dogleg ${a.dogleg!.direction} at '
+          '${a.dogleg!.distanceFromTeeYards} yds '
+          '(${a.dogleg!.bendAngleDegrees.round()}\u00B0)');
+    }
+    if (a.fairwayWidthAtLandingYards != null) {
+      buf.writeln('Fairway width: ~${a.fairwayWidthAtLandingYards} yds '
+          'at landing zone');
+    }
+    if (a.greenDepthYards != null && a.greenWidthYards != null) {
+      buf.writeln('Green: ${a.greenDepthYards} yds deep x '
+          '${a.greenWidthYards} yds wide');
+    }
+    for (final h in a.hazards) {
+      buf.writeln('${h.type}: ${h.description}');
+    }
+    if (a.weather != null) {
+      buf.writeln('Weather: ${a.weather!.summaryText}');
     }
     buf.writeln();
     buf.writeln('What should I hit off the tee and where should I aim?');
     return buf.toString();
   }
 
-  String _buildDeterministicSummary() {
-    final hole = widget.hole;
-    final tee = widget.selectedTee;
-    final yds = (tee != null && hole.yardages.containsKey(tee))
-        ? hole.yardages[tee]
-        : (hole.yardages.isNotEmpty ? hole.yardages.values.first : null);
-    final buf = StringBuffer()
-      ..write('Hole ${hole.number} is a par ${hole.par}');
-    if (yds != null) buf.write(' playing $yds yards');
-    buf.write('.');
-    if (hole.bunkers.isNotEmpty) {
-      buf.write(' ${hole.bunkers.length} bunker(s) in play.');
-    }
-    if (hole.water.isNotEmpty) {
-      buf.write(' Water in play.');
-    }
-    return buf.toString();
-  }
-
-  // ── geometry helpers ──────────────────────────────────────────
-
-  double _lineDistanceMeters(LineString line) {
-    double total = 0;
-    for (int i = 1; i < line.points.length; i++) {
-      total += haversineMeters(line.points[i - 1], line.points[i]);
-    }
-    return total;
-  }
-
-  ({int depthYds, int widthYds})? _greenDimensions(Polygon green) {
-    if (green.outerRing.length < 3) return null;
-    // Compute bounding dimensions using lat/lon span.
-    double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
-    for (final p in green.outerRing) {
-      if (p.lat < minLat) minLat = p.lat;
-      if (p.lat > maxLat) maxLat = p.lat;
-      if (p.lon < minLon) minLon = p.lon;
-      if (p.lon > maxLon) maxLon = p.lon;
-    }
-    final depthMeters =
-        haversineMeters(LngLat(minLon, minLat), LngLat(minLon, maxLat));
-    final widthMeters =
-        haversineMeters(LngLat(minLon, minLat), LngLat(maxLon, minLat));
-    final depth = metersToYards(depthMeters).round();
-    final width = metersToYards(widthMeters).round();
-    if (depth < 1 || width < 1) return null;
-    return (depthYds: depth, widthYds: width);
-  }
-
-  String _hazardDescription(Polygon hazard, NormalizedHole hole, String type) {
-    final hc = hazard.centroid;
-    final gc = hole.green?.centroid;
-    if (hc == null) return type;
-    if (gc != null) {
-      final distToGreen = haversineMeters(hc, gc);
-      if (distToGreen < 27) return '$type greenside';
-    }
-    // Rough side detection using line of play
-    final lop = hole.lineOfPlay;
-    if (lop != null && lop.points.length >= 2) {
-      final start = lop.startPoint!;
-      final end = lop.endPoint!;
-      // Cross product to determine left/right of line
-      final cross = (end.lon - start.lon) * (hc.lat - start.lat) -
-          (end.lat - start.lat) * (hc.lon - start.lon);
-      final side = cross > 0 ? 'left' : 'right';
-      return '$type $side side';
-    }
-    return type;
-  }
-
-  // ── build ─────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hole = widget.hole;
-    final tee = widget.selectedTee;
-    final yds = (tee != null && hole.yardages.containsKey(tee))
-        ? hole.yardages[tee]
-        : (hole.yardages.isNotEmpty ? hole.yardages.values.first : null);
-    final facts = _computeQuickFacts();
+    final a = _analysis;
+
+    // Yardage display: prefer selected tee
+    int? displayYds;
+    if (a.yardagesByTee != null && a.yardagesByTee!.isNotEmpty) {
+      displayYds = a.yardagesByTee!.values.first;
+    }
+    displayYds ??= a.totalDistanceYards;
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.65,
+      initialChildSize: 0.7,
       minChildSize: 0.3,
       maxChildSize: 0.92,
       expand: false,
       builder: (context, scrollController) {
         return ListView(
           controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
           children: [
-            // Header
+            // ── HEADER ──────────────────────────────────
             Row(
               children: [
                 const Spacer(),
@@ -327,104 +254,260 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
               ],
             ),
             const SizedBox(height: 8),
-            // Hole info
-            Text('Hole ${hole.number}',
+            Text('Hole ${a.holeNumber}',
                 style: theme.textTheme.headlineSmall
                     ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Row(
               children: [
-                const Icon(Icons.flag, size: 16, color: Colors.grey),
-                const SizedBox(width: 4),
-                Text('Par ${hole.par}',
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: Colors.grey)),
-                if (yds != null) ...[
-                  const SizedBox(width: 12),
-                  const Icon(Icons.straighten, size: 16, color: Colors.grey),
+                if (a.par != null) ...[
+                  const Icon(Icons.flag, size: 16, color: Colors.grey),
                   const SizedBox(width: 4),
-                  Text('$yds yds',
+                  Text('Par ${a.par}',
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(color: Colors.grey)),
                 ],
-                if (hole.strokeIndex != null) ...[
+                if (displayYds != null) ...[
                   const SizedBox(width: 12),
-                  Text('SI ${hole.strokeIndex}',
+                  const Icon(Icons.straighten, size: 16, color: Colors.grey),
+                  const SizedBox(width: 4),
+                  Text('$displayYds yds',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: Colors.grey)),
+                ],
+                if (a.dogleg != null) ...[
+                  const SizedBox(width: 12),
+                  Icon(
+                    a.dogleg!.direction == 'left'
+                        ? Icons.turn_left
+                        : Icons.turn_right,
+                    size: 16,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 4),
+                  Text('Dogleg ${a.dogleg!.direction}',
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(color: Colors.grey)),
                 ],
               ],
             ),
+
+            // ── QUICK FACTS ─────────────────────────────
             const SizedBox(height: 16),
             const Divider(),
-            // Quick Facts
             const SizedBox(height: 8),
             Text('Quick Facts',
                 style: theme.textTheme.titleMedium
                     ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            for (final fact in facts)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (fact.icon != null)
-                      Icon(fact.icon, size: 14, color: fact.color ?? Colors.green)
-                    else
-                      Icon(Icons.circle, size: 10,
-                          color: fact.color ?? Colors.green),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(fact.label,
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.grey)),
-                          Text(fact.value,
-                              style: theme.textTheme.bodyMedium),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            ..._buildQuickFacts(theme, a),
+
+            // ── STRATEGY ────────────────────────────────
             const SizedBox(height: 8),
             const Divider(),
-            // Strategy
             const SizedBox(height: 8),
-            Text('Strategy',
+            Row(
+              children: [
+                Text('Strategy',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                if (_loadingStrategy) ...[
+                  const SizedBox(width: 8),
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (_strategyAdvice != null)
+              Text(_strategyAdvice!, style: theme.textTheme.bodyMedium)
+            else if (!_loadingStrategy && _strategyError != null)
+              Text(_analysis.deterministicSummary,
+                  style: theme.textTheme.bodyMedium),
+
+            // ── FOLLOW-UP ───────────────────────────────
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text('Ask a follow-up',
                 style: theme.textTheme.titleMedium
                     ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            if (_loadingStrategy)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_strategy != null)
-              Text(_strategy!, style: theme.textTheme.bodyMedium)
-            else if (_strategyError != null)
-              Text('Strategy unavailable: $_strategyError',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.error)),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _followUpController,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _submitFollowUp(),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. What if it\'s windy?',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _loadingFollowUp
+                    ? const SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: Padding(
+                          padding: EdgeInsets.all(8),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : IconButton(
+                        onPressed: _submitFollowUp,
+                        icon: const Icon(Icons.arrow_upward_rounded),
+                        style: IconButton.styleFrom(
+                          backgroundColor: theme.colorScheme.primary,
+                          foregroundColor: theme.colorScheme.onPrimary,
+                        ),
+                      ),
+              ],
+            ),
+            if (_followUpResponse != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(_followUpResponse!,
+                    style: theme.textTheme.bodyMedium),
+              ),
+            ],
           ],
         );
       },
     );
   }
-}
 
-class _QuickFact {
-  const _QuickFact({
-    required this.label,
-    required this.value,
-    this.color,
-    this.icon,
-  });
-  final String label;
-  final String value;
-  final Color? color;
-  final IconData? icon;
+  List<Widget> _buildQuickFacts(ThemeData theme, HoleAnalysis a) {
+    final facts = <Widget>[];
+
+    // Per-tee yardages
+    if (a.yardagesByTee != null && a.yardagesByTee!.isNotEmpty) {
+      final sorted = a.yardagesByTee!.entries.toList()
+        ..sort((x, y) => y.value.compareTo(x.value));
+      for (final e in sorted) {
+        facts.add(_factRow(
+          label: e.key,
+          value: '${e.value} yds',
+          color: Colors.green,
+          theme: theme,
+        ));
+      }
+    } else if (a.totalDistanceYards != null) {
+      facts.add(_factRow(
+        label: 'Distance',
+        value: '~${a.totalDistanceYards} yds',
+        color: Colors.green,
+        theme: theme,
+      ));
+    }
+
+    // Dogleg
+    if (a.dogleg != null) {
+      final d = a.dogleg!;
+      facts.add(_factRow(
+        label: 'Dogleg',
+        value: '${d.direction[0].toUpperCase()}${d.direction.substring(1)} '
+            'at ${d.distanceFromTeeYards} yds '
+            '(${d.bendAngleDegrees.round()}\u00B0)',
+        color: Colors.green,
+        theme: theme,
+      ));
+    }
+
+    // Fairway width
+    if (a.fairwayWidthAtLandingYards != null) {
+      facts.add(_factRow(
+        label: 'Fairway width',
+        value: '~${a.fairwayWidthAtLandingYards} yds at landing zone',
+        color: Colors.green,
+        theme: theme,
+      ));
+    }
+
+    // Green dimensions
+    if (a.greenDepthYards != null && a.greenWidthYards != null) {
+      facts.add(_factRow(
+        label: 'Green',
+        value:
+            '${a.greenDepthYards} yds deep \u00D7 ${a.greenWidthYards} yds wide',
+        color: Colors.green,
+        theme: theme,
+      ));
+    }
+
+    // Hazards
+    for (final h in a.hazards) {
+      facts.add(_factRow(
+        label: h.type,
+        value: h.description,
+        color: h.type == 'Water' ? Colors.blue : Colors.orange,
+        theme: theme,
+      ));
+    }
+
+    // Weather
+    if (a.weather != null) {
+      facts.add(_factRow(
+        label: 'Weather',
+        value: a.weather!.summaryText,
+        icon: Icons.air,
+        color: Colors.cyan,
+        theme: theme,
+      ));
+    }
+
+    return facts;
+  }
+
+  Widget _factRow({
+    required String label,
+    required String value,
+    required ThemeData theme,
+    Color? color,
+    IconData? icon,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: icon != null
+                ? Icon(icon, size: 14, color: color ?? Colors.green)
+                : Icon(Icons.circle, size: 10, color: color ?? Colors.green),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: Colors.grey)),
+                Text(value, style: theme.textTheme.bodyMedium),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
