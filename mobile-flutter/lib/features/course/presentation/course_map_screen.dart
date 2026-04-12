@@ -555,9 +555,9 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
       _missingLayers = missing;
     }
 
-    // Auto-select hole 1 so the bearing+padding camera fit is
-    // immediately visible. Mirrors the spike behavior.
-    await _selectHole(1);
+    // Start on "All" (zoomed out, north up) — matches iOS behavior.
+    // The user taps a hole number to zoom into a specific hole.
+    await _selectHole(null);
   }
 
   // ── Hole selection ──────────────────────────────────────────────

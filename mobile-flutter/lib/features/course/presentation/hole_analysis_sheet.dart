@@ -397,16 +397,24 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
   List<Widget> _buildQuickFacts(ThemeData theme, HoleAnalysis a) {
     final facts = <Widget>[];
 
-    // Per-tee yardages — filtered with the same combo-tee logic
-    // as the map screen's tee picker (KAN-182).
+    // Show only the selected tee's yardage (matches iOS behavior —
+    // the tee picker at the top already lets the user switch tees;
+    // Quick Facts shows the yardage for that selection, not all tees).
+    final selectedTee = widget.selectedTee;
     if (a.yardagesByTee != null && a.yardagesByTee!.isNotEmpty) {
-      final filtered = _filterComboTees(a.yardagesByTee!);
-      final sorted = filtered.entries.toList()
-        ..sort((x, y) => y.value.compareTo(x.value));
-      for (final e in sorted) {
+      if (selectedTee != null && a.yardagesByTee!.containsKey(selectedTee)) {
         facts.add(_factRow(
-          label: e.key,
-          value: '${e.value} yds',
+          label: selectedTee,
+          value: '${a.yardagesByTee![selectedTee]} yds',
+          color: Colors.green,
+          theme: theme,
+        ));
+      } else {
+        // Fallback to first tee if selected isn't available
+        final first = a.yardagesByTee!.entries.first;
+        facts.add(_factRow(
+          label: first.key,
+          value: '${first.value} yds',
           color: Colors.green,
           theme: theme,
         ));
