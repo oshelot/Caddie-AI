@@ -273,8 +273,14 @@ class _CaddieScreenState extends State<CaddieScreen> {
         _stage = CaddieFlowStage.speaking;
       });
       await widget.ttsService.speak(text, persona: widget.persona);
-    } catch (e) {
-      // Log the actual error so CloudWatch captures it for debugging.
+    } catch (e, stackTrace) {
+      // Print to debug console (visible in the terminal running
+      // ./tool/run.sh) so we can see the EXACT error + stack trace
+      // without waiting for CloudWatch log flush.
+      // ignore: avoid_print
+      print('LLM CALL ERROR: $e');
+      // ignore: avoid_print
+      print('STACK TRACE: $stackTrace');
       widget.logger.warning(
         LogCategory.llm,
         'llm_call_error',
