@@ -40,6 +40,7 @@ import '../../../core/courses/course_cache_repository.dart';
 import '../../../core/courses/course_normalizer.dart';
 import '../../../core/courses/course_search_merger.dart';
 import '../../../core/courses/course_search_results.dart';
+import '../../../core/courses/golf_course_api_client.dart';
 import '../../../core/courses/http_transport.dart';
 import '../../../core/courses/nominatim_client.dart';
 import '../../../core/courses/osm_parser.dart';
@@ -235,6 +236,104 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
     }
   }
 
+  /// Enriches a course with tee/yardage data from the Golf Course
+  /// API. Mirrors iOS enrichWithScorecardData(). Returns the
+  /// enriched course, or the original if enrichment fails.
+  Future<NormalizedCourse> _enrichWithScorecardData(
+    NormalizedCourse course,
+    String searchName,
+  ) async {
+    const golfApiKey =
+        String.fromEnvironment('GOLF_COURSE_API_KEY', defaultValue: '');
+    if (golfApiKey.isEmpty) return course;
+
+    try {
+      final golfApi = GolfCourseApiClient(
+        apiKey: golfApiKey,
+        transport: _transport,
+      );
+      // ignore: avoid_print
+      print('ENRICH: searching Golf Course API for "$searchName"');
+      final results = await golfApi.searchCourses(searchName);
+      if (results.isEmpty) {
+        // ignore: avoid_print
+        print('ENRICH: no results');
+        return course;
+      }
+
+      // Get the detail for the first match (has full tee data).
+      final detail = await golfApi.getCourse(results.first.id);
+      if (detail == null || detail.tees.isEmpty) {
+        // ignore: avoid_print
+        print('ENRICH: no tee data');
+        return course;
+      }
+
+      // Build teeNames + teeYardageTotals + per-hole yardages.
+      final teeNames = <String>[];
+      final teeYardageTotals = <String, int>{};
+      for (final entry in detail.tees.entries) {
+        final tee = entry.value;
+        teeNames.add(tee.teeName);
+        if (tee.totalYards > 0) {
+          teeYardageTotals[tee.teeName] = tee.totalYards;
+        }
+      }
+      // Sort by total yardage descending (longest first).
+      teeNames.sort((a, b) =>
+          (teeYardageTotals[b] ?? 0).compareTo(teeYardageTotals[a] ?? 0));
+
+      // Merge per-hole yardages + par + stroke index.
+      final enrichedHoles = <NormalizedHole>[];
+      for (final hole in course.holes) {
+        final yardages = <String, int>{...hole.yardages};
+        var par = hole.par;
+        int? strokeIndex = hole.strokeIndex;
+
+        for (final teeEntry in detail.tees.entries) {
+          final tee = teeEntry.value;
+          if (hole.number - 1 < tee.holes.length) {
+            final apiHole = tee.holes[hole.number - 1];
+            yardages[tee.teeName] = apiHole.yardage;
+            if (par == 0) par = apiHole.par;
+            strokeIndex ??= apiHole.handicap;
+          }
+        }
+
+        enrichedHoles.add(NormalizedHole(
+          number: hole.number,
+          par: par,
+          strokeIndex: strokeIndex,
+          yardages: yardages,
+          teeAreas: hole.teeAreas,
+          lineOfPlay: hole.lineOfPlay,
+          green: hole.green,
+          pin: hole.pin,
+          bunkers: hole.bunkers,
+          water: hole.water,
+        ));
+      }
+
+      // ignore: avoid_print
+      print('ENRICH: found ${teeNames.length} tees: $teeNames');
+
+      return NormalizedCourse(
+        id: course.id,
+        name: course.name,
+        city: course.city,
+        state: course.state,
+        centroid: course.centroid,
+        holes: enrichedHoles,
+        teeNames: teeNames,
+        teeYardageTotals: teeYardageTotals,
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('ENRICH: failed: $e');
+      return course;
+    }
+  }
+
   Future<List<PlaceAutocompleteSuggestion>> _onCityAutocomplete(
       String input) async {
     if (!_placesClient.isConfigured) return const [];
@@ -344,9 +443,17 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       errorMessage = '$e';
     }
 
-    // Step 3: Save to local disk cache so the Saved tab shows it
-    // and subsequent opens are instant. Mirrors iOS
-    // CourseViewModel.swift:456 cacheService.save(course).
+    // Step 4: Enrich with Golf Course API tee/yardage data.
+    // Mirrors iOS CourseViewModel.swift:978-1095
+    // enrichWithScorecardData(). Non-blocking — if the API is
+    // unavailable or the course isn't found, we proceed with
+    // whatever data we have (geometry-only is still useful).
+    if (course != null && course.teeNames.isEmpty) {
+      course = await _enrichWithScorecardData(course, entry.name);
+    }
+
+    // Step 5: Save to local disk cache so the Saved tab shows it
+    // and subsequent opens are instant.
     final repo = _cacheRepository;
     if (course != null && cacheKeyForSave != null && repo != null) {
       try {
