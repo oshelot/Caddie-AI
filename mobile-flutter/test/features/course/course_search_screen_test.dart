@@ -1,29 +1,27 @@
-// Widget tests for KAN-279 (S9) CourseSearchScreen.
+// Widget tests for the CourseSearchScreen — final shape (KAN-279
+// + KAN-296 + KAN-29 + Story B/D structural rewrite).
 //
-// **Logger lifecycle (read this before adding new tests):**
-// `LoggingService` lazy-creates a periodic Timer on the first
-// event. The Flutter test framework checks for pending Timers at
-// the END of the test body (BEFORE `tearDown` runs), so disposing
-// the logger from `tearDown`/`addTearDown` is too late — the
-// pending-timer assertion fires first. Every test below that
-// triggers a search MUST call `disposeLogger()` before its last
-// `expect`. Tests that never log (e.g. pure idle-state tests)
-// don't need it. The `_pumpAndDispose` helper bundles
-// search + assertion + disposal for the common case.
+// **Logger lifecycle:** `LoggingService` lazy-creates a periodic
+// Timer on the first event. The test framework checks for pending
+// Timers at the END of the test body (BEFORE `tearDown` runs), so
+// every test that fires a search MUST call `logger.dispose()`
+// before its last `expect`.
+//
+// **Search trigger:** the screen no longer auto-fires onSearch on
+// debounced text changes. The Search button is the ONLY trigger.
+// Tests use the `_runSearch` helper which enters the query then
+// taps the button.
 //
 // Coverage:
-//   1. Idle state — no query, demo entry visible if supplied
-//   2. Debounced search — typing fires the callback exactly once
-//      after the debounce window
-//   3. Result list — entries render with name + city/state
-//   4. Empty state — onSearch returning [] shows the "no results" UI
-//   5. Error state — onSearch throwing shows the error UI with the
-//      message
-//   6. Location-required state — toggling "use my location" without
-//      permission shows the location-required hint
-//   7. Tap result — invokes onSelectCourse with the right entry
-//   8. Telemetry contract — every search emits a `log_search_latency`
-//      event with the canonical metadata fields
+//   1. Idle / demo / location-required states
+//   2. Search button → onSearch flow + result rendering + dedup
+//      empty/error states
+//   3. Telemetry: every search emits log_search_latency
+//   4. City autocomplete debounce + suggestion tap-to-fill
+//   5. Tabs (Search/Saved) — only render when a favoritesController
+//      is supplied
+//   6. Saved tab → Favorites + Other Saved sections
+//   7. Favorite toggle (search-tab quick list + Saved tab)
 
 import 'package:caddieai/core/courses/course_search_results.dart';
 import 'package:caddieai/core/courses/places_client.dart';
@@ -47,11 +45,6 @@ class CapturingLogSender implements LogSender {
   }
 }
 
-/// Builds a logger with a 1-event flush threshold and a long
-/// flushInterval so events drain to the sender immediately AND
-/// the periodic timer (lazy-created on the first event) only
-/// fires once per hour. Tests still must call `dispose()` before
-/// the test body returns — the Timer is alive until then.
 LoggingService _newLogger(CapturingLogSender sender) => LoggingService(
       sender: sender,
       deviceId: 'd',
@@ -79,6 +72,40 @@ const _entry2 = CourseSearchEntry(
   longitude: -122.5000,
 );
 
+/// In-memory FavoritesController for the Saved-tab + favorites
+/// tests. The production wiring uses CourseCacheRepository, which
+/// has the same shape but talks to Hive.
+class _FakeFavorites {
+  final Map<String, CourseSearchEntry> _saved = {};
+  final Set<String> _favorites = {};
+
+  void preload(List<CourseSearchEntry> rows, {Set<String> favorites = const {}}) {
+    for (final row in rows) {
+      _saved[row.cacheKey] = row;
+    }
+    _favorites.addAll(favorites);
+  }
+
+  FavoritesController controller() => FavoritesController(
+        listSaved: () {
+          final rows = _saved.values
+              .map((e) => e.copyWith(isFavorite: _favorites.contains(e.cacheKey)))
+              .toList();
+          rows.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          return rows;
+        },
+        isFavorite: (k) => _favorites.contains(k),
+        toggleFavorite: (k) async {
+          if (_favorites.contains(k)) {
+            _favorites.remove(k);
+            return false;
+          }
+          _favorites.add(k);
+          return true;
+        },
+      );
+}
+
 Future<void> _pumpScreen(
   WidgetTester tester, {
   required Future<CourseSearchOutcome> Function(String, String) onSearch,
@@ -88,7 +115,15 @@ Future<void> _pumpScreen(
   CourseSearchEntry? demoEntry,
   Duration debounce = Duration.zero,
   Future<List<PlaceAutocompleteSuggestion>> Function(String)? onCityAutocomplete,
+  FavoritesController? favoritesController,
 }) async {
+  // Wide enough so SegmentedButton lays out without overflow when the
+  // tab bar is rendered.
+  tester.view.physicalSize = const Size(1080, 2400);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
   await tester.pumpWidget(MaterialApp(
     home: CourseSearchScreen(
       onSearch: onSearch,
@@ -98,8 +133,22 @@ Future<void> _pumpScreen(
       initialDemoEntry: demoEntry,
       debounce: debounce,
       onCityAutocomplete: onCityAutocomplete,
+      favoritesController: favoritesController,
     ),
   ));
+  await tester.pump();
+}
+
+/// Drives a full search: types the query, taps the Search button,
+/// pumps twice to let the future resolve.
+Future<void> _runSearch(WidgetTester tester, String query) async {
+  await tester.enterText(
+    find.byKey(CourseSearchKeys.courseNameField),
+    query,
+  );
+  await tester.pump();
+  await tester.tap(find.byKey(CourseSearchKeys.searchButton));
+  await tester.pump();
   await tester.pump();
 }
 
@@ -153,8 +202,32 @@ void main() {
     });
   });
 
-  group('search → results', () {
-    testWidgets('debounced search calls onSearch exactly once', (tester) async {
+  group('search → results (button-driven, no auto-fire)', () {
+    testWidgets('typing in the name field does NOT auto-fire onSearch',
+        (tester) async {
+      var callCount = 0;
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async {
+          callCount++;
+          return CourseSearchOutcome.empty;
+        },
+        onSelectCourse: (_) {},
+        logger: logger,
+      );
+      // Type into the name field and pump for a generous window.
+      await tester.enterText(
+        find.byKey(CourseSearchKeys.courseNameField),
+        'sharp',
+      );
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(callCount, 0,
+          reason: 'native apps only fire on the Search button');
+    });
+
+    testWidgets('tapping the Search button calls onSearch exactly once with '
+        'the trimmed query', (tester) async {
       var callCount = 0;
       String? receivedQuery;
       await _pumpScreen(
@@ -166,21 +239,8 @@ void main() {
         },
         onSelectCourse: (_) {},
         logger: logger,
-        debounce: const Duration(milliseconds: 50),
       );
-
-      // Multiple keystrokes within the debounce window collapse
-      // to a single search.
-      await tester.enterText(find.byType(TextField), 'sh');
-      await tester.pump(const Duration(milliseconds: 20));
-      await tester.enterText(find.byType(TextField), 'sha');
-      await tester.pump(const Duration(milliseconds: 20));
-      await tester.enterText(find.byType(TextField), 'shar');
-      await tester.pump(const Duration(milliseconds: 20));
-      await tester.enterText(find.byType(TextField), 'sharp');
-      await tester.pump(const Duration(milliseconds: 80));
-      await tester.pump();
-
+      await _runSearch(tester, '  sharp  ');
       expect(callCount, 1);
       expect(receivedQuery, 'sharp');
       logger.dispose();
@@ -194,9 +254,7 @@ void main() {
         onSelectCourse: (_) {},
         logger: logger,
       );
-      await tester.enterText(find.byType(TextField), 'park');
-      await tester.pump();
-      await tester.pump();
+      await _runSearch(tester, 'park');
 
       expect(find.text('Sharp Park Golf Course'), findsOneWidget);
       expect(find.text('Pacifica, CA'), findsOneWidget);
@@ -215,13 +273,9 @@ void main() {
         onSelectCourse: (e) => selected = e,
         logger: logger,
       );
-      await tester.enterText(find.byType(TextField), 'park');
-      await tester.pump();
-      await tester.pump();
-
+      await _runSearch(tester, 'park');
       await tester.tap(find.text('Sharp Park Golf Course'));
       await tester.pump();
-
       expect(selected, _entry1);
       logger.dispose();
     });
@@ -236,10 +290,7 @@ void main() {
         onSelectCourse: (_) {},
         logger: logger,
       );
-      await tester.enterText(find.byType(TextField), 'nope');
-      await tester.pump();
-      await tester.pump();
-
+      await _runSearch(tester, 'nope');
       expect(find.text('No courses found'), findsOneWidget);
       expect(find.textContaining('"nope"'), findsOneWidget);
       logger.dispose();
@@ -252,10 +303,7 @@ void main() {
         onSelectCourse: (_) {},
         logger: logger,
       );
-      await tester.enterText(find.byType(TextField), 'wellshire');
-      await tester.pump();
-      await tester.pump();
-
+      await _runSearch(tester, 'wellshire');
       expect(find.textContaining("Couldn't reach the course cache"),
           findsOneWidget);
       expect(find.textContaining('boom'), findsOneWidget);
@@ -272,9 +320,7 @@ void main() {
         onSelectCourse: (_) {},
         logger: logger,
       );
-      await tester.enterText(find.byType(TextField), 'x');
-      await tester.pump();
-      await tester.pump();
+      await _runSearch(tester, 'x');
       expect(find.textContaining('503'), findsOneWidget);
       logger.dispose();
     });
@@ -393,7 +439,6 @@ void main() {
       await tester.tap(find.byKey(CourseSearchKeys.citySuggestionTile));
       await tester.pump();
 
-      // Field is filled, suggestions hidden.
       final field = tester.widget<TextField>(
         find.byKey(CourseSearchKeys.cityField),
       );
@@ -401,7 +446,8 @@ void main() {
       expect(find.byKey(CourseSearchKeys.citySuggestionTile), findsNothing);
     });
 
-    testWidgets('city is forwarded to onSearch on the next search', (tester) async {
+    testWidgets('city is forwarded to onSearch on the next button tap',
+        (tester) async {
       String? receivedQuery;
       String? receivedCity;
       await _pumpScreen(
@@ -420,15 +466,154 @@ void main() {
         'Pacifica, CA, USA',
       );
       await tester.pump();
-      await tester.enterText(
-        find.byKey(CourseSearchKeys.courseNameField),
-        'sharp',
-      );
-      await tester.pump();
-      await tester.pump();
+      await _runSearch(tester, 'sharp');
       expect(receivedQuery, 'sharp');
       expect(receivedCity, 'Pacifica, CA, USA');
       logger.dispose();
+    });
+  });
+
+  group('Search/Saved tabs (no favoritesController = single-pane mode)', () {
+    testWidgets('with no favoritesController, no tab bar renders',
+        (tester) async {
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+      );
+      expect(find.byType(SegmentedButton<int>), findsNothing);
+    });
+
+    testWidgets('with a favoritesController, the Search/Saved tab bar renders',
+        (tester) async {
+      final fakes = _FakeFavorites();
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+        favoritesController: fakes.controller(),
+      );
+      expect(find.byType(SegmentedButton<int>), findsOneWidget);
+      expect(find.text('Search'), findsWidgets);
+      expect(find.text('Saved'), findsWidgets);
+    });
+  });
+
+  group('Saved tab', () {
+    testWidgets('shows empty state when no saved courses exist',
+        (tester) async {
+      final fakes = _FakeFavorites();
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+        favoritesController: fakes.controller(),
+      );
+      // Switch to Saved tab.
+      await tester.tap(find.text('Saved').last);
+      await tester.pump();
+      expect(find.text('No saved courses'), findsOneWidget);
+    });
+
+    testWidgets('renders Favorites and Other Saved sections', (tester) async {
+      final fakes = _FakeFavorites();
+      fakes.preload(
+        [_entry1, _entry2],
+        favorites: {'sharp-park'},
+      );
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+        favoritesController: fakes.controller(),
+      );
+      await tester.tap(find.text('Saved').last);
+      await tester.pump();
+
+      expect(find.byKey(CourseSearchKeys.favoritesSection), findsOneWidget);
+      expect(find.byKey(CourseSearchKeys.savedOtherSection), findsOneWidget);
+      expect(find.text('Sharp Park Golf Course'), findsOneWidget);
+      expect(find.text('Lincoln Park Golf Course'), findsOneWidget);
+    });
+
+    testWidgets('tapping a Saved row invokes onSelectCourse', (tester) async {
+      final fakes = _FakeFavorites();
+      fakes.preload([_entry1]);
+      CourseSearchEntry? selected;
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (e) => selected = e,
+        logger: logger,
+        favoritesController: fakes.controller(),
+      );
+      await tester.tap(find.text('Saved').last);
+      await tester.pump();
+      await tester.tap(find.text('Sharp Park Golf Course'));
+      await tester.pump();
+      expect(selected?.cacheKey, 'sharp-park');
+    });
+  });
+
+  group('Favorites quick-list on the Search tab', () {
+    testWidgets('renders favorited courses under the search form',
+        (tester) async {
+      final fakes = _FakeFavorites();
+      fakes.preload([_entry1], favorites: {'sharp-park'});
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+        favoritesController: fakes.controller(),
+      );
+      // Search tab is the default selected tab.
+      expect(find.byKey(CourseSearchKeys.favoritesSection), findsOneWidget);
+      expect(find.text('Sharp Park Golf Course'), findsOneWidget);
+    });
+
+    testWidgets('only favorited courses appear in the quick-list, not '
+        'every saved course', (tester) async {
+      final fakes = _FakeFavorites();
+      fakes.preload(
+        [_entry1, _entry2],
+        favorites: {'sharp-park'}, // only sharp-park is favorited
+      );
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+        favoritesController: fakes.controller(),
+      );
+      expect(find.text('Sharp Park Golf Course'), findsOneWidget);
+      expect(find.text('Lincoln Park Golf Course'), findsNothing);
+    });
+
+    testWidgets('tapping the star toggles favorite state via the controller',
+        (tester) async {
+      final fakes = _FakeFavorites();
+      fakes.preload([_entry1], favorites: {'sharp-park'});
+      await _pumpScreen(
+        tester,
+        onSearch: (_, __) async => CourseSearchOutcome.empty,
+        onSelectCourse: (_) {},
+        logger: logger,
+        favoritesController: fakes.controller(),
+      );
+      // The star icon for the favorited entry — find via the
+      // favorite-toggle key (the only place IconButtons appear in
+      // the favorites section).
+      final starFinder = find.byKey(CourseSearchKeys.favoriteToggle);
+      expect(starFinder, findsOneWidget);
+      await tester.tap(starFinder);
+      await tester.pump();
+      // After unstar, the favorites section disappears entirely.
+      expect(find.byKey(CourseSearchKeys.favoritesSection), findsNothing);
     });
   });
 
@@ -443,9 +628,7 @@ void main() {
         onSelectCourse: (_) {},
         logger: logger,
       );
-      await tester.enterText(find.byType(TextField), 'park');
-      await tester.pump();
-      await tester.pump();
+      await _runSearch(tester, 'park');
 
       expect(sender.sent, isNotEmpty);
       final searchEvents = sender.sent
@@ -468,9 +651,7 @@ void main() {
         onSelectCourse: (_) {},
         logger: logger,
       );
-      await tester.enterText(find.byType(TextField), 'x');
-      await tester.pump();
-      await tester.pump();
+      await _runSearch(tester, 'x');
 
       final searchEvents = sender.sent
           .where((e) => e.message == 'log_search_latency')

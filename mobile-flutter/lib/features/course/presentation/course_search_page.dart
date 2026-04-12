@@ -36,6 +36,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:go_router/go_router.dart';
 
 import '../../../core/courses/course_cache_client.dart';
+import '../../../core/courses/course_cache_repository.dart';
 import '../../../core/courses/course_search_merger.dart';
 import '../../../core/courses/course_search_results.dart';
 import '../../../core/courses/http_transport.dart';
@@ -74,6 +75,7 @@ class CourseSearchPage extends StatefulWidget {
     this.placesClient,
     this.merger,
     this.loggerOverride,
+    this.cacheRepository,
   });
 
   /// Optional injection seams for tests / Riverpod-future. Production
@@ -85,6 +87,11 @@ class CourseSearchPage extends StatefulWidget {
   final PlacesClient? placesClient;
   final CourseSearchMerger? merger;
   final LoggingService? loggerOverride;
+
+  /// Optional disk-cache repository. Production builds the default
+  /// `CourseCacheRepository()` which talks to the open Hive boxes.
+  /// The Saved tab + Favorites quick-list both consume this.
+  final CourseCacheRepository? cacheRepository;
 
   @override
   State<CourseSearchPage> createState() => _CourseSearchPageState();
@@ -103,6 +110,28 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
   late final CourseSearchMerger _merger =
       widget.merger ?? const CourseSearchMerger();
   late final LoggingService _logger = widget.loggerOverride ?? logger;
+  late final CourseCacheRepository? _cacheRepository =
+      widget.cacheRepository ?? _safeBuildRepository();
+  late final FavoritesController? _favoritesController = (() {
+    final repo = _cacheRepository;
+    if (repo == null) return null;
+    return FavoritesController(
+      listSaved: repo.listSaved,
+      isFavorite: repo.isFavorite,
+      toggleFavorite: repo.toggleFavorite,
+    );
+  })();
+
+  /// Defensive constructor that returns null if Hive isn't open
+  /// (unit-test runtime). Production always has the boxes open by
+  /// the time the route builds — see main.dart's startup sequence.
+  static CourseCacheRepository? _safeBuildRepository() {
+    try {
+      return CourseCacheRepository();
+    } catch (_) {
+      return null;
+    }
+  }
 
   bool _locationGranted = false;
   bool _checkingLocation = true;
@@ -213,10 +242,11 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
     setState(() => _navigatingToMap = true);
 
     NormalizedCourse? course;
+    String? cacheKeyForSave;
     String? errorMessage;
     try {
       if (entry.cacheKey == kLocalFixtureCacheKey) {
-        // Bundled fixture path — no network required.
+        // Bundled fixture path — no network required, no save.
         final raw =
             await rootBundle.loadString('assets/fixtures/sharp_park.json');
         course = NormalizedCourse.fromJson(
@@ -225,6 +255,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       } else if (entry.source == CourseSearchSource.manifest) {
         // Manifest entries carry a real server cache key — fetch directly.
         course = await _cacheClient.fetchCourse(entry.cacheKey);
+        cacheKeyForSave = entry.cacheKey;
         if (course == null) {
           errorMessage = 'Course not found in cache.';
         }
@@ -236,6 +267,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         // is iOS-only today; the user has to use a manifest result.
         final cacheKey = NormalizedCourse.serverCacheKey(entry.name);
         course = await _cacheClient.fetchCourse(cacheKey);
+        cacheKeyForSave = cacheKey;
         if (course == null) {
           errorMessage =
               '${entry.name} isn\u2019t in the shared cache yet. '
@@ -245,6 +277,21 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       }
     } catch (e) {
       errorMessage = '$e';
+    }
+
+    // Story D: write to the local disk cache before navigating, so
+    // the next visit to the Saved tab shows the course. Mirrors
+    // CourseViewModel.swift's startIngestion → cache.save flow. The
+    // fixture path skips the save (kLocalFixtureCacheKey is a
+    // sentinel, not a real server cache key).
+    final repo = _cacheRepository;
+    if (course != null && cacheKeyForSave != null && repo != null) {
+      try {
+        await repo.save(cacheKeyForSave, course);
+      } catch (_) {
+        // Non-fatal: navigation still proceeds even if the local
+        // save fails (e.g. Hive box not open in test runtime).
+      }
     }
 
     if (!mounted) return;
@@ -276,6 +323,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       logger: _logger,
       locationGranted: _locationGranted,
       initialDemoEntry: kSharpParkDemoEntry,
+      favoritesController: _favoritesController,
     );
   }
 }

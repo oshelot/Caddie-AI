@@ -1,38 +1,41 @@
-// CourseSearchScreen — KAN-279 (S9), updated for the KAN-296 / KAN-29
-// 3-source search rewrite.
+// CourseSearchScreen — KAN-279 + KAN-296 + KAN-29 final form.
 //
-// **What this screen does (post-rewrite, mirrors iOS CourseSearchView
-// + CourseViewModel exactly):**
+// Direct port of the iOS `CourseSearchView.swift` and Android
+// `CourseScreen.kt` layouts. The screen has TWO tabs at the top:
 //
-//   1. Renders a "Course name" search input + an optional "City"
-//      input. The city field has a debounced autocomplete dropdown
-//      driven by an injected callback (the page wrapper wires this
-//      to `PlacesClient.autocomplete`, which proxies Google Places
-//      Autocomplete via the KAN-296 Lambda routes).
-//   2. On Search button tap, calls `onSearch(query, city)` exactly
-//      once. The page wrapper does the parallel fan-out to
-//      Nominatim + Google Places + manifest metadata, runs the
-//      `CourseSearchMerger`, and returns the merged outcome.
-//   3. Renders the result list with name + city/state subtitle.
-//      Tapping invokes `onSelectCourse` — the page wrapper handles
-//      fetching the full `NormalizedCourse` and navigating.
-//   4. Renders distinct empty states for "no results", "location
-//      required" (when the user toggles nearby search but
-//      permission isn't granted), and "ready to search" (the idle
-//      state).
-//   5. Logs `log_search_latency` to `LoggingService` on every
-//      completed search with the canonical metadata fields.
+//   ┌───────────┬───────────┐
+//   │  Search   │   Saved   │
+//   └───────────┴───────────┘
+//
+// **Search tab** (mirrors `CourseSearchView.swift:42-159` and
+// `CourseScreen.kt:255-417`):
+//   1. Course name TextField
+//   2. City TextField with debounced Google Places autocomplete
+//      (driven by the injected `onCityAutocomplete` callback,
+//      which the page wrapper wires to the KAN-296 Lambda route)
+//   3. Search button — the ONLY thing that fires the search.
+//      Typing in the name field does NOT auto-search.
+//   4. Favorites quick-access section (when the user has any
+//      starred courses) — shows below the form so users can jump
+//      back into a favorite without typing.
+//   5. Search results / progress / empty / error states
+//
+// **Saved tab** (mirrors `CourseSearchView.swift:160-268` and
+// `CourseScreen.kt:420-460`):
+//   1. Favorites section
+//   2. Other Saved Courses section (downloaded but not favorited)
+//   3. Empty state when both are empty
+//
+// **Result rows on the Saved tabs and the Favorites quick-list**
+// have a star icon that toggles favorite state via the injected
+// `favoritesController.toggleFavorite`. Search-result rows don't
+// — that matches iOS, where you can only star a course AFTER
+// opening it (which writes it to the local cache).
 //
 // **Why a callback for `onSearch` instead of taking the clients
 // directly:** the widget tests need to drive scripted result
-// sequences (empty, populated, error) without standing up fake
-// HTTP transports for three different services. Production wires
-// the callback at the route level.
-//
-// **iOS reference:** the layout, the city/name interaction, and the
-// debounce all match `ios/CaddieAI/Views/CourseTab/CourseSearchView.swift`
-// and the search flow in
-// `ios/CaddieAI/ViewModels/CourseViewModel.swift:70-152`.
+// sequences without standing up fake HTTP transports for three
+// services. Production wires the callback at the route level.
 
 import 'dart:async';
 
@@ -63,8 +66,34 @@ class CourseSearchOutcome {
       CourseSearchOutcome(entries: []);
 }
 
+/// Read-and-mutate seam for the Favorites quick-list and the
+/// Saved tab. Production wires this to `CourseCacheRepository`
+/// (the methods line up 1:1). Tests inject an in-memory fake.
+class FavoritesController {
+  const FavoritesController({
+    required this.listSaved,
+    required this.isFavorite,
+    required this.toggleFavorite,
+  });
+
+  /// Returns every course currently in the disk cache as a
+  /// `CourseSearchEntry` row. The screen filters this list into
+  /// "favorites" and "other" for the Saved tab, and into
+  /// "favorites only" for the Search-tab quick-list.
+  final List<CourseSearchEntry> Function() listSaved;
+
+  /// Synchronous favorite-state lookup for live-search rows.
+  final bool Function(String cacheKey) isFavorite;
+
+  /// Toggles favorite state. Returns the new state. The screen
+  /// calls setState after the future resolves so the star icons
+  /// rebuild immediately.
+  final Future<bool> Function(String cacheKey) toggleFavorite;
+}
+
 /// Widget keys exposed for tests so we can find the two TextFields
-/// + the search button without depending on widget order.
+/// + the search button + the tab buttons without depending on
+/// widget order.
 abstract final class CourseSearchKeys {
   CourseSearchKeys._();
 
@@ -72,6 +101,11 @@ abstract final class CourseSearchKeys {
   static const cityField = Key('course-search-city-field');
   static const searchButton = Key('course-search-button');
   static const citySuggestionTile = Key('course-search-city-suggestion');
+  static const tabSearch = Key('course-search-tab-search');
+  static const tabSaved = Key('course-search-tab-saved');
+  static const favoritesSection = Key('course-search-favorites-section');
+  static const savedOtherSection = Key('course-search-saved-other-section');
+  static const favoriteToggle = Key('course-search-favorite-toggle');
 }
 
 class CourseSearchScreen extends StatefulWidget {
@@ -84,51 +118,50 @@ class CourseSearchScreen extends StatefulWidget {
     this.debounce = const Duration(milliseconds: 350),
     this.initialDemoEntry,
     this.onCityAutocomplete,
+    this.favoritesController,
   });
 
-  /// Called once per Search-button tap (or debounced typing fire if
-  /// the screen is configured with a non-zero debounce). Receives
-  /// the trimmed course-name query and the trimmed city string
-  /// (which may be empty).
+  /// Called once per Search-button tap. Receives the trimmed
+  /// course-name query and the trimmed city string (which may
+  /// be empty).
   ///
-  /// Returns a `CourseSearchOutcome` so callers can distinguish
-  /// "no results" from "request errored". The screen catches
-  /// thrown exceptions and converts them to outcome errors.
+  /// **Behavior change vs the original S9 screen:** the screen no
+  /// longer auto-fires `onSearch` from a debounced text-change
+  /// timer. The Search button is the ONLY trigger. This matches
+  /// the native iOS and Android behavior — typing in the name
+  /// field never kicks off a network call.
   final Future<CourseSearchOutcome> Function(String query, String city)
       onSearch;
 
-  /// Called when the user taps a result. The page wrapper is
-  /// responsible for fetching the full `NormalizedCourse` and
-  /// navigating to the map screen.
+  /// Called when the user taps a result row.
   final void Function(CourseSearchEntry entry) onSelectCourse;
 
   /// Injected logger so widget tests can capture the
-  /// `log_search_latency` events without standing up the global
-  /// `logger` singleton.
+  /// `log_search_latency` events.
   final LoggingService logger;
 
-  /// Whether location permission is currently granted. The "Use
-  /// my location" toggle is disabled when false; tapping it shows
-  /// the "location required" hint.
+  /// Whether location permission is currently granted.
   final bool locationGranted;
 
-  /// Debounce delay between the last keystroke and the actual
-  /// search call. Default 350 ms. Tests pass `Duration.zero` for
-  /// determinism.
+  /// Debounce delay for the city autocomplete. Default 350 ms.
+  /// Tests pass `Duration.zero` for determinism.
   final Duration debounce;
 
   /// Optional offline-development entry that always shows in the
-  /// idle state. The page wrapper passes the Sharp Park fallback
-  /// fixture entry so engineers without a configured course cache
-  /// endpoint can still tap into the map screen.
+  /// Search-tab idle state when no favorites exist.
   final CourseSearchEntry? initialDemoEntry;
 
   /// Callback the screen invokes when the user types in the City
-  /// field. Returns the autocomplete suggestions for the current
-  /// input. Pass `null` to disable the city field entirely
-  /// (existing tests do this).
+  /// field. Pass `null` to hide the city field entirely.
   final Future<List<PlaceAutocompleteSuggestion>> Function(String input)?
       onCityAutocomplete;
+
+  /// Optional favorites + saved-courses store. When `null` the
+  /// screen runs in single-tab Search-only mode (used by older
+  /// widget tests). When non-null, the segmented Search/Saved
+  /// tabs render and the Favorites quick-list appears under the
+  /// Search form.
+  final FavoritesController? favoritesController;
 
   @override
   State<CourseSearchScreen> createState() => _CourseSearchScreenState();
@@ -137,7 +170,6 @@ class CourseSearchScreen extends StatefulWidget {
 class _CourseSearchScreenState extends State<CourseSearchScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _cityController = TextEditingController();
-  Timer? _debounceTimer;
   Timer? _cityDebounceTimer;
   bool _isSearching = false;
   CourseSearchOutcome? _lastOutcome;
@@ -146,28 +178,14 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
   bool _showLocationRequiredHint = false;
   List<PlaceAutocompleteSuggestion> _citySuggestions = const [];
   bool _suppressNextCityAutocomplete = false;
+  int _selectedTab = 0; // 0 = Search, 1 = Saved
 
   @override
   void dispose() {
-    _debounceTimer?.cancel();
     _cityDebounceTimer?.cancel();
     _nameController.dispose();
     _cityController.dispose();
     super.dispose();
-  }
-
-  void _onQueryChanged(String value) {
-    _debounceTimer?.cancel();
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) {
-      setState(() {
-        _lastOutcome = null;
-        _lastQuery = '';
-        _isSearching = false;
-      });
-      return;
-    }
-    _debounceTimer = Timer(widget.debounce, () => _runSearch(trimmed));
   }
 
   void _onCityChanged(String value) {
@@ -190,10 +208,6 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
   }
 
   void _onSelectCitySuggestion(PlaceAutocompleteSuggestion suggestion) {
-    // Setting the controller text fires onChanged, which would
-    // immediately re-run the autocomplete with the same value.
-    // Suppress that single re-fire so the suggestion list collapses
-    // cleanly.
     _suppressNextCityAutocomplete = true;
     _cityController.text = suggestion.description;
     _cityController.selection = TextSelection.fromPosition(
@@ -205,10 +219,6 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
   Future<void> _runSearchFromButton() async {
     final query = _nameController.text.trim();
     if (query.isEmpty) return;
-    await _runSearch(query);
-  }
-
-  Future<void> _runSearch(String query) async {
     if (!mounted) return;
     setState(() {
       _isSearching = true;
@@ -245,8 +255,6 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
 
   void _toggleNearby(bool value) {
     if (value && !widget.locationGranted) {
-      // The location-required hint replaces the result body until
-      // the user either grants permission or untoggles.
       setState(() {
         _useNearby = false;
         _showLocationRequiredHint = true;
@@ -257,16 +265,23 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
       _useNearby = value;
       _showLocationRequiredHint = false;
     });
-    // Re-run the last query with the new "nearby" preference if
-    // there's already a query in flight.
     if (_lastQuery.isNotEmpty) {
-      _runSearch(_lastQuery);
+      _runSearchFromButton();
     }
+  }
+
+  Future<void> _onToggleFavorite(CourseSearchEntry entry) async {
+    final controller = widget.favoritesController;
+    if (controller == null) return;
+    await controller.toggleFavorite(entry.cacheKey);
+    if (!mounted) return;
+    setState(() {}); // refresh stars + Favorites/Saved lists
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasFavoritesController = widget.favoritesController != null;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Find a Course'),
@@ -280,27 +295,22 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
       ),
       body: Column(
         children: [
-          _SearchBar(
-            nameController: _nameController,
-            cityController: _cityController,
-            onNameChanged: _onQueryChanged,
-            onCityChanged: _onCityChanged,
-            onSubmit: _runSearchFromButton,
-            useNearby: _useNearby,
-            onToggleNearby: _toggleNearby,
-            locationGranted: widget.locationGranted,
-            isSearching: _isSearching,
-            citySuggestions: _citySuggestions,
-            onSelectCitySuggestion: _onSelectCitySuggestion,
-            cityFieldEnabled: widget.onCityAutocomplete != null,
+          if (hasFavoritesController)
+            _TabBar(
+              selectedIndex: _selectedTab,
+              onSelected: (i) => setState(() => _selectedTab = i),
+            ),
+          Expanded(
+            child: !hasFavoritesController || _selectedTab == 0
+                ? _buildSearchTab(theme)
+                : _buildSavedTab(theme),
           ),
-          Expanded(child: _buildBody(theme)),
         ],
       ),
     );
   }
 
-  Widget _buildBody(ThemeData theme) {
+  Widget _buildSearchTab(ThemeData theme) {
     if (_showLocationRequiredHint) {
       return const _EmptyState(
         icon: Icons.location_off_outlined,
@@ -312,51 +322,143 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
       );
     }
 
-    if (_isSearching) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    final favorites = widget.favoritesController == null
+        ? const <CourseSearchEntry>[]
+        : widget.favoritesController!
+            .listSaved()
+            .where((e) => e.isFavorite)
+            .toList(growable: false);
 
     final outcome = _lastOutcome;
-    if (outcome == null) {
-      return _IdleState(
-        demoEntry: widget.initialDemoEntry,
-        onSelectDemo: widget.onSelectCourse,
-      );
-    }
 
-    if (outcome.hasError) {
-      return _EmptyState(
-        icon: Icons.cloud_off_outlined,
-        title: "Couldn't reach the course cache",
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        _SearchBar(
+          nameController: _nameController,
+          cityController: _cityController,
+          onCityChanged: _onCityChanged,
+          onSubmit: _runSearchFromButton,
+          useNearby: _useNearby,
+          onToggleNearby: _toggleNearby,
+          locationGranted: widget.locationGranted,
+          isSearching: _isSearching,
+          citySuggestions: _citySuggestions,
+          onSelectCitySuggestion: _onSelectCitySuggestion,
+          cityFieldEnabled: widget.onCityAutocomplete != null,
+        ),
+        if (favorites.isNotEmpty)
+          _FavoritesSection(
+            entries: favorites,
+            onSelect: widget.onSelectCourse,
+            onToggleFavorite: _onToggleFavorite,
+          ),
+        if (_isSearching)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 32),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (outcome != null && outcome.hasError)
+          _EmptyState(
+            icon: Icons.cloud_off_outlined,
+            title: "Couldn't reach the course cache",
+            message:
+                'The server cache request failed. Tap Search to retry.\n\n${outcome.error}',
+          )
+        else if (outcome != null && outcome.isEmpty)
+          _EmptyState(
+            icon: Icons.search_off_outlined,
+            title: 'No courses found',
+            message:
+                'No matches for "$_lastQuery". Try a different search term, '
+                'or shorten the name (e.g. drop "Golf Course").',
+          )
+        else if (outcome != null)
+          _ResultsSection(
+            entries: outcome.entries,
+            onSelect: widget.onSelectCourse,
+          )
+        else if (favorites.isEmpty)
+          _IdleState(
+            demoEntry: widget.initialDemoEntry,
+            onSelectDemo: widget.onSelectCourse,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSavedTab(ThemeData theme) {
+    final controller = widget.favoritesController!;
+    final saved = controller.listSaved();
+    final favorites = saved.where((e) => e.isFavorite).toList(growable: false);
+    final other = saved.where((e) => !e.isFavorite).toList(growable: false);
+
+    if (saved.isEmpty) {
+      return const _EmptyState(
+        icon: Icons.bookmark_border,
+        title: 'No saved courses',
         message:
-            'The server cache request failed. Pull to retry, or open the '
-            'demo course while we get the connection back.\n\n${outcome.error}',
+            'Search for a course and open it — it will appear here for '
+            'one-tap access on your next round.',
       );
     }
 
-    if (outcome.isEmpty) {
-      return _EmptyState(
-        icon: Icons.search_off_outlined,
-        title: 'No courses found',
-        message: 'No matches for "$_lastQuery". Try a different search '
-            'term, or shorten the name (e.g. drop "Golf Course").',
-      );
-    }
-
-    return _ResultList(
-      entries: outcome.entries,
-      onSelect: widget.onSelectCourse,
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        if (favorites.isNotEmpty)
+          _FavoritesSection(
+            entries: favorites,
+            onSelect: widget.onSelectCourse,
+            onToggleFavorite: _onToggleFavorite,
+          ),
+        if (other.isNotEmpty)
+          _SavedOtherSection(
+            entries: other,
+            onSelect: widget.onSelectCourse,
+            onToggleFavorite: _onToggleFavorite,
+          ),
+      ],
     );
   }
 }
 
 // ── presentational sub-widgets ─────────────────────────────────────
 
+class _TabBar extends StatelessWidget {
+  const _TabBar({required this.selectedIndex, required this.onSelected});
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: SegmentedButton<int>(
+        segments: const [
+          ButtonSegment<int>(
+            value: 0,
+            icon: Icon(Icons.search),
+            label: Text('Search'),
+          ),
+          ButtonSegment<int>(
+            value: 1,
+            icon: Icon(Icons.bookmark),
+            label: Text('Saved'),
+          ),
+        ],
+        selected: {selectedIndex},
+        onSelectionChanged: (set) => onSelected(set.first),
+      ),
+    );
+  }
+}
+
 class _SearchBar extends StatelessWidget {
   const _SearchBar({
     required this.nameController,
     required this.cityController,
-    required this.onNameChanged,
     required this.onCityChanged,
     required this.onSubmit,
     required this.useNearby,
@@ -370,7 +472,6 @@ class _SearchBar extends StatelessWidget {
 
   final TextEditingController nameController;
   final TextEditingController cityController;
-  final ValueChanged<String> onNameChanged;
   final ValueChanged<String> onCityChanged;
   final VoidCallback onSubmit;
   final bool useNearby;
@@ -392,12 +493,11 @@ class _SearchBar extends StatelessWidget {
           TextField(
             key: CourseSearchKeys.courseNameField,
             controller: nameController,
-            onChanged: onNameChanged,
+            // Intentionally NO onChanged. The native apps don't
+            // auto-search on type either; the Search button is the
+            // only trigger. onSubmitted (return key) doubles as a
+            // way to fire the button without leaving the keyboard.
             onSubmitted: (_) => onSubmit(),
-            // autofocus intentionally OFF — `autofocus: true` blocks
-            // unit tests waiting for the focus engine to settle. The
-            // production UX gets focus on tap, which is fine for the
-            // search-first flow.
             textInputAction: TextInputAction.search,
             decoration: InputDecoration(
               hintText: 'Course name (e.g. Sharp Park)',
@@ -492,9 +592,7 @@ class _SearchBar extends StatelessWidget {
             width: double.infinity,
             child: FilledButton.icon(
               key: CourseSearchKeys.searchButton,
-              onPressed: nameController.text.trim().isEmpty || isSearching
-                  ? null
-                  : onSubmit,
+              onPressed: isSearching ? null : onSubmit,
               icon: const Icon(Icons.search),
               label: const Text('Search'),
             ),
@@ -505,31 +603,158 @@ class _SearchBar extends StatelessWidget {
   }
 }
 
-class _ResultList extends StatelessWidget {
-  const _ResultList({required this.entries, required this.onSelect});
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(
+        title,
+        style: theme.textTheme.titleSmall?.copyWith(
+          color: theme.colorScheme.outline,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+class _FavoritesSection extends StatelessWidget {
+  const _FavoritesSection({
+    required this.entries,
+    required this.onSelect,
+    required this.onToggleFavorite,
+  });
+
+  final List<CourseSearchEntry> entries;
+  final void Function(CourseSearchEntry) onSelect;
+  final Future<void> Function(CourseSearchEntry) onToggleFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: CourseSearchKeys.favoritesSection,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionHeader('FAVORITES'),
+        for (final e in entries)
+          _CourseRow(
+            entry: e,
+            isStarFilled: true,
+            onSelect: onSelect,
+            onToggleFavorite: onToggleFavorite,
+          ),
+      ],
+    );
+  }
+}
+
+class _SavedOtherSection extends StatelessWidget {
+  const _SavedOtherSection({
+    required this.entries,
+    required this.onSelect,
+    required this.onToggleFavorite,
+  });
+
+  final List<CourseSearchEntry> entries;
+  final void Function(CourseSearchEntry) onSelect;
+  final Future<void> Function(CourseSearchEntry) onToggleFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: CourseSearchKeys.savedOtherSection,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionHeader('OTHER SAVED COURSES'),
+        for (final e in entries)
+          _CourseRow(
+            entry: e,
+            isStarFilled: false,
+            onSelect: onSelect,
+            onToggleFavorite: onToggleFavorite,
+          ),
+      ],
+    );
+  }
+}
+
+class _ResultsSection extends StatelessWidget {
+  const _ResultsSection({required this.entries, required this.onSelect});
 
   final List<CourseSearchEntry> entries;
   final void Function(CourseSearchEntry) onSelect;
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      itemCount: entries.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, i) {
-        final e = entries[i];
-        final subtitleParts = <String>[
-          if (e.city.isNotEmpty) e.city,
-          if (e.state.isNotEmpty) e.state,
-        ];
-        return ListTile(
-          leading: CaddieIcons.course(size: 28),
-          title: Text(e.name),
-          subtitle: subtitleParts.isEmpty ? null : Text(subtitleParts.join(', ')),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => onSelect(e),
-        );
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionHeader('SEARCH RESULTS'),
+        for (final e in entries)
+          _CourseRow(
+            entry: e,
+            // Search results never show a star — favoriting is only
+            // possible AFTER opening a course (which writes it to
+            // the local cache). Matches iOS / Android.
+            isStarFilled: null,
+            onSelect: onSelect,
+            onToggleFavorite: null,
+          ),
+      ],
+    );
+  }
+}
+
+class _CourseRow extends StatelessWidget {
+  const _CourseRow({
+    required this.entry,
+    required this.isStarFilled,
+    required this.onSelect,
+    required this.onToggleFavorite,
+  });
+
+  final CourseSearchEntry entry;
+
+  /// Tri-state:
+  /// - `true`  → filled star (yellow), tap removes from favorites
+  /// - `false` → outline star, tap adds to favorites
+  /// - `null`  → no star icon at all (search-result rows)
+  final bool? isStarFilled;
+  final void Function(CourseSearchEntry) onSelect;
+  final Future<void> Function(CourseSearchEntry)? onToggleFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitleParts = <String>[
+      if (entry.city.isNotEmpty) entry.city,
+      if (entry.state.isNotEmpty) entry.state,
+    ];
+    final subtitle = subtitleParts.isEmpty ? null : subtitleParts.join(', ');
+    return ListTile(
+      leading: CaddieIcons.course(size: 28),
+      title: Text(entry.name),
+      subtitle: subtitle == null ? null : Text(subtitle),
+      onTap: () => onSelect(entry),
+      trailing: isStarFilled == null
+          ? const Icon(Icons.chevron_right)
+          : IconButton(
+              key: CourseSearchKeys.favoriteToggle,
+              icon: Icon(
+                isStarFilled! ? Icons.star : Icons.star_border,
+                color: isStarFilled! ? Colors.amber : null,
+              ),
+              tooltip: isStarFilled!
+                  ? 'Remove from favorites'
+                  : 'Add to favorites',
+              onPressed: onToggleFavorite == null
+                  ? null
+                  : () => onToggleFavorite!(entry),
+            ),
     );
   }
 }
@@ -561,8 +786,8 @@ class _IdleState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'CaddieAI searches the shared course cache and shows matching '
-            'courses with their hole-by-hole satellite map.',
+            'CaddieAI searches Nominatim, Google Places, and the shared '
+            'course cache for matching golf courses.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.outline,
             ),
