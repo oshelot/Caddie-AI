@@ -219,6 +219,24 @@ class _CanonicalEvents {
   /// `holeCount`. Has a CloudWatch metric filter `MapLayerRenderMs`.
   String get layerRender => 'layer_render';
 
+  /// Emitted by the map screen (KAN-S10) when `verifyLayersPresent`
+  /// reports a layer missing immediately after `tryAddLayer`. Means
+  /// `addLayer` returned ok but the layer never made it into the
+  /// rendered style — see SPIKE_REPORT §4 Bug 2/3 and ADR / CONVENTIONS
+  /// C-2. Metadata: `layerId`. Critical signal for the iOS-side
+  /// upstream regressions tracked at mapbox/mapbox-maps-flutter#1121
+  /// and #1122.
+  String get layerAddFailure => 'layer_add_failure';
+
+  /// Emitted by the map screen (KAN-S10) when a layer that PASSED the
+  /// initial post-add audit is later found missing on the first hole-
+  /// tap interaction (the Bug 2/3 mutated symptom on
+  /// mapbox_maps_flutter 2.21.1 — the audit reports the layer present,
+  /// then it disappears from the rendered style milliseconds later).
+  /// Metadata: `layerId`. Distinct from `layer_add_failure` so the
+  /// CloudWatch dashboard can graph the two failure modes separately.
+  String get layerDropPostAudit => 'layer_drop_post_audit';
+
   /// LLM round-trip latency. Emitted by the LLM router (KAN-S7)
   /// for every completed request. Metadata: `provider`, `model`,
   /// `tier`, `latencyMs`, `tokensIn`, `tokensOut`. CloudWatch

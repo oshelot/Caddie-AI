@@ -4,7 +4,14 @@
 //      from KAN-157's spec (Caddie / Course / History / Profile)
 //   2. The default landing tab is Course
 //   3. Tapping each destination switches to the corresponding
-//      placeholder screen and the placeholder body shows up
+//      placeholder screen — verified via the placeholder body text
+//      for the Caddie / History / Profile tabs that still use
+//      `PlaceholderBody`. The Course tab now hosts the real S10
+//      (KAN-280) `CourseMapScreen` behind a `LocationGate`, so the
+//      old "hole-by-hole satellite map" assertion no longer applies;
+//      Course content is tested directly in
+//      `test/features/course/course_placeholder_test.dart` where a
+//      fake `LocationService` can be injected.
 //   4. Tab state is preserved when switching back (StatefulShellRoute
 //      branch behavior — re-entering a tab doesn't reset its widget
 //      tree)
@@ -19,10 +26,24 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('CaddieApp shell', () {
+    /// Pumps a small fixed sequence of frames instead of
+    /// `pumpAndSettle()`. The Course tab now contains a
+    /// `LocationGate` + `FutureBuilder` that depends on the
+    /// `permission_handler` and `path_provider` platform plugins,
+    /// neither of which resolve in the unit-test runner — so
+    /// `pumpAndSettle()` would time out forever waiting for those
+    /// futures. Two frames is enough for the StatefulShellRoute to
+    /// build, the NavigationBar to lay out, and the leaf widget
+    /// (whatever the gate decides to show) to render.
+    Future<void> pumpShell(WidgetTester tester) async {
+      await tester.pumpWidget(CaddieApp());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
     testWidgets('renders 4 NavigationDestinations with canonical labels',
         (tester) async {
-      await tester.pumpWidget(CaddieApp());
-      await tester.pumpAndSettle();
+      await pumpShell(tester);
 
       // The bottom nav uses NavigationDestination, which renders the
       // label as plain text in the destination widget.
@@ -38,61 +59,49 @@ void main() {
 
     testWidgets('default landing tab is Course (per KAN-157 spec)',
         (tester) async {
-      await tester.pumpWidget(CaddieApp());
-      await tester.pumpAndSettle();
+      await pumpShell(tester);
 
       final navBar = tester.widget<NavigationBar>(find.byType(NavigationBar));
       expect(navBar.selectedIndex, 1, reason: 'Course is index 1');
-
-      // The Course placeholder body should be visible (it has a
-      // distinctive subtitle).
-      expect(
-        find.textContaining('hole-by-hole satellite map'),
-        findsOneWidget,
-      );
     });
 
-    testWidgets('tapping each tab switches to the right placeholder',
-        (tester) async {
-      await tester.pumpWidget(CaddieApp());
-      await tester.pumpAndSettle();
+    testWidgets(
+        'tapping each tab switches to the right placeholder (Caddie / '
+        'History / Profile use PlaceholderBody; Course is tested '
+        'separately in course_placeholder_test.dart)', (tester) async {
+      await pumpShell(tester);
 
-      // Tap Caddie (index 0) — find the destination by its label.
-      // NavigationBar destinations expose their labels as semantic
-      // text; tapping the text triggers the destination.
-      // Each tab has its label rendered TWICE: once in the bottom
-      // nav, once in the AppBar of the active screen (after switch).
-      // Find by text + ancestor NavigationDestination to get the nav
-      // tap target.
+      // Tap each destination by finding the label inside a
+      // NavigationDestination (avoids matching AppBar titles or
+      // body text that may also contain the same label).
       Future<void> tapTab(String label) async {
         final destFinder = find.descendant(
           of: find.byType(NavigationDestination),
           matching: find.text(label),
         );
-        // Multiple matches because the label may also appear in the
-        // active screen's AppBar — tap the first (the nav one).
         await tester.tap(destFinder.first);
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
       }
 
-      // Caddie
+      // Caddie placeholder uses PlaceholderBody.
       await tapTab('Caddie');
       expect(find.textContaining('AI shot advisor'), findsOneWidget);
 
-      // History
+      // History placeholder uses PlaceholderBody.
       await tapTab('History');
       expect(find.textContaining('Past shot recommendations'), findsOneWidget);
 
-      // Profile
+      // Profile placeholder uses PlaceholderBody.
       await tapTab('Profile');
       expect(find.textContaining('Player handicap'), findsOneWidget);
 
-      // Back to Course
+      // Course is the real S10 screen behind a LocationGate; we
+      // assert via the navbar selection only and leave the body
+      // assertions to course_placeholder_test.dart.
       await tapTab('Course');
-      expect(
-        find.textContaining('hole-by-hole satellite map'),
-        findsOneWidget,
-      );
+      final navBar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+      expect(navBar.selectedIndex, 1);
     });
   });
 }

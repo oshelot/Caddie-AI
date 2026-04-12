@@ -75,3 +75,10 @@ flutter:
   # no font generation step.
   assets:
     - assets/icons/
+    # KAN-280 (S10) — fallback course fixture for the Course tab
+    # while the real S5 cache integration is wired in. Lifted from
+    # the KAN-252 spike (`flutter-spike/assets/fixtures/sharp_park.json`).
+    # Once KAN-S10's first version of the screen ships, this fixture
+    # is the offline-development course; production builds fetch
+    # from `CourseCacheClient` and never load this asset.
+    - assets/fixtures/

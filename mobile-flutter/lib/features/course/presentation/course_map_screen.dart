@@ -1,0 +1,759 @@
+// CourseMapScreen — KAN-280 (S10) production port of the KAN-252
+// spike's `map_screen.dart`. Renders a `NormalizedCourse` as a
+// 7-layer Mapbox overlay with bearing-aware flyTo, hole selection,
+// tap-to-distance, and layer-presence telemetry.
+//
+// **Key differences from the spike:**
+//
+// 1. Every `addLayer` call goes through `tryAddLayer` from
+//    `core/mapbox/layer_helpers.dart` (CONVENTIONS C-2). The spike
+//    had its own private `_tryAddLayer`; we use the shared one so
+//    the diagnostic logging stays consistent.
+// 2. Layer presence is verified via `verifyLayersPresent` and the
+//    result is BOTH logged to `LoggingService.events.layerRender`
+//    and surfaced to the user as a `kDebugMode`-only error banner
+//    if any layer is missing.
+// 3. **No `LineLayer.lineDasharray`** anywhere on this screen, per
+//    CONVENTIONS §5 + the KAN-270 retest. Hole-lines render solid;
+//    the tap-to-distance overlay renders solid yellow. Bug 2 is
+//    still broken on `mapbox_maps_flutter` 2.21.1 (filed at
+//    mapbox/mapbox-maps-flutter#1121) so any layer that sets
+//    `lineDasharray` is silently dropped on iOS.
+// 4. **No `SymbolLayer.textFont`** on the hole-labels layer, per
+//    CONVENTIONS §5 + the same retest. Labels render in the
+//    Mapbox SATELLITE_STREETS default font. Bug 3 (filed at
+//    mapbox/mapbox-maps-flutter#1122) makes any layer with a
+//    custom `textFont` silently disappear on iOS.
+// 5. The tap-to-distance source is **pre-warmed at style-load
+//    time** with an empty FeatureCollection. The spike added the
+//    source on the first tap, which contributed an 80.3 ms outlier
+//    to the first-tap latency on the iPhone retest run
+//    (`SPIKE_REPORT.md §5.4`). Pre-warming moves that work to the
+//    cold-start path where it's hidden by other initialization.
+// 6. **Re-audits before the first hole-tap** to catch the Bug 2/3
+//    mutated symptom on 2.21.1 (audit-passing-then-disappearing).
+//    A layer that's present at style-load and missing on first
+//    interaction emits a distinct `layer_drop_post_audit` event
+//    so the CloudWatch dashboard can graph the two failure modes
+//    separately.
+// 7. The screen accepts a `NormalizedCourse` constructor argument.
+//    The spike loaded the fixture from `rootBundle` directly; we
+//    leave that to the caller (the Course tab will eventually pass
+//    a course fetched via `CourseCacheClient`, but for now the
+//    `CoursePlaceholder` loads the fallback fixture).
+// 8. The `LocationGate` from S4 wraps this screen at the
+//    `CoursePlaceholder` level, so by the time `CourseMapScreen`
+//    builds, location permission is already granted (AC #1 from
+//    S4 — "first-run prompt fires BEFORE the map renders").
+
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
+
+import '../../../core/geo/geo.dart';
+import '../../../core/icons/caddie_icons.dart';
+import '../../../core/logging/log_event.dart';
+import '../../../core/logging/logging_service.dart';
+import '../../../core/mapbox/layer_helpers.dart';
+import '../../../models/normalized_course.dart';
+import '../../../services/course_geojson_builder.dart';
+
+/// Layer + source IDs. Match the iOS native `LayerID` enum so
+/// log output and dashboard filters stay consistent across the
+/// two platforms.
+class CourseMapLayers {
+  CourseMapLayers._();
+
+  static const String sourceId = 'course-source';
+  static const String boundaryLayer = 'layer-boundary';
+  static const String waterLayer = 'layer-water';
+  static const String bunkersLayer = 'layer-bunkers';
+  static const String holeLinesLayer = 'layer-hole-lines';
+  static const String greensLayer = 'layer-greens';
+  static const String teesLayer = 'layer-tees';
+  static const String holeLabelsLayer = 'layer-hole-labels';
+
+  /// Tap-to-distance overlay — separate source so the per-tap
+  /// data update doesn't churn the main course source.
+  static const String tapLineSource = 'tap-line-source';
+  static const String tapLineLayer = 'tap-line-layer';
+
+  /// Canonical 7-layer set in iOS draw order. Used by the
+  /// post-add audit and the re-audit-before-first-tap check.
+  static const List<String> all = [
+    boundaryLayer,
+    waterLayer,
+    bunkersLayer,
+    holeLinesLayer,
+    greensLayer,
+    teesLayer,
+    holeLabelsLayer,
+  ];
+}
+
+class CourseMapScreen extends StatefulWidget {
+  const CourseMapScreen({
+    super.key,
+    required this.course,
+    required this.logger,
+  });
+
+  /// The course to render. Caller is responsible for fetching
+  /// from `CourseCacheClient` (KAN-275) or loading a fallback
+  /// fixture from `assets/fixtures/`.
+  final NormalizedCourse course;
+
+  /// Injected logger so widget tests can capture the
+  /// `layer_render` / `layer_add_failure` / `layer_drop_post_audit`
+  /// events without standing up the global `logger` singleton.
+  final LoggingService logger;
+
+  @override
+  State<CourseMapScreen> createState() => _CourseMapScreenState();
+}
+
+class _CourseMapScreenState extends State<CourseMapScreen> {
+  // FlyTo padding — lifted from iOS
+  // `MapboxMapRepresentable.swift:337`. Top inset leaves room for
+  // the title bar; bottom inset leaves room for the hole selector
+  // strip + (eventually) the caddie HUD.
+  static final mbx.MbxEdgeInsets _holePadding = mbx.MbxEdgeInsets(
+    top: 80,
+    left: 40,
+    bottom: 200,
+    right: 40,
+  );
+
+  mbx.MapboxMap? _map;
+  int? _selectedHole;
+  bool _layersAdded = false;
+  bool _firstTapAuditDone = false;
+
+  /// Set of layer ids that failed the post-add audit. Drives the
+  /// `kDebugMode`-only error banner.
+  Set<String> _missingLayers = const {};
+
+  double? _tapYards;
+  // Last tap location, kept for future in-scene debugging / logging
+  // (e.g. an in-app overlay that draws the tap point during dev runs).
+  // ignore: unused_field
+  LngLat? _lastTap;
+
+  // ── lifecycle ────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    final course = widget.course;
+    final centroid = course.centroid;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(course.name),
+        leading: Padding(
+          padding: const EdgeInsets.all(8),
+          child: CaddieIcons.course(
+            size: 24,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+        ),
+      ),
+      body: Stack(
+        children: [
+          mbx.MapWidget(
+            key: const ValueKey('caddieai-course-map'),
+            styleUri: mbx.MapboxStyles.SATELLITE_STREETS,
+            cameraOptions: mbx.CameraOptions(
+              center: mbx.Point(
+                coordinates: mbx.Position(centroid.lon, centroid.lat),
+              ),
+              zoom: 15.5,
+              bearing: 0,
+            ),
+            onMapCreated: _onMapCreated,
+            onStyleLoadedListener: _onStyleLoaded,
+            onTapListener: _onMapTap,
+          ),
+          if (_tapYards != null)
+            Positioned(
+              top: 16,
+              left: 16,
+              child: _DistanceHud(yards: _tapYards!),
+            ),
+          if (kDebugMode && _missingLayers.isNotEmpty)
+            Positioned(
+              top: 16,
+              right: 16,
+              child: _LayerDiagnosticBanner(
+                missing: _missingLayers,
+              ),
+            ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _HoleSelector(
+              holeCount: course.holes.length,
+              selected: _selectedHole,
+              onSelected: _selectHole,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onMapCreated(mbx.MapboxMap map) {
+    _map = map;
+  }
+
+  Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
+    if (_layersAdded) return;
+    await _addCourseLayers();
+  }
+
+  // ── Layer setup ──────────────────────────────────────────────────
+
+  Future<void> _addCourseLayers() async {
+    final map = _map;
+    if (map == null) return;
+
+    final t0 = DateTime.now();
+
+    final fc = CourseGeoJsonBuilder.buildFeatureCollection(widget.course);
+    final geojson = jsonEncode(fc);
+
+    await map.style.addSource(
+      mbx.GeoJsonSource(id: CourseMapLayers.sourceId, data: geojson),
+    );
+
+    // Pre-warm the tap-to-distance source with an empty
+    // FeatureCollection at style-load time. The spike added this
+    // source lazily on the first tap, which contributed an
+    // 80.3 ms outlier to the first-tap latency on the iPhone
+    // retest. Adding it up-front amortizes the cost into the
+    // cold-start path. See SPIKE_REPORT §5.4.
+    await map.style.addSource(
+      mbx.GeoJsonSource(
+        id: CourseMapLayers.tapLineSource,
+        data: jsonEncode({'type': 'FeatureCollection', 'features': []}),
+      ),
+    );
+    await tryAddLayer(
+      map.style,
+      name: 'tap-line',
+      build: () => mbx.LineLayer(
+        id: CourseMapLayers.tapLineLayer,
+        sourceId: CourseMapLayers.tapLineSource,
+        // Solid yellow — NO lineDasharray. The iOS native used a
+        // [2,2] dash but Bug 2 (filed upstream as
+        // mapbox/mapbox-maps-flutter#1121) silently drops any
+        // LineLayer that sets the property. CONVENTIONS §5 takes
+        // option (a) defaults — solid only.
+        lineColor: 0xFFFFD700,
+        lineWidth: 3.0,
+      ),
+    );
+
+    // The 7 course layers in iOS draw order.
+    await tryAddLayer(
+      map.style,
+      name: 'boundary',
+      build: () => mbx.FillLayer(
+        id: CourseMapLayers.boundaryLayer,
+        sourceId: CourseMapLayers.sourceId,
+        filter: ['==', ['get', 'type'], CourseFeatureType.boundary],
+        fillColor: 0xFF2E7D32,
+        fillOpacity: 0.08,
+      ),
+    );
+    await tryAddLayer(
+      map.style,
+      name: 'water',
+      build: () => mbx.FillLayer(
+        id: CourseMapLayers.waterLayer,
+        sourceId: CourseMapLayers.sourceId,
+        filter: ['==', ['get', 'type'], CourseFeatureType.water],
+        fillColor: 0xFF1565C0,
+        fillOpacity: 0.5,
+      ),
+    );
+    await tryAddLayer(
+      map.style,
+      name: 'bunkers',
+      build: () => mbx.FillLayer(
+        id: CourseMapLayers.bunkersLayer,
+        sourceId: CourseMapLayers.sourceId,
+        filter: ['==', ['get', 'type'], CourseFeatureType.bunker],
+        fillColor: 0xFFE8D5B7,
+        fillOpacity: 0.7,
+      ),
+    );
+    await tryAddLayer(
+      map.style,
+      name: 'hole-lines',
+      build: () => mbx.LineLayer(
+        id: CourseMapLayers.holeLinesLayer,
+        sourceId: CourseMapLayers.sourceId,
+        filter: ['==', ['get', 'type'], CourseFeatureType.holeLine],
+        lineColor: 0xFFFFFFFF,
+        lineOpacity: 0.8,
+        lineWidth: 2.0,
+        // ⚠️  DO NOT set lineDasharray here — it's silently
+        //     dropped on iOS in mapbox_maps_flutter 2.21.1.
+        //     CONVENTIONS §5 / SPIKE_REPORT §4 Bug 2 / GitHub
+        //     issue mapbox/mapbox-maps-flutter#1121.
+      ),
+    );
+    await tryAddLayer(
+      map.style,
+      name: 'greens',
+      build: () => mbx.FillLayer(
+        id: CourseMapLayers.greensLayer,
+        sourceId: CourseMapLayers.sourceId,
+        filter: ['==', ['get', 'type'], CourseFeatureType.green],
+        fillColor: 0xFF4CAF50,
+        fillOpacity: 0.6,
+      ),
+    );
+    await tryAddLayer(
+      map.style,
+      name: 'tees',
+      build: () => mbx.FillLayer(
+        id: CourseMapLayers.teesLayer,
+        sourceId: CourseMapLayers.sourceId,
+        filter: ['==', ['get', 'type'], CourseFeatureType.tee],
+        fillColor: 0xFF81C784,
+        fillOpacity: 0.5,
+      ),
+    );
+    await tryAddLayer(
+      map.style,
+      name: 'hole-labels',
+      build: () => mbx.SymbolLayer(
+        id: CourseMapLayers.holeLabelsLayer,
+        sourceId: CourseMapLayers.sourceId,
+        filter: ['==', ['get', 'type'], CourseFeatureType.holeLabel],
+        textFieldExpression: ['get', 'label'],
+        textSize: 14.0,
+        textColor: 0xFFFFFFFF,
+        textHaloColor: 0xFF000000,
+        textHaloWidth: 1.5,
+        textAllowOverlap: true,
+        // ⚠️  DO NOT set textFont here — it's silently dropped on
+        //     iOS in mapbox_maps_flutter 2.21.1. CONVENTIONS §5 /
+        //     SPIKE_REPORT §4 Bug 3 / GitHub issue
+        //     mapbox/mapbox-maps-flutter#1122. Labels render in
+        //     the SATELLITE_STREETS default font.
+      ),
+    );
+
+    // Audit which layers actually made it into the rendered
+    // style. Logs to LoggingService AND records the missing set
+    // for the in-app banner.
+    final presence = await verifyLayersPresent(
+      map.style,
+      CourseMapLayers.all,
+    );
+    final missing = presence.entries
+        .where((e) => !e.value)
+        .map((e) => e.key)
+        .toSet();
+
+    final latencyMs = DateTime.now().difference(t0).inMilliseconds;
+    widget.logger.info(
+      LogCategory.map,
+      LoggingService.events.layerRender,
+      metadata: {
+        'latencyMs': '$latencyMs',
+        'holeCount': '${widget.course.holes.length}',
+      },
+    );
+
+    // Per-layer failure events for the CloudWatch dashboard.
+    for (final layerId in missing) {
+      widget.logger.warning(
+        LogCategory.map,
+        LoggingService.events.layerAddFailure,
+        metadata: {'layerId': layerId},
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _layersAdded = true;
+        _missingLayers = missing;
+      });
+    } else {
+      _layersAdded = true;
+      _missingLayers = missing;
+    }
+
+    // Auto-select hole 1 so the bearing+padding camera fit is
+    // immediately visible. Mirrors the spike behavior.
+    await _selectHole(1);
+  }
+
+  // ── Hole selection ──────────────────────────────────────────────
+
+  Future<void> _selectHole(int? holeNumber) async {
+    if (mounted) {
+      setState(() => _selectedHole = holeNumber);
+    } else {
+      _selectedHole = holeNumber;
+    }
+    await _zoomToHole(holeNumber);
+    await _highlightHole(holeNumber);
+  }
+
+  Future<void> _zoomToHole(int? holeNumber) async {
+    final map = _map;
+    if (map == null) return;
+    final course = widget.course;
+
+    if (holeNumber == null) {
+      // Course overview — north up, default zoom.
+      await map.flyTo(
+        mbx.CameraOptions(
+          center: mbx.Point(
+            coordinates: mbx.Position(
+              course.centroid.lon,
+              course.centroid.lat,
+            ),
+          ),
+          zoom: 15.5,
+          bearing: 0,
+        ),
+        mbx.MapAnimationOptions(duration: 900),
+      );
+      return;
+    }
+
+    final hole = course.holes.firstWhere(
+      (h) => h.number == holeNumber,
+      orElse: () => course.holes.first,
+    );
+    final coords = hole.allGeometryPoints();
+    if (coords.length < 2) return;
+
+    final bearing = hole.teeToGreenBearing();
+    final points = coords
+        .map((p) => mbx.Point(coordinates: mbx.Position(p.lon, p.lat)))
+        .toList(growable: false);
+
+    final fitted = await map.cameraForCoordinatesPadding(
+      points,
+      mbx.CameraOptions(bearing: bearing),
+      _holePadding,
+      null,
+      null,
+    );
+
+    await map.flyTo(fitted, mbx.MapAnimationOptions(duration: 900));
+  }
+
+  Future<void> _highlightHole(int? holeNumber) async {
+    final map = _map;
+    if (map == null || !_layersAdded) return;
+
+    // Per CONVENTIONS C-2: every property mutation MUST first
+    // verify the layer exists. The "audit was clean but layer
+    // disappeared" mutated symptom of Bug 2/3 means we can't
+    // trust `_layersAdded` alone.
+    final layer = await safeGetLayer(map.style, CourseMapLayers.holeLinesLayer);
+    if (layer == null) {
+      _logPostAuditDrop(CourseMapLayers.holeLinesLayer);
+      return;
+    }
+
+    try {
+      if (holeNumber == null) {
+        await map.style.setStyleLayerProperty(
+          CourseMapLayers.holeLinesLayer,
+          'line-opacity',
+          0.8,
+        );
+        await map.style.setStyleLayerProperty(
+          CourseMapLayers.holeLinesLayer,
+          'line-width',
+          2.0,
+        );
+        return;
+      }
+      // Case expression: highlight the selected hole, fade the rest.
+      final caseOpacity = [
+        'case',
+        ['==', ['get', 'holeNumber'], holeNumber],
+        1.0,
+        0.4,
+      ];
+      final caseWidth = [
+        'case',
+        ['==', ['get', 'holeNumber'], holeNumber],
+        3.5,
+        1.5,
+      ];
+      await map.style.setStyleLayerProperty(
+        CourseMapLayers.holeLinesLayer,
+        'line-opacity',
+        jsonEncode(caseOpacity),
+      );
+      await map.style.setStyleLayerProperty(
+        CourseMapLayers.holeLinesLayer,
+        'line-width',
+        jsonEncode(caseWidth),
+      );
+    } catch (e) {
+      debugPrint('[course-map] highlightHole ERR $e');
+    }
+  }
+
+  // ── Tap → distance ───────────────────────────────────────────────
+
+  void _onMapTap(mbx.MapContentGestureContext ctx) {
+    // First-tap re-audit. Catches the Bug 2/3 mutated symptom
+    // (audit-passing-then-disappearing) on mapbox_maps_flutter
+    // 2.21.1. We do this BEFORE handling the tap so the user
+    // doesn't get a confusing "tap-to-distance worked once"
+    // experience while the map is missing layers.
+    if (!_firstTapAuditDone) {
+      _firstTapAuditDone = true;
+      _runFirstTapReaudit();
+    }
+
+    final map = _map;
+    if (map == null) return;
+    final course = widget.course;
+
+    final pos = ctx.point.coordinates;
+    final tap = LngLat(pos.lng.toDouble(), pos.lat.toDouble());
+
+    // Distance is measured to the currently selected hole's green
+    // centroid (or the pin / line-of-play end as fallback).
+    final holeNum = _selectedHole;
+    if (holeNum == null) return;
+
+    final hole = course.holes.firstWhere(
+      (h) => h.number == holeNum,
+      orElse: () => course.holes.first,
+    );
+    final target =
+        hole.green?.centroid ?? hole.pin ?? hole.lineOfPlay?.endPoint;
+    if (target == null) return;
+
+    final yards = metersToYards(haversineMeters(tap, target));
+
+    if (mounted) {
+      setState(() {
+        _lastTap = tap;
+        _tapYards = yards;
+      });
+    }
+
+    // Fire-and-forget — drawing the line is a style mutation
+    // that doesn't need to block the tap response.
+    _drawTapLine(tap, target);
+  }
+
+  Future<void> _runFirstTapReaudit() async {
+    final map = _map;
+    if (map == null) return;
+    final presence = await verifyLayersPresent(
+      map.style,
+      CourseMapLayers.all,
+    );
+    final droppedSinceAudit = <String>{};
+    for (final entry in presence.entries) {
+      if (!entry.value && !_missingLayers.contains(entry.key)) {
+        // Layer was present at the post-add audit and is missing
+        // now — that's the Bug 2/3 mutated symptom.
+        droppedSinceAudit.add(entry.key);
+      }
+    }
+    for (final layerId in droppedSinceAudit) {
+      widget.logger.warning(
+        LogCategory.map,
+        LoggingService.events.layerDropPostAudit,
+        metadata: {'layerId': layerId},
+      );
+    }
+    if (droppedSinceAudit.isNotEmpty && mounted) {
+      setState(() {
+        _missingLayers = {..._missingLayers, ...droppedSinceAudit};
+      });
+    }
+  }
+
+  Future<void> _drawTapLine(LngLat from, LngLat to) async {
+    final map = _map;
+    if (map == null) return;
+
+    final geojson = jsonEncode({
+      'type': 'Feature',
+      'properties': <String, dynamic>{},
+      'geometry': {
+        'type': 'LineString',
+        'coordinates': [
+          [from.lon, from.lat],
+          [to.lon, to.lat],
+        ],
+      },
+    });
+    // The source was pre-warmed at style-load time, so this is
+    // an update — not an add.
+    try {
+      await map.style.setStyleSourceProperty(
+        CourseMapLayers.tapLineSource,
+        'data',
+        geojson,
+      );
+    } catch (e) {
+      debugPrint('[course-map] drawTapLine ERR $e');
+    }
+  }
+
+  void _logPostAuditDrop(String layerId) {
+    widget.logger.warning(
+      LogCategory.map,
+      LoggingService.events.layerDropPostAudit,
+      metadata: {'layerId': layerId},
+    );
+    if (mounted) {
+      setState(() {
+        _missingLayers = {..._missingLayers, layerId};
+      });
+    }
+  }
+}
+
+// ── Presentational widgets ─────────────────────────────────────────
+
+class _DistanceHud extends StatelessWidget {
+  const _DistanceHud({required this.yards});
+  final double yards;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFFFD700), width: 1.5),
+      ),
+      child: Text(
+        '${yards.round()} yds',
+        style: const TextStyle(
+          color: Color(0xFFFFD700),
+          fontWeight: FontWeight.bold,
+          fontSize: 18,
+        ),
+      ),
+    );
+  }
+}
+
+class _LayerDiagnosticBanner extends StatelessWidget {
+  const _LayerDiagnosticBanner({required this.missing});
+  final Set<String> missing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      constraints: const BoxConstraints(maxWidth: 240),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Layer audit failed',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            missing.join('\n'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontFamily: 'monospace',
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HoleSelector extends StatelessWidget {
+  const _HoleSelector({
+    required this.holeCount,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final int holeCount;
+  final int? selected;
+  final ValueChanged<int?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.55),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: SizedBox(
+        height: 56,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          itemCount: holeCount + 1, // +1 for the "All" chip
+          itemBuilder: (context, i) {
+            if (i == 0) {
+              return _chip(
+                label: 'All',
+                active: selected == null,
+                onTap: () => onSelected(null),
+              );
+            }
+            final holeNum = i;
+            return _chip(
+              label: '$holeNum',
+              active: selected == holeNum,
+              onTap: () => onSelected(holeNum),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _chip({
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: active,
+        onSelected: (_) => onTap(),
+        selectedColor: Colors.amber,
+        labelStyle: TextStyle(
+          color: active ? Colors.black : Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+        backgroundColor: Colors.white24,
+      ),
+    );
+  }
+}
