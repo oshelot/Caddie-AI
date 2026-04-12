@@ -38,6 +38,10 @@ void main() {
     Future<void> pumpShell(WidgetTester tester) async {
       await tester.pumpWidget(CaddieApp());
       await tester.pump();
+      // The router lands on /splash first (KAN-68 port). Advance past
+      // the 1.5 s splash duration so its onComplete fires and pushes
+      // the user to /course, where the StatefulShellRoute mounts.
+      await tester.pump(const Duration(milliseconds: 1600));
       await tester.pump(const Duration(milliseconds: 100));
     }
 

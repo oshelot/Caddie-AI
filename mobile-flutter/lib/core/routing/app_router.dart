@@ -19,6 +19,7 @@ import '../../features/course/presentation/course_search_page.dart';
 import '../../features/history/presentation/history_page.dart';
 import '../../features/onboarding/presentation/onboarding_page.dart';
 import '../../features/profile/presentation/profile_page.dart';
+import '../../features/splash/presentation/splash_page.dart';
 import '../../models/normalized_course.dart';
 import '../../shell/main_shell.dart';
 import '../storage/profile_repository.dart';
@@ -50,6 +51,13 @@ abstract final class AppRoutes {
   /// `PlayerProfile.hasCompletedSwingOnboarding == false` here on
   /// every navigation until they finish or skip the wizard.
   static const onboarding = '/onboarding';
+
+  /// Cold-start splash (KAN-68 port). Set as the router's
+  /// `initialLocation` so it shows on every fresh app launch. The
+  /// router-level redirect explicitly bypasses this route so the
+  /// first-run onboarding gate doesn't fire before the splash timer
+  /// completes.
+  static const splash = '/splash';
 }
 
 /// Build the app's `GoRouter`. Called once from `lib/app.dart` and
@@ -61,7 +69,7 @@ GoRouter buildAppRouter() {
     // iOS app already defaults to `course`; Android originally
     // defaulted to `caddie` and was flagged as a parity bug in the
     // (now closed) KAN-157 audit.
-    initialLocation: AppRoutes.course,
+    initialLocation: AppRoutes.splash,
     // KAN-S14 first-run gate. Per the AC, first-run detection uses
     // the profile store (NOT a separate flag) — the
     // `hasCompletedSwingOnboarding` field is the single source of
@@ -70,8 +78,12 @@ GoRouter buildAppRouter() {
     // no-op so the existing tab tests still work.
     redirect: (context, state) {
       // Don't redirect if we're already on the onboarding route
-      // (otherwise we'd loop forever).
+      // (otherwise we'd loop forever). Also bypass /splash so the
+      // cold-start splash can run its timer before any first-run
+      // gating kicks in — the splash's `onComplete` lands the user
+      // on `/course`, and the redirect runs there normally.
       if (state.matchedLocation == AppRoutes.onboarding) return null;
+      if (state.matchedLocation == AppRoutes.splash) return null;
       try {
         final profile = ProfileRepository().loadOrDefault();
         if (!profile.hasCompletedSwingOnboarding) {
@@ -83,6 +95,10 @@ GoRouter buildAppRouter() {
       return null;
     },
     routes: [
+      GoRoute(
+        path: AppRoutes.splash,
+        builder: (context, state) => const SplashPage(),
+      ),
       GoRoute(
         path: AppRoutes.onboarding,
         builder: (context, state) => const OnboardingPage(),

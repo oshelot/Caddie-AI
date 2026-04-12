@@ -82,3 +82,8 @@ flutter:
     # is the offline-development course; production builds fetch
     # from `CourseCacheClient` and never load this asset.
     - assets/fixtures/
+    # Splash branding (KAN-68 port). Today the directory holds the
+    # `bolty.png` mascot lifted from the iOS native asset catalog.
+    # Once the Ryppl Golf wordmark image arrives, drop it in here
+    # and replace the bold-text fallback in `splash_screen.dart`.
+    - assets/branding/
