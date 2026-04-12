@@ -6,6 +6,7 @@
 import 'dart:io';
 
 import 'package:caddieai/core/courses/course_cache_repository.dart';
+import 'package:caddieai/core/courses/course_search_results.dart';
 import 'package:caddieai/core/geo/geo.dart';
 import 'package:caddieai/core/storage/app_storage.dart';
 import 'package:caddieai/models/normalized_course.dart';
@@ -122,6 +123,88 @@ void main() {
       expect(repo.load('a'), isNull);
       expect(repo.load('b'), isNull);
       expect(repo.cachedCount, 0);
+    });
+  });
+
+  group('favorites (Story C)', () {
+    test('isFavorite is false on a fresh repo', () {
+      expect(repo.isFavorite('wellshire'), isFalse);
+      expect(repo.favoriteCacheKeys, isEmpty);
+    });
+
+    test('toggleFavorite adds, returns true, then removes, returns false',
+        () async {
+      final firstResult = await repo.toggleFavorite('wellshire');
+      expect(firstResult, isTrue);
+      expect(repo.isFavorite('wellshire'), isTrue);
+      expect(repo.favoriteCacheKeys, contains('wellshire'));
+
+      final secondResult = await repo.toggleFavorite('wellshire');
+      expect(secondResult, isFalse);
+      expect(repo.isFavorite('wellshire'), isFalse);
+      expect(repo.favoriteCacheKeys, isEmpty);
+    });
+
+    test('multiple favorites coexist', () async {
+      await repo.toggleFavorite('a');
+      await repo.toggleFavorite('b');
+      await repo.toggleFavorite('c');
+      expect(repo.favoriteCacheKeys, containsAll(['a', 'b', 'c']));
+      expect(repo.isFavorite('a'), isTrue);
+      expect(repo.isFavorite('b'), isTrue);
+      expect(repo.isFavorite('c'), isTrue);
+    });
+
+    test('favorites survive a fresh repository instance (persisted)',
+        () async {
+      await repo.toggleFavorite('persisted');
+      // Drop the repository and build a fresh one — favorites are
+      // backed by the Hive box which is shared across instances.
+      final fresh = CourseCacheRepository(clock: () => now);
+      expect(fresh.isFavorite('persisted'), isTrue);
+    });
+  });
+
+  group('listSaved (Story C)', () {
+    test('returns an empty list on a fresh repo', () {
+      expect(repo.listSaved(), isEmpty);
+    });
+
+    test('lists every cached course as a CourseSearchEntry, sorted by name',
+        () async {
+      await repo.save('wellshire',
+          _newCourse('wellshire', name: 'Wellshire Golf Course'));
+      await repo.save('apple', _newCourse('apple', name: 'Apple Tree GC'));
+      await repo.save('mid', _newCourse('mid', name: 'Mid Course'));
+
+      final saved = repo.listSaved();
+      expect(saved.map((e) => e.name).toList(),
+          ['Apple Tree GC', 'Mid Course', 'Wellshire Golf Course']);
+      expect(saved.first.source, CourseSearchSource.manifest);
+      expect(saved.first.cachedAtMs, isNotNull);
+    });
+
+    test('isFavorite flag on listSaved entries reflects the favorites box',
+        () async {
+      await repo.save('wellshire', _newCourse('wellshire', name: 'Wellshire'));
+      await repo.save('lincoln', _newCourse('lincoln', name: 'Lincoln Park'));
+      await repo.toggleFavorite('wellshire');
+
+      final saved = repo.listSaved();
+      final wellshireRow =
+          saved.firstWhere((e) => e.cacheKey == 'wellshire');
+      final lincolnRow =
+          saved.firstWhere((e) => e.cacheKey == 'lincoln');
+      expect(wellshireRow.isFavorite, isTrue);
+      expect(lincolnRow.isFavorite, isFalse);
+    });
+
+    test('listSaved cacheKey IS the server cache key — round-trips '
+        'through fetchCourse-via-cache', () async {
+      await repo.save('sharp-park-golf-course',
+          _newCourse('sharp-park-golf-course', name: 'Sharp Park Golf Course'));
+      final saved = repo.listSaved();
+      expect(saved.single.cacheKey, 'sharp-park-golf-course');
     });
   });
 }

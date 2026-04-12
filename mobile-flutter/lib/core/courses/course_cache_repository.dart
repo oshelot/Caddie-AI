@@ -29,6 +29,7 @@ import 'dart:convert';
 
 import '../../models/normalized_course.dart';
 import '../storage/app_storage.dart';
+import 'course_search_results.dart';
 
 /// One entry as stored in the Hive box. Public so tests can
 /// inspect the envelope shape directly.
@@ -168,6 +169,79 @@ class CourseCacheRepository {
 
   /// Number of distinct courses currently cached on disk.
   int get cachedCount => AppStorage.courseCacheBox.length;
+
+  // ── favorites + saved listing (Story C, KAN-296 follow-up) ──────
+  //
+  // Mirrors `android/.../data/course/CourseCacheService.kt:102-170`
+  // and the iOS `CourseCacheService.favoriteCourses` API. The
+  // favorites store is a Hive box used as a set: keys are server
+  // cache keys, values are the sentinel string `'1'`. The Saved tab
+  // and the Favorites quick-access section both consume this.
+
+  /// True when the user has starred [cacheKey].
+  bool isFavorite(String cacheKey) =>
+      AppStorage.courseFavoritesBox.containsKey(cacheKey);
+
+  /// All starred cache keys, in insertion order. Used by the page
+  /// wrapper to overlay the favorite flag on merged search results
+  /// and to filter the Saved tab into Favorites + Other.
+  Iterable<String> get favoriteCacheKeys =>
+      AppStorage.courseFavoritesBox.keys.cast<String>();
+
+  /// Toggles the favorite flag for [cacheKey]. Returns the new
+  /// state (true = now favorited, false = now un-favorited).
+  Future<bool> toggleFavorite(String cacheKey) async {
+    final box = AppStorage.courseFavoritesBox;
+    if (box.containsKey(cacheKey)) {
+      await box.delete(cacheKey);
+      return false;
+    }
+    await box.put(cacheKey, '1');
+    return true;
+  }
+
+  /// Lists every course currently in the disk cache, materialized
+  /// as `CourseSearchEntry` rows so the screen renders them through
+  /// the same code path as live search results. Each row carries
+  /// the real `isFavorite` flag (read from the favorites box) and
+  /// the persisted `cachedAtMs` so the screen can show
+  /// "Saved 2d ago"-style captions. Sorted by name.
+  ///
+  /// Source on every row is `CourseSearchSource.manifest`, which
+  /// signals to the page wrapper that the cacheKey IS a real
+  /// server cache key — opening the row goes through the regular
+  /// fetch path and hits the local cache before any network call.
+  List<CourseSearchEntry> listSaved() {
+    final box = AppStorage.courseCacheBox;
+    final out = <CourseSearchEntry>[];
+    for (final key in box.keys) {
+      final raw = box.get(key);
+      if (raw == null) continue;
+      try {
+        final envelope = CachedCourseEnvelope.fromJson(
+          jsonDecode(raw) as Map<String, dynamic>,
+        );
+        final course = envelope.course;
+        out.add(CourseSearchEntry(
+          cacheKey: key as String,
+          name: course.name,
+          city: course.city ?? '',
+          state: course.state ?? '',
+          latitude: course.centroid.lat,
+          longitude: course.centroid.lon,
+          source: CourseSearchSource.manifest,
+          isFavorite: isFavorite(key),
+          cachedAtMs: envelope.cachedAtMs,
+        ));
+      } catch (_) {
+        // Corrupt envelope — skip silently. The repository's
+        // existing tests cover the round-trip; a parse failure here
+        // means a hand-edited box, which we don't want to crash on.
+      }
+    }
+    out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return out;
+  }
 
   // ── internals ────────────────────────────────────────────────────
 

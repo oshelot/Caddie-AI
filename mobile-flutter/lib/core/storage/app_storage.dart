@@ -44,6 +44,15 @@ abstract final class AppStorage {
   /// course payload itself.
   static const String courseCacheBoxName = 'caddieai_course_cache_v1';
 
+  /// Course favorites set. Mirrors the iOS / Android favorites
+  /// store: a set of server cache keys the user has starred from
+  /// the search or saved tabs. Backed by a Hive box where each
+  /// entry's KEY is the cache key and the value is just `'1'` —
+  /// we use the box as a set, not a map. The Saved tab reads from
+  /// this + the courseCacheBox to render the Favorites and Other
+  /// Saved sections.
+  static const String courseFavoritesBoxName = 'caddieai_course_favorites_v1';
+
   // Single key inside the profile box. The profile is a singleton —
   // there's only one player per device. The box is a key/value store
   // because Hive doesn't have a "single object" primitive, but we
@@ -80,6 +89,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(shotHistoryBoxName),
       Hive.openBox<String>(scorecardBoxName),
       Hive.openBox<String>(courseCacheBoxName),
+      Hive.openBox<String>(courseFavoritesBoxName),
     ]);
 
     _initialized = true;
@@ -106,6 +116,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(shotHistoryBoxName),
       Hive.openBox<String>(scorecardBoxName),
       Hive.openBox<String>(courseCacheBoxName),
+      Hive.openBox<String>(courseFavoritesBoxName),
     ]);
     _initialized = true;
   }
@@ -126,4 +137,6 @@ abstract final class AppStorage {
   static Box<String> get scorecardBox => Hive.box<String>(scorecardBoxName);
   static Box<String> get courseCacheBox =>
       Hive.box<String>(courseCacheBoxName);
+  static Box<String> get courseFavoritesBox =>
+      Hive.box<String>(courseFavoritesBoxName);
 }

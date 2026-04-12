@@ -41,6 +41,8 @@ class CourseSearchEntry {
     this.courseId,
     this.source = CourseSearchSource.manifest,
     this.formattedAddress,
+    this.isFavorite = false,
+    this.cachedAtMs,
   });
 
   /// Server cache key when [source] is `manifest`. For Nominatim and
@@ -80,12 +82,28 @@ class CourseSearchEntry {
   /// merge step uses it as a tie-breaker for ambiguous fuzzy matches.
   final String? formattedAddress;
 
+  /// True when the user has starred this course. Defaulted to false
+  /// for live search results; the page wrapper overlays the real
+  /// value from `CourseCacheRepository.isFavorite` before handing
+  /// the list to the screen, and entries returned by
+  /// `CourseCacheRepository.listSaved` carry the real value.
+  final bool isFavorite;
+
+  /// Epoch milliseconds when this course was last written to the
+  /// disk cache. Only set for entries returned by
+  /// `CourseCacheRepository.listSaved`; live search results leave
+  /// this null. The Saved tab uses it to render "Saved 2d ago"
+  /// captions matching the iOS / Android format.
+  final int? cachedAtMs;
+
   /// Returns a copy of this entry with the supplied fields replaced.
   /// Used by the merger step to overlay manifest city/state onto
-  /// Nominatim/Places results without copying every field by hand.
+  /// Nominatim/Places results, and by the page wrapper to overlay
+  /// the favorite flag onto live search results.
   CourseSearchEntry copyWith({
     String? city,
     String? state,
+    bool? isFavorite,
   }) {
     return CourseSearchEntry(
       cacheKey: cacheKey,
@@ -97,6 +115,8 @@ class CourseSearchEntry {
       courseId: courseId,
       source: source,
       formattedAddress: formattedAddress,
+      isFavorite: isFavorite ?? this.isFavorite,
+      cachedAtMs: cachedAtMs,
     );
   }
 
