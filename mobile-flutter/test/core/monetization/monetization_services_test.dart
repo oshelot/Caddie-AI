@@ -93,6 +93,63 @@ void main() {
       final service = StubSubscriptionService(initialSubscribed: true);
       expect(service.isSubscribed, isTrue);
     });
+
+    group('KAN-95: debugForcePro', () {
+      test('starts false', () {
+        final service = StubSubscriptionService();
+        expect(service.debugForcePro, isFalse);
+      });
+
+      test('setting to true forces isSubscribed to true and emits on stream',
+          () async {
+        final service = StubSubscriptionService();
+        final received = <bool>[];
+        final sub = service.subscriptionStream.listen(received.add);
+        service.debugForcePro = true;
+        await Future<void>.delayed(Duration.zero);
+        await sub.cancel();
+        expect(service.isSubscribed, isTrue);
+        expect(received, [true]);
+        await service.dispose();
+      });
+
+      test('setting back to false restores the underlying state', () async {
+        final service = StubSubscriptionService();
+        service.debugForcePro = true;
+        expect(service.isSubscribed, isTrue);
+        service.debugForcePro = false;
+        expect(service.isSubscribed, isFalse);
+        await service.dispose();
+      });
+
+      test(
+          'when underlying state is already true, toggling debugForcePro '
+          'on/off does not flip isSubscribed and does not emit', () async {
+        final service = StubSubscriptionService(initialSubscribed: true);
+        final received = <bool>[];
+        final sub = service.subscriptionStream.listen(received.add);
+        service.debugForcePro = true;
+        service.debugForcePro = false;
+        await Future<void>.delayed(Duration.zero);
+        await sub.cancel();
+        expect(service.isSubscribed, isTrue);
+        expect(received, isEmpty);
+        await service.dispose();
+      });
+
+      test('repeated set to the same value is a no-op', () async {
+        final service = StubSubscriptionService();
+        final received = <bool>[];
+        final sub = service.subscriptionStream.listen(received.add);
+        service.debugForcePro = true;
+        service.debugForcePro = true;
+        service.debugForcePro = true;
+        await Future<void>.delayed(Duration.zero);
+        await sub.cancel();
+        expect(received, [true]);
+        await service.dispose();
+      });
+    });
   });
 
   group('StubAdService', () {

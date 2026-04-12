@@ -36,7 +36,27 @@ abstract class SubscriptionService {
   /// True if the user has an active "Pro" subscription right now.
   /// Synchronous snapshot — production reads from a cached value
   /// that the platform plugin keeps up-to-date.
+  ///
+  /// **Honors `debugForcePro`:** when the override is true, this
+  /// getter returns true regardless of the underlying entitlement
+  /// state. See `debugForcePro` for the rationale.
   bool get isSubscribed;
+
+  /// Debug-only override that forces [isSubscribed] (and the
+  /// `subscriptionStream`) to true regardless of the real
+  /// entitlement state. Lets QA / sideload testers step through
+  /// paid-tier code paths (image analysis, premium voices, etc.)
+  /// without an actual store purchase.
+  ///
+  /// **Production builds must NOT expose UI to set this.** The
+  /// Profile screen only renders the toggle when `kDebugMode == true`.
+  /// Setting it back to `false` restores the underlying state.
+  ///
+  /// In-memory only — does not persist across app restarts. Mirrors
+  /// the iOS behavior in KAN-95 (the iOS impl uses a `#if DEBUG`
+  /// in-memory property on `SubscriptionManager`).
+  bool get debugForcePro;
+  set debugForcePro(bool value);
 
   /// Broadcast stream that fires whenever `isSubscribed` flips.
   /// Caddie / profile / shell widgets listen so they rebuild on
@@ -78,11 +98,26 @@ class StubSubscriptionService implements SubscriptionService {
       : _isSubscribed = initialSubscribed;
 
   bool _isSubscribed;
+  bool _debugForcePro = false;
   final StreamController<bool> _controller =
       StreamController<bool>.broadcast();
 
   @override
-  bool get isSubscribed => _isSubscribed;
+  bool get isSubscribed => _debugForcePro || _isSubscribed;
+
+  @override
+  bool get debugForcePro => _debugForcePro;
+
+  @override
+  set debugForcePro(bool value) {
+    if (_debugForcePro == value) return;
+    final wasSubscribed = isSubscribed;
+    _debugForcePro = value;
+    final nowSubscribed = isSubscribed;
+    if (wasSubscribed != nowSubscribed) {
+      _controller.add(nowSubscribed);
+    }
+  }
 
   @override
   Stream<bool> get subscriptionStream => _controller.stream;

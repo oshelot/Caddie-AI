@@ -19,6 +19,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../core/monetization/subscription_service.dart';
 import '../../../core/storage/profile_repository.dart';
 import '../../../core/storage/secure_keys_storage.dart';
 import '../../../main.dart' show logger;
@@ -26,7 +27,12 @@ import '../../../models/player_profile.dart';
 import 'profile_screen.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  const ProfilePage({super.key, this.subscriptionService});
+
+  /// Optional injection seam. Production builds the stub service
+  /// inline; once `InAppPurchaseSubscriptionService` ships, the
+  /// shell will own a single instance and pass it down here.
+  final SubscriptionService? subscriptionService;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -35,6 +41,17 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   final _profileRepo = ProfileRepository();
   final _secureKeys = SecureKeysStorage();
+  late final SubscriptionService _subscriptionService =
+      widget.subscriptionService ?? StubSubscriptionService();
+  late final bool _ownsSubscriptionService = widget.subscriptionService == null;
+
+  @override
+  void dispose() {
+    if (_ownsSubscriptionService) {
+      _subscriptionService.dispose();
+    }
+    super.dispose();
+  }
 
   // Defensive load: in unit tests Hive isn't initialized so the
   // repo throws. Fall back to a default profile so the screen
@@ -102,6 +119,7 @@ class _ProfilePageState extends State<ProfilePage> {
       profile: _profile,
       initialSecrets: _secrets,
       onSave: _onSave,
+      subscriptionService: _subscriptionService,
     );
   }
 }

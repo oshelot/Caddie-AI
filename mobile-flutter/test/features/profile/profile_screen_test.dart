@@ -15,6 +15,7 @@
 
 import 'dart:convert';
 
+import 'package:caddieai/core/monetization/subscription_service.dart';
 import 'package:caddieai/core/storage/secure_keys_storage.dart';
 import 'package:caddieai/features/profile/presentation/profile_screen.dart';
 import 'package:caddieai/models/player_profile.dart';
@@ -40,6 +41,8 @@ Future<void> _pumpScreen(
   required PlayerProfile profile,
   required Future<void> Function(ProfileSaveRequest) onSave,
   Map<String, String> initialSecrets = const {},
+  SubscriptionService? subscriptionService,
+  bool showDebugSection = false,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 1.0;
@@ -51,6 +54,8 @@ Future<void> _pumpScreen(
       profile: profile,
       onSave: onSave,
       initialSecrets: initialSecrets,
+      subscriptionService: subscriptionService,
+      showDebugSection: showDebugSection,
     ),
   ));
   await tester.pump();
@@ -233,6 +238,111 @@ void main() {
       await tester.pump();
 
       expect(captured!.secrets[SecureKey.openAi], '');
+    });
+  });
+
+  group('KAN-95: debug Pro tier override', () {
+    testWidgets('debug section is hidden when showDebugSection is false',
+        (tester) async {
+      final service = StubSubscriptionService();
+      addTearDown(service.dispose);
+      await _pumpScreen(
+        tester,
+        profile: _baselineProfile,
+        onSave: (_) async {},
+        subscriptionService: service,
+        showDebugSection: false,
+      );
+      expect(find.byKey(const Key('profile-debug-force-pro')), findsNothing);
+      expect(find.text('Debug (sideload only)'), findsNothing);
+    });
+
+    testWidgets(
+        'debug section is hidden when no subscription service is supplied '
+        'even with showDebugSection=true', (tester) async {
+      await _pumpScreen(
+        tester,
+        profile: _baselineProfile,
+        onSave: (_) async {},
+        showDebugSection: true,
+      );
+      expect(find.byKey(const Key('profile-debug-force-pro')), findsNothing);
+    });
+
+    testWidgets(
+        'debug section renders with effective tier = Free when service is '
+        'unsubscribed and override is off', (tester) async {
+      final service = StubSubscriptionService();
+      addTearDown(service.dispose);
+      await _pumpScreen(
+        tester,
+        profile: _baselineProfile,
+        onSave: (_) async {},
+        subscriptionService: service,
+        showDebugSection: true,
+      );
+      // The list section is built lazily; scroll the toggle into view
+      // so widget finders + tap interactions hit it reliably.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('profile-debug-force-pro')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('profile-debug-force-pro')), findsOneWidget);
+      expect(find.text('Effective tier: Free'), findsOneWidget);
+    });
+
+    testWidgets('toggling Force Pro flips the effective tier caption to Pro',
+        (tester) async {
+      final service = StubSubscriptionService();
+      addTearDown(service.dispose);
+      await _pumpScreen(
+        tester,
+        profile: _baselineProfile,
+        onSave: (_) async {},
+        subscriptionService: service,
+        showDebugSection: true,
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('profile-debug-force-pro')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('profile-debug-force-pro')));
+      await tester.pump();
+      await tester.pump();
+      expect(service.debugForcePro, isTrue);
+      expect(service.isSubscribed, isTrue);
+      expect(find.text('Effective tier: Pro'), findsOneWidget);
+      expect(find.text('Effective tier: Free'), findsNothing);
+    });
+
+    testWidgets('toggling Force Pro back off restores the underlying state',
+        (tester) async {
+      final service = StubSubscriptionService();
+      addTearDown(service.dispose);
+      await _pumpScreen(
+        tester,
+        profile: _baselineProfile,
+        onSave: (_) async {},
+        subscriptionService: service,
+        showDebugSection: true,
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('profile-debug-force-pro')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      // Toggle on, then off.
+      await tester.tap(find.byKey(const Key('profile-debug-force-pro')));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('profile-debug-force-pro')));
+      await tester.pump();
+      await tester.pump();
+      expect(service.debugForcePro, isFalse);
+      expect(service.isSubscribed, isFalse);
+      expect(find.text('Effective tier: Free'), findsOneWidget);
     });
   });
 }

@@ -16,9 +16,13 @@
 // canary; this screen MUST NOT add an apiKey field to the
 // PlayerProfile copy it builds in `_save()`.
 
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../../core/icons/caddie_icons.dart';
+import '../../../core/monetization/subscription_service.dart';
 import '../../../core/storage/secure_keys_storage.dart';
 import '../../../models/player_profile.dart';
 
@@ -46,6 +50,8 @@ class ProfileScreen extends StatefulWidget {
     required this.profile,
     required this.onSave,
     this.initialSecrets = const {},
+    this.subscriptionService,
+    this.showDebugSection = kDebugMode,
   });
 
   final PlayerProfile profile;
@@ -57,6 +63,17 @@ class ProfileScreen extends StatefulWidget {
   /// screen edits them locally; the changes flow back to the
   /// parent via `onSave`.
   final Map<String, String> initialSecrets;
+
+  /// Optional injected subscription service. When provided AND
+  /// [showDebugSection] is true, the screen renders the KAN-95
+  /// debug section with a "Force Pro tier" toggle bound to
+  /// `SubscriptionService.debugForcePro`.
+  final SubscriptionService? subscriptionService;
+
+  /// Whether to render the KAN-95 debug section. Defaults to
+  /// `kDebugMode`, so release builds never see it. Tests pass
+  /// `true` explicitly to exercise the toggle.
+  final bool showDebugSection;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -80,8 +97,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   bool _saving = false;
 
+  // KAN-95 debug section state. Mirrors SubscriptionService.isSubscribed
+  // and rebuilds via the stream subscription so the caption flips
+  // immediately when the user toggles "Force Pro".
+  StreamSubscription<bool>? _subSubscription;
+  late bool _isSubscribed = widget.subscriptionService?.isSubscribed ?? false;
+
+  bool get _shouldShowDebugSection =>
+      widget.showDebugSection && widget.subscriptionService != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final service = widget.subscriptionService;
+    if (service != null) {
+      _subSubscription = service.subscriptionStream.listen((value) {
+        if (!mounted) return;
+        setState(() => _isSubscribed = value);
+      });
+    }
+  }
+
   @override
   void dispose() {
+    _subSubscription?.cancel();
     _nameController.dispose();
     _emailController.dispose();
     _openAiKeyController.dispose();
@@ -278,6 +317,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   setState(() => _draft = _draft.copyWith(userTier: v)),
             ),
           ]),
+          if (_shouldShowDebugSection)
+            _section('Debug (sideload only)', theme, [
+              Text(
+                'Visible in debug builds only. Forces the runtime '
+                'subscription tier to Pro so paid-tier code paths '
+                '(image analysis, premium voices) can be exercised '
+                'without a real purchase. Toggling this off restores '
+                'the underlying entitlement state. In-memory only — '
+                'does not persist across app restarts.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                key: const Key('profile-debug-force-pro'),
+                title: const Text('Force Pro tier'),
+                subtitle: Text(
+                  'Effective tier: ${_isSubscribed ? 'Pro' : 'Free'}',
+                  key: const Key('profile-debug-effective-tier'),
+                ),
+                value: widget.subscriptionService!.debugForcePro,
+                onChanged: (v) {
+                  widget.subscriptionService!.debugForcePro = v;
+                  // Force a rebuild even if the stream didn't fire
+                  // (e.g. underlying state was already true).
+                  setState(() {});
+                },
+              ),
+            ]),
           _section('API keys (stored securely)', theme, [
             // Note in the section subtitle that these go to
             // SecureKeysStorage, not the profile blob. The KAN-272
