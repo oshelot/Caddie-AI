@@ -179,233 +179,230 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
-          _section('Identity', theme, [
-            TextField(
-              key: const Key('profile-name-field'),
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Name',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('profile-email-field'),
-              controller: _emailController,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ]),
-          _section('Game', theme, [
-            _SliderRow(
-              key: const Key('profile-handicap-slider'),
-              label: 'Handicap',
-              value: _draft.handicap,
-              min: 0,
-              max: 36,
-              divisions: 36,
-              displayValue: _draft.handicap.toStringAsFixed(1),
-              onChanged: (v) => setState(
-                () => _draft = _draft.copyWith(handicap: v),
-              ),
-            ),
-            const SizedBox(height: 12),
-            _stringDropdown(
-              key: const Key('profile-aggressiveness'),
-              label: 'Aggressiveness',
-              value: _draft.aggressiveness,
-              options: const ['conservative', 'normal', 'aggressive'],
-              onChanged: (v) =>
-                  setState(() => _draft = _draft.copyWith(aggressiveness: v)),
-            ),
-            const SizedBox(height: 12),
-            _stringDropdown(
-              key: const Key('profile-tee-box'),
-              label: 'Preferred tee box',
-              value: _draft.preferredTeeBox,
-              options: const [
-                'championship',
-                'blue',
-                'white',
-                'senior',
-                'forward',
-              ],
-              onChanged: (v) =>
-                  setState(() => _draft = _draft.copyWith(preferredTeeBox: v)),
-            ),
-          ]),
-          _section('Voice persona', theme, [
-            _stringDropdown(
-              key: const Key('profile-voice-gender'),
-              label: 'Voice gender',
-              value: _draft.caddieVoiceGender,
-              options: const ['male', 'female'],
-              onChanged: (v) => setState(
-                () => _draft = _draft.copyWith(caddieVoiceGender: v),
-              ),
-            ),
-            const SizedBox(height: 12),
-            _stringDropdown(
-              key: const Key('profile-voice-accent'),
-              label: 'Voice accent',
-              value: _draft.caddieVoiceAccent,
-              options: const [
-                'american',
-                'british',
-                'scottish',
-                'irish',
-                'australian',
-              ],
-              onChanged: (v) => setState(
-                () => _draft = _draft.copyWith(caddieVoiceAccent: v),
-              ),
-            ),
-          ]),
-          _section('Feature flags', theme, [
-            SwitchListTile(
-              key: const Key('profile-telemetry-toggle'),
-              title: const Text('Telemetry'),
-              subtitle: const Text(
-                'Send anonymous usage stats to help improve recommendations.',
-              ),
-              value: _draft.telemetryEnabled,
-              onChanged: (v) =>
-                  setState(() => _draft = _draft.copyWith(telemetryEnabled: v)),
-            ),
-            SwitchListTile(
-              key: const Key('profile-scoring-toggle'),
-              title: const Text('Scoring'),
-              subtitle: const Text(
-                'Track per-round scorecards in the History tab.',
-              ),
-              value: _draft.scoringEnabled,
-              onChanged: (v) =>
-                  setState(() => _draft = _draft.copyWith(scoringEnabled: v)),
-            ),
-            SwitchListTile(
-              key: const Key('profile-beta-image-toggle'),
-              title: const Text('Beta: image analysis'),
-              subtitle: const Text(
-                'Upload a hole photo for the AI to analyze (paid tier).',
-              ),
-              value: _draft.betaImageAnalysisEnabled,
-              onChanged: (v) => setState(
-                () => _draft = _draft.copyWith(betaImageAnalysisEnabled: v),
-              ),
-            ),
-          ]),
-          _section('AI provider', theme, [
-            _stringDropdown(
-              key: const Key('profile-llm-provider'),
-              label: 'LLM provider',
-              value: _draft.llmProvider,
-              options: const ['openAI', 'claude', 'gemini'],
-              onChanged: (v) =>
-                  setState(() => _draft = _draft.copyWith(llmProvider: v)),
-            ),
-            const SizedBox(height: 12),
-            _stringDropdown(
-              key: const Key('profile-tier'),
-              label: 'Tier',
-              value: _draft.userTier,
-              options: const ['free', 'pro'],
-              onChanged: (v) =>
-                  setState(() => _draft = _draft.copyWith(userTier: v)),
-            ),
-          ]),
-          if (_shouldShowDebugSection)
-            _section('Debug (sideload only)', theme, [
-              Text(
-                'Visible in debug builds only. Forces the runtime '
-                'subscription tier to Pro so paid-tier code paths '
-                '(image analysis, premium voices) can be exercised '
-                'without a real purchase. Toggling this off restores '
-                'the underlying entitlement state. In-memory only — '
-                'does not persist across app restarts.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                  fontStyle: FontStyle.italic,
+          // ── Player Info card ─────────────────────────────────────
+          // Mirrors Android ProfileScreen.kt:88-123
+          _ProfileCard(
+            title: 'Player Info',
+            theme: theme,
+            children: [
+              TextField(
+                key: const Key('profile-name-field'),
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Name',
+                  border: OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(height: 8),
+              TextField(
+                key: const Key('profile-email-field'),
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              _SliderRow(
+                key: const Key('profile-handicap-slider'),
+                label: 'Handicap',
+                value: _draft.handicap,
+                min: 0,
+                max: 36,
+                divisions: 36,
+                displayValue: _draft.handicap.toStringAsFixed(1),
+                onChanged: (v) => setState(
+                  () => _draft = _draft.copyWith(handicap: v),
+                ),
+              ),
+              _stringDropdown(
+                key: const Key('profile-aggressiveness'),
+                label: 'Aggressiveness',
+                value: _draft.aggressiveness,
+                options: const ['conservative', 'normal', 'aggressive'],
+                onChanged: (v) =>
+                    setState(() => _draft = _draft.copyWith(aggressiveness: v)),
+              ),
+              _stringDropdown(
+                key: const Key('profile-tee-box'),
+                label: 'Preferred tee box',
+                value: _draft.preferredTeeBox,
+                options: const [
+                  'championship',
+                  'blue',
+                  'white',
+                  'senior',
+                  'forward',
+                ],
+                onChanged: (v) =>
+                    setState(() => _draft = _draft.copyWith(preferredTeeBox: v)),
+              ),
+            ],
+          ),
+          // ── Caddie Voice & Personality card ──────────────────────
+          // Mirrors Android ProfileScreen.kt:126-151
+          _ProfileCard(
+            title: 'Caddie Voice & Personality',
+            theme: theme,
+            children: [
+              _stringDropdown(
+                key: const Key('profile-voice-gender'),
+                label: 'Voice gender',
+                value: _draft.caddieVoiceGender,
+                options: const ['male', 'female'],
+                onChanged: (v) => setState(
+                  () => _draft = _draft.copyWith(caddieVoiceGender: v),
+                ),
+              ),
+              _stringDropdown(
+                key: const Key('profile-voice-accent'),
+                label: 'Voice accent',
+                value: _draft.caddieVoiceAccent,
+                options: const [
+                  'american',
+                  'british',
+                  'scottish',
+                  'irish',
+                  'australian',
+                ],
+                onChanged: (v) => setState(
+                  () => _draft = _draft.copyWith(caddieVoiceAccent: v),
+                ),
+              ),
+            ],
+          ),
+          // ── Features card ───────────────────────────────────────
+          // Mirrors Android ProfileScreen.kt:178-208 and
+          // iOS ProfileView.swift:88-103
+          _ProfileCard(
+            title: 'Features',
+            theme: theme,
+            children: [
               SwitchListTile(
-                key: const Key('profile-debug-force-pro'),
-                title: const Text('Force Pro tier'),
-                subtitle: Text(
-                  'Effective tier: ${_isSubscribed ? 'Pro' : 'Free'}',
-                  key: const Key('profile-debug-effective-tier'),
+                key: const Key('profile-telemetry-toggle'),
+                title: const Text('Telemetry'),
+                subtitle: const Text(
+                  'Send anonymous usage stats to help improve recommendations.',
                 ),
-                value: widget.subscriptionService!.debugForcePro,
-                onChanged: (v) {
-                  widget.subscriptionService!.debugForcePro = v;
-                  // Force a rebuild even if the stream didn't fire
-                  // (e.g. underlying state was already true).
-                  setState(() {});
-                },
+                value: _draft.telemetryEnabled,
+                onChanged: (v) => setState(
+                    () => _draft = _draft.copyWith(telemetryEnabled: v)),
               ),
-            ]),
-          _section('API keys (stored securely)', theme, [
-            // Note in the section subtitle that these go to
-            // SecureKeysStorage, not the profile blob. The KAN-272
-            // canary test verifies the isolation.
-            Text(
-              'API keys are written to the platform Keychain '
-              '(iOS) / EncryptedSharedPreferences (Android). They '
-              'never appear in the profile blob.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-                fontStyle: FontStyle.italic,
+              SwitchListTile(
+                key: const Key('profile-scoring-toggle'),
+                title: const Text('Scoring'),
+                subtitle: const Text(
+                  'Track per-round scorecards in the History tab.',
+                ),
+                value: _draft.scoringEnabled,
+                onChanged: (v) => setState(
+                    () => _draft = _draft.copyWith(scoringEnabled: v)),
               ),
+              SwitchListTile(
+                key: const Key('profile-beta-image-toggle'),
+                title: const Text('Beta: image analysis'),
+                subtitle: const Text(
+                  'Upload a hole photo for the AI to analyze (paid tier).',
+                ),
+                value: _draft.betaImageAnalysisEnabled,
+                onChanged: (v) => setState(
+                  () => _draft = _draft.copyWith(betaImageAnalysisEnabled: v),
+                ),
+              ),
+            ],
+          ),
+          // ── AI Provider card ────────────────────────────────────
+          // Mirrors Android ApiSettingsScreen.kt (inline version)
+          _ProfileCard(
+            title: 'AI Provider',
+            theme: theme,
+            children: [
+              _stringDropdown(
+                key: const Key('profile-llm-provider'),
+                label: 'LLM provider',
+                value: _draft.llmProvider,
+                options: const ['openAI', 'claude', 'gemini'],
+                onChanged: (v) =>
+                    setState(() => _draft = _draft.copyWith(llmProvider: v)),
+              ),
+              _stringDropdown(
+                key: const Key('profile-tier'),
+                label: 'Tier',
+                value: _draft.userTier,
+                options: const ['free', 'pro'],
+                onChanged: (v) =>
+                    setState(() => _draft = _draft.copyWith(userTier: v)),
+              ),
+            ],
+          ),
+          // ── API Keys card ───────────────────────────────────────
+          // Mirrors Android ApiSettingsScreen.kt:83-109 and
+          // iOS APISettingsView.swift:114-169 (inline version —
+          // a future story can extract to a separate route)
+          _ProfileCard(
+            title: 'API Keys',
+            theme: theme,
+            subtitle: 'Stored securely in the platform Keychain '
+                '(iOS) / EncryptedSharedPreferences (Android). '
+                'Never appear in the profile blob.',
+            children: [
+              TextField(
+                key: const Key('profile-openai-key-field'),
+                controller: _openAiKeyController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'OpenAI API key',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              TextField(
+                key: const Key('profile-claude-key-field'),
+                controller: _claudeKeyController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Claude API key',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              TextField(
+                key: const Key('profile-gemini-key-field'),
+                controller: _geminiKeyController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Gemini API key',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          // ── Settings / Debug card ───────────────────────────────
+          // Mirrors Android ProfileScreen.kt:212-244 and
+          // iOS ProfileView.swift:105-124 (debug section only
+          // in debug builds)
+          if (_shouldShowDebugSection)
+            _ProfileCard(
+              title: 'Debug',
+              theme: theme,
+              subtitle: 'Visible in sideload builds only. Forces '
+                  'the runtime tier to Pro so paid-tier code paths '
+                  'can be exercised without a real purchase. '
+                  'In-memory only.',
+              children: [
+                SwitchListTile(
+                  key: const Key('profile-debug-force-pro'),
+                  title: const Text('Force Pro tier'),
+                  subtitle: Text(
+                    'Effective tier: ${_isSubscribed ? 'Pro' : 'Free'}',
+                    key: const Key('profile-debug-effective-tier'),
+                  ),
+                  value: widget.subscriptionService!.debugForcePro,
+                  onChanged: (v) {
+                    widget.subscriptionService!.debugForcePro = v;
+                    setState(() {});
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('profile-openai-key-field'),
-              controller: _openAiKeyController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'OpenAI API key',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('profile-claude-key-field'),
-              controller: _claudeKeyController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Claude API key',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('profile-gemini-key-field'),
-              controller: _geminiKeyController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Gemini API key',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ]),
-        ],
-      ),
-    );
-  }
-
-  Widget _section(String title, ThemeData theme, List<Widget> children) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: theme.textTheme.titleMedium),
-          const SizedBox(height: 12),
-          ...children,
         ],
       ),
     );
@@ -437,6 +434,73 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
   }
+}
+
+/// Material 3 Card wrapper matching Android ProfileScreen.kt's
+/// `ElevatedCard` sections. Title rendered in primary color
+/// (titleSmall, semibold) with optional subtitle caption.
+/// Children are separated by 12dp inside 16dp card padding.
+class _ProfileCard extends StatelessWidget {
+  const _ProfileCard({
+    required this.title,
+    required this.theme,
+    required this.children,
+    this.subtitle,
+  });
+
+  final String title;
+  final ThemeData theme;
+  final List<Widget> children;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        elevation: 1,
+        shape: RoundedCornerShape12._instance,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              for (int i = 0; i < children.length; i++) ...[
+                children[i],
+                if (i < children.length - 1) const SizedBox(height: 12),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Matches `CaddieShape.large` from the Android native.
+class RoundedCornerShape12 {
+  RoundedCornerShape12._();
+  static final _instance = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(12),
+  );
 }
 
 class _SliderRow extends StatelessWidget {

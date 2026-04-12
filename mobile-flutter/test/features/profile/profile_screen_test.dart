@@ -69,12 +69,11 @@ void main() {
         profile: _baselineProfile,
         onSave: (_) async {},
       );
-      expect(find.text('Identity'), findsOneWidget);
-      expect(find.text('Game'), findsOneWidget);
-      expect(find.text('Voice persona'), findsOneWidget);
-      expect(find.text('Feature flags'), findsOneWidget);
-      expect(find.text('AI provider'), findsOneWidget);
-      expect(find.text('API keys (stored securely)'), findsOneWidget);
+      expect(find.text('Player Info'), findsOneWidget);
+      expect(find.text('Caddie Voice & Personality'), findsOneWidget);
+      expect(find.text('Features'), findsOneWidget);
+      expect(find.text('AI Provider'), findsOneWidget);
+      expect(find.text('API Keys'), findsOneWidget);
     });
 
     testWidgets('initial values are populated from the profile',
