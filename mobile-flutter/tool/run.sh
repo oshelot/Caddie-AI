@@ -15,6 +15,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Resolve flutter binary — check PATH first, then local.properties
+FLUTTER="flutter"
+if ! command -v flutter &>/dev/null; then
+  FLUTTER_SDK=$(grep '^flutter.sdk=' android/local.properties 2>/dev/null | cut -d= -f2-)
+  if [ -n "$FLUTTER_SDK" ] && [ -x "$FLUTTER_SDK/bin/flutter" ]; then
+    FLUTTER="$FLUTTER_SDK/bin/flutter"
+  else
+    echo "ERROR: flutter not found on PATH and flutter.sdk not set in android/local.properties"
+    exit 1
+  fi
+fi
+
 PROPS="android/local.properties"
 if [ ! -f "$PROPS" ]; then
   echo "ERROR: $PROPS not found. Copy secrets from the native android/local.properties."
@@ -35,4 +47,4 @@ echo "Injecting dart-defines for: $(echo $DART_DEFINES | grep -oP '(?<=--dart-de
 echo ""
 
 # shellcheck disable=SC2086
-exec flutter run $DART_DEFINES "$@"
+exec $FLUTTER run $DART_DEFINES "$@"
