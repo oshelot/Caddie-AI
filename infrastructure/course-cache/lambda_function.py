@@ -28,6 +28,7 @@ import re
 import base64
 import urllib.request
 import urllib.parse
+from collections import OrderedDict
 
 import boto3
 from botocore.exceptions import ClientError
@@ -37,6 +38,13 @@ _s3_client = None
 _proxy_api_key: str | None = None
 _manifest_cache: list | None = None
 _manifest_etag: str | None = None
+
+# KAN-296: in-memory FIFO cache for Google Places proxy responses. Shared
+# across warm invocations of the same Lambda container so we don't pay
+# Google for every keystroke. Cleared on cold start, which is fine — the
+# cache is purely a cost optimization.
+_places_cache: "OrderedDict[str, list]" = OrderedDict()
+_PLACES_CACHE_MAX = 256
 
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "caddieai-course-cache")
 PROXY_API_KEY_ENV = os.environ.get("PROXY_API_KEY", "")
@@ -321,6 +329,152 @@ def validate_with_google_places(name: str, lat: float | None, lon: float | None)
 
 
 # ---------------------------------------------------------------------------
+# Google Places proxy (KAN-296) — autocomplete + text search
+# ---------------------------------------------------------------------------
+#
+# These two helpers expose the existing GOOGLE_PLACES_API_KEY env var as
+# read-only proxy routes for the Flutter mobile client. iOS uses Apple
+# MapKit's MKLocalSearchCompleter (cities) and MKLocalSearch (course names)
+# but neither is available on Android/Flutter. The proxy routes give the
+# Flutter port a cross-platform replacement without bundling a Google API
+# key in the app.
+
+def _places_cache_get(key: str):
+    if key in _places_cache:
+        _places_cache.move_to_end(key)
+        return _places_cache[key]
+    return None
+
+
+def _places_cache_put(key: str, value: list):
+    _places_cache[key] = value
+    _places_cache.move_to_end(key)
+    while len(_places_cache) > _PLACES_CACHE_MAX:
+        _places_cache.popitem(last=False)
+
+
+def google_places_autocomplete(query: str) -> list:
+    """Call Google Places Autocomplete (New) for city/region suggestions.
+
+    Restricted to localities + administrative areas so the autocomplete
+    only returns places (not businesses, addresses, or POIs).
+    Returns a list of {description, mainText, secondaryText} dicts.
+    """
+    if not GOOGLE_PLACES_API_KEY or not query:
+        return []
+
+    try:
+        params = {
+            "input": query,
+            "includedPrimaryTypes": [
+                "locality",
+                "administrative_area_level_3",
+                "administrative_area_level_2",
+            ],
+        }
+        req_body = json.dumps(params).encode("utf-8")
+        url = "https://places.googleapis.com/v1/places:autocomplete"
+
+        req = urllib.request.Request(url, data=req_body, method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("X-Goog-Api-Key", GOOGLE_PLACES_API_KEY)
+
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        out = []
+        for s in data.get("suggestions", [])[:5]:
+            pred = s.get("placePrediction") or {}
+            text = (pred.get("text") or {}).get("text", "")
+            structured = pred.get("structuredFormat") or {}
+            main = (structured.get("mainText") or {}).get("text", "")
+            secondary = (structured.get("secondaryText") or {}).get("text", "")
+            if text:
+                out.append({
+                    "description": text,
+                    "mainText": main,
+                    "secondaryText": secondary,
+                })
+        return out
+    except Exception as e:
+        print(f"Places autocomplete failed for '{query}': {e}")
+        return []
+
+
+def google_places_text_search(query: str, lat: float | None = None,
+                               lon: float | None = None) -> list:
+    """Call Google Places Text Search (New) for golf courses.
+
+    Returns a list of course-like dicts (id, name, city, state, lat, lon,
+    formattedAddress). Capped to 10 results to keep payloads small —
+    matches the iOS MapKit search size.
+    """
+    if not GOOGLE_PLACES_API_KEY or not query:
+        return []
+
+    try:
+        params = {
+            "textQuery": f"golf course {query}",
+            "includedType": "golf_course",
+            "maxResultCount": 10,
+        }
+        if lat is not None and lon is not None:
+            params["locationBias"] = {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lon},
+                    "radius": 50000.0,
+                }
+            }
+
+        req_body = json.dumps(params).encode("utf-8")
+        url = "https://places.googleapis.com/v1/places:searchText"
+
+        req = urllib.request.Request(url, data=req_body, method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("X-Goog-Api-Key", GOOGLE_PLACES_API_KEY)
+        req.add_header(
+            "X-Goog-FieldMask",
+            "places.id,places.displayName,places.formattedAddress,"
+            "places.addressComponents,places.location",
+        )
+
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        out = []
+        for place in data.get("places", []):
+            name = (place.get("displayName") or {}).get("text", "")
+            location = place.get("location") or {}
+            place_lat = location.get("latitude")
+            place_lon = location.get("longitude")
+            if not name or place_lat is None or place_lon is None:
+                continue
+
+            city = ""
+            state = ""
+            for comp in place.get("addressComponents", []):
+                types = comp.get("types", [])
+                if "locality" in types and not city:
+                    city = comp.get("longText", "")
+                elif "administrative_area_level_1" in types and not state:
+                    state = comp.get("shortText", "")
+
+            out.append({
+                "id": place.get("id", ""),
+                "name": name,
+                "city": city,
+                "state": state,
+                "lat": place_lat,
+                "lon": place_lon,
+                "formattedAddress": place.get("formattedAddress", ""),
+            })
+        return out
+    except Exception as e:
+        print(f"Places text search failed for '{query}': {e}")
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Cross-platform normalization (iOS JSON → Android JSON)
 # ---------------------------------------------------------------------------
 
@@ -523,6 +677,16 @@ def lambda_handler(event, context):
     if not expected_key or client_key != expected_key:
         return error_response(401, "Unauthorized: invalid or missing API key.")
 
+    # KAN-296: Google Places proxy routes — dispatch by raw path before
+    # the courseId extraction below, since these routes don't have a
+    # {courseId} path param.
+    raw_path = event.get("rawPath") or event.get("path") or ""
+    if http_method == "GET":
+        if raw_path == "/places/autocomplete" or raw_path.endswith("/places/autocomplete"):
+            return handle_places_autocomplete(event)
+        if raw_path == "/places/search" or raw_path.endswith("/places/search"):
+            return handle_places_search(event)
+
     # Extract courseId from path
     path_params = event.get("pathParameters") or {}
     course_id = path_params.get("courseId", "")
@@ -549,6 +713,69 @@ def lambda_handler(event, context):
         return handle_put(s3, key, course_id, event, schema)
     else:
         return error_response(405, f"Method {http_method} not allowed.")
+
+
+def handle_places_autocomplete(event: dict) -> dict:
+    """KAN-296: GET /places/autocomplete?q=<input> → city suggestions."""
+    query_params = event.get("queryStringParameters") or {}
+    query = (query_params.get("q") or "").strip()
+    if not query:
+        return error_response(400, "Missing 'q' query parameter.")
+
+    cache_key = f"ac:{query.lower()}"
+    cached = _places_cache_get(cache_key)
+    if cached is not None:
+        suggestions = cached
+    else:
+        suggestions = google_places_autocomplete(query)
+        _places_cache_put(cache_key, suggestions)
+
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=3600",
+        },
+        "body": json.dumps({"suggestions": suggestions}, separators=(",", ":")),
+    }
+
+
+def handle_places_search(event: dict) -> dict:
+    """KAN-296: GET /places/search?q=<query>&lat=&lon= → golf-course results."""
+    query_params = event.get("queryStringParameters") or {}
+    query = (query_params.get("q") or "").strip()
+    if not query:
+        return error_response(400, "Missing 'q' query parameter.")
+
+    lat = None
+    lon = None
+    try:
+        lat_str = query_params.get("lat")
+        lon_str = query_params.get("lon")
+        if lat_str and lon_str:
+            lat = float(lat_str)
+            lon = float(lon_str)
+    except (ValueError, TypeError):
+        pass
+
+    cache_key = f"ts:{query.lower()}:{lat}:{lon}"
+    cached = _places_cache_get(cache_key)
+    if cached is not None:
+        results = cached
+    else:
+        results = google_places_text_search(query, lat, lon)
+        _places_cache_put(cache_key, results)
+
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=3600",
+        },
+        "body": json.dumps({"results": results}, separators=(",", ":")),
+    }
 
 
 def handle_search(event: dict) -> dict:
