@@ -17,6 +17,7 @@
 // (`test/storage/secure_keys_isolation_test.dart`) verifies
 // that the profile blob on disk never contains the secret values.
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../../core/monetization/subscription_service.dart';
@@ -42,7 +43,8 @@ class _ProfilePageState extends State<ProfilePage> {
   final _profileRepo = ProfileRepository();
   final _secureKeys = SecureKeysStorage();
   late final SubscriptionService _subscriptionService =
-      widget.subscriptionService ?? StubSubscriptionService();
+      widget.subscriptionService ?? StubSubscriptionService()
+        ..debugForcePro = kDebugMode;
   late final bool _ownsSubscriptionService = widget.subscriptionService == null;
 
   @override
