@@ -132,6 +132,16 @@ class NormalizedCourse {
   final LngLat centroid;
   final List<NormalizedHole> holes;
 
+  /// Available tee box names (e.g. ["Blue", "White", "Red"]).
+  /// Populated by the Golf Course API enrichment step on iOS, or
+  /// deserialized from the server cache. May be null/empty for
+  /// Overpass-only courses that haven't been enriched yet.
+  final List<String> teeNames;
+
+  /// Total yardage per tee (e.g. {"Blue": 6543, "White": 6021}).
+  /// Same provenance as `teeNames`.
+  final Map<String, int> teeYardageTotals;
+
   const NormalizedCourse({
     required this.id,
     required this.name,
@@ -139,6 +149,8 @@ class NormalizedCourse {
     required this.state,
     required this.centroid,
     required this.holes,
+    this.teeNames = const [],
+    this.teeYardageTotals = const {},
   });
 
   factory NormalizedCourse.fromJson(Map<String, dynamic> j) {
@@ -152,7 +164,24 @@ class NormalizedCourse {
       holes: (j['holes'] as List<dynamic>)
           .map((h) => NormalizedHole.fromJson(h as Map<String, dynamic>))
           .toList(growable: false),
+      teeNames: _decodeStringList(j['teeNames']),
+      teeYardageTotals: _decodeIntMap(j['teeYardageTotals'] ?? j['holeYardagesByTee']),
     );
+  }
+
+  static List<String> _decodeStringList(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw.map((e) => '$e').toList(growable: false);
+  }
+
+  static Map<String, int> _decodeIntMap(dynamic raw) {
+    if (raw is! Map) return const {};
+    final out = <String, int>{};
+    for (final entry in raw.entries) {
+      final v = entry.value;
+      if (v is num) out['${entry.key}'] = v.toInt();
+    }
+    return out;
   }
 
   /// Name-only key for the server cache. Coordinates are deliberately

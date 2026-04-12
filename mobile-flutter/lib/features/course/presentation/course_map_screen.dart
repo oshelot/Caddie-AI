@@ -56,7 +56,10 @@ import '../../../core/geo/geo.dart';
 import '../../../core/icons/caddie_icons.dart';
 import '../../../core/logging/log_event.dart';
 import '../../../core/logging/logging_service.dart';
+import '../../../core/courses/http_transport.dart';
 import '../../../core/mapbox/layer_helpers.dart';
+import '../../../core/weather/weather_data.dart';
+import '../../../core/weather/weather_service.dart';
 import '../../../models/normalized_course.dart';
 import '../../../services/course_geojson_builder.dart';
 
@@ -128,18 +131,43 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
 
   mbx.MapboxMap? _map;
   int? _selectedHole;
+  String? _selectedTee;
   bool _layersAdded = false;
   bool _firstTapAuditDone = false;
 
-  /// Set of layer ids that failed the post-add audit. Drives the
-  /// `kDebugMode`-only error banner.
+  /// Set of layer ids that failed the post-add audit.
   Set<String> _missingLayers = const {};
 
   double? _tapYards;
-  // Last tap location, kept for future in-scene debugging / logging
-  // (e.g. an in-app overlay that draws the tap point during dev runs).
   // ignore: unused_field
   LngLat? _lastTap;
+
+  WeatherData? _weather;
+  late final WeatherService _weatherService =
+      WeatherService(transport: DartIoHttpTransport());
+
+  @override
+  void initState() {
+    super.initState();
+    // Init tee selection to the first available tee.
+    final tees = widget.course.teeNames;
+    if (tees.isNotEmpty) {
+      _selectedTee = tees.first;
+    }
+    // Fetch weather for the course location.
+    _fetchWeather();
+  }
+
+  Future<void> _fetchWeather() async {
+    final c = widget.course.centroid;
+    final weather = await _weatherService.fetchWeather(
+      latitude: c.lat,
+      longitude: c.lon,
+    );
+    if (mounted && weather != null) {
+      setState(() => _weather = weather);
+    }
+  }
 
   // ── lifecycle ────────────────────────────────────────────────────
 
@@ -148,16 +176,48 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     final course = widget.course;
     final centroid = course.centroid;
 
+    final tees = course.teeNames;
     return Scaffold(
       appBar: AppBar(
-        title: Text(course.name),
-        leading: Padding(
-          padding: const EdgeInsets.all(8),
-          child: CaddieIcons.course(
-            size: 24,
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
-        ),
+        title: const Text('Course Map'),
+        actions: [
+          // Tee box selector — matches iOS top-right chip
+          if (tees.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: PopupMenuButton<String>(
+                initialValue: _selectedTee,
+                onSelected: (tee) => setState(() => _selectedTee = tee),
+                itemBuilder: (_) => tees.map((tee) {
+                  final total = course.teeYardageTotals[tee];
+                  return PopupMenuItem(
+                    value: tee,
+                    child: Row(
+                      children: [
+                        if (tee == _selectedTee)
+                          const Icon(Icons.check, size: 18)
+                        else
+                          const SizedBox(width: 18),
+                        const SizedBox(width: 8),
+                        Text(tee),
+                        if (total != null) ...[
+                          const Spacer(),
+                          Text('$total yds',
+                              style: const TextStyle(
+                                  color: Colors.grey, fontSize: 12)),
+                        ],
+                      ],
+                    ),
+                  );
+                }).toList(),
+                child: Chip(
+                  avatar: const Icon(Icons.flag, size: 16),
+                  label: Text(_selectedTee ?? 'Tees'),
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                ),
+              ),
+            ),
+        ],
       ),
       body: Stack(
         children: [
@@ -175,16 +235,23 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
             onStyleLoadedListener: _onStyleLoaded,
             onTapListener: _onMapTap,
           ),
+          // Weather badge — top-left, matches iOS placement
+          if (_weather != null)
+            Positioned(
+              top: 12,
+              left: 12,
+              child: _WeatherBadge(weather: _weather!),
+            ),
           if (_tapYards != null)
             Positioned(
-              top: 16,
-              left: 16,
+              top: _weather != null ? 56 : 16,
+              left: 12,
               child: _DistanceHud(yards: _tapYards!),
             ),
           if (kDebugMode && _missingLayers.isNotEmpty)
             Positioned(
-              top: 16,
-              right: 16,
+              top: 12,
+              right: 12,
               child: _LayerDiagnosticBanner(
                 missing: _missingLayers,
               ),
@@ -196,6 +263,7 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
             child: _BottomPanel(
               course: course,
               selectedHole: _selectedHole,
+              selectedTee: _selectedTee,
               onHoleSelected: _selectHole,
             ),
           ),
@@ -629,6 +697,55 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
 
 // ── Presentational widgets ─────────────────────────────────────────
 
+/// Weather badge matching iOS CourseMapView.swift:871-893.
+/// Black capsule with temp + wind speed, positioned top-left.
+class _WeatherBadge extends StatelessWidget {
+  const _WeatherBadge({required this.weather});
+  final WeatherData weather;
+
+  @override
+  Widget build(BuildContext context) {
+    final temp = '${weather.temperatureF.round()}\u00B0F';
+    final wind = '${weather.windSpeedMph.round()}mph';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(_weatherIcon(weather.weatherCode),
+              color: Colors.white, size: 16),
+          const SizedBox(width: 6),
+          Text(temp,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13)),
+          if (weather.windSpeedMph >= 1) ...[
+            const SizedBox(width: 8),
+            const Icon(Icons.air, color: Colors.white, size: 14),
+            const SizedBox(width: 3),
+            Text(wind,
+                style: const TextStyle(color: Colors.white, fontSize: 13)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static IconData _weatherIcon(int code) {
+    if (code == 0) return Icons.wb_sunny;
+    if (code <= 3) return Icons.cloud;
+    if (code <= 48) return Icons.foggy;
+    if (code <= 67) return Icons.grain; // rain/drizzle
+    if (code <= 77) return Icons.ac_unit; // snow
+    return Icons.thunderstorm;
+  }
+}
+
 class _DistanceHud extends StatelessWidget {
   const _DistanceHud({required this.yards});
   final double yards;
@@ -702,10 +819,12 @@ class _BottomPanel extends StatelessWidget {
     required this.course,
     required this.selectedHole,
     required this.onHoleSelected,
+    this.selectedTee,
   });
 
   final NormalizedCourse course;
   final int? selectedHole;
+  final String? selectedTee;
   final ValueChanged<int?> onHoleSelected;
 
   @override
@@ -815,10 +934,12 @@ class _BottomPanel extends StatelessWidget {
       'Hole ${hole.number}',
       if (hole.par > 0) 'Par ${hole.par}',
     ];
-    // Show yardage from the first tee box that has data
+    // Show yardage for the selected tee, or first available
     if (hole.yardages.isNotEmpty) {
-      final firstYds = hole.yardages.values.first;
-      parts.add('$firstYds yds');
+      final yds = (selectedTee != null && hole.yardages.containsKey(selectedTee))
+          ? hole.yardages[selectedTee]!
+          : hole.yardages.values.first;
+      parts.add('$yds yds');
     }
     if (hole.strokeIndex != null) {
       parts.add('SI ${hole.strokeIndex}');
