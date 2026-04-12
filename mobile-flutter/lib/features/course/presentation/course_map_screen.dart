@@ -160,16 +160,32 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     _fetchWeather();
   }
 
-  /// KAN-182 dedup algorithm:
-  /// 1. Group tee names by their full yardage array across all holes
-  /// 2. Join groups with " / " for display
-  /// 3. Sort by total yardage descending (longest first)
-  /// 4. Store mapping from display name → canonical tee (first in group)
+  /// KAN-182 dedup algorithm (mirrors iOS CourseViewModel.swift:691-728):
+  /// Step 0: Filter combo tees (e.g. "Bronze/Gold") when BOTH standalone
+  ///         components exist — the combo is redundant.
+  /// Step 1: Group remaining tees by their full yardage array across all
+  ///         holes — identical arrays collapse into one display entry.
+  /// Step 2: Join groups with " / " for display.
+  /// Step 3: Sort by total yardage descending (longest first).
+  /// Step 4: Store mapping from display name → canonical tee.
   static List<_DeduplicatedTee> _deduplicateTees(NormalizedCourse course) {
-    final teeNames = course.teeNames;
+    var teeNames = course.teeNames.toList();
     if (teeNames.isEmpty) return const [];
 
-    // Build per-tee yardage signature: ordered list of yardages per hole.
+    // Step 0: Filter combo tees whose standalone components both exist.
+    // E.g. "Bronze/Gold" is removed if both "Bronze" and "Gold" exist.
+    final standaloneNames =
+        teeNames.where((t) => !t.contains('/')).map((t) => t.toLowerCase()).toSet();
+    teeNames = teeNames.where((tee) {
+      if (!tee.contains('/')) return true; // standalone — keep
+      final parts = tee.split('/').map((p) => p.trim().toLowerCase());
+      // Keep the combo only if at least one component is NOT standalone.
+      return !parts.every((p) => standaloneNames.contains(p));
+    }).toList();
+
+    if (teeNames.isEmpty) return const [];
+
+    // Step 1: Group by per-hole yardage signature.
     final signatures = <String, List<String>>{};
     for (final tee in teeNames) {
       final sig = <int>[];
@@ -180,7 +196,7 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
       signatures.putIfAbsent(key, () => []).add(tee);
     }
 
-    // Build deduped entries sorted by total yardage descending.
+    // Step 2+3: Build deduped entries sorted by total yardage descending.
     final entries = signatures.values.map((group) {
       final displayName = group.join(' / ');
       final canonical = group.first;
