@@ -101,6 +101,8 @@ class CourseMapScreen extends StatefulWidget {
     super.key,
     required this.course,
     required this.logger,
+    this.onAskCaddie,
+    this.onAnalyze,
   });
 
   /// The course to render. Caller is responsible for fetching
@@ -108,10 +110,16 @@ class CourseMapScreen extends StatefulWidget {
   /// fixture from `assets/fixtures/`.
   final NormalizedCourse course;
 
-  /// Injected logger so widget tests can capture the
-  /// `layer_render` / `layer_add_failure` / `layer_drop_post_audit`
-  /// events without standing up the global `logger` singleton.
+  /// Injected logger.
   final LoggingService logger;
+
+  /// Called when the user taps "Ask Caddie". The caller typically
+  /// navigates to the Caddie tab with hole context.
+  final VoidCallback? onAskCaddie;
+
+  /// Called when the user taps "Analyze". The caller typically
+  /// runs the deterministic hole analysis engine.
+  final VoidCallback? onAnalyze;
 
   @override
   State<CourseMapScreen> createState() => _CourseMapScreenState();
@@ -334,6 +342,8 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
               selectedHole: _selectedHole,
               selectedTee: _selectedTee,
               onHoleSelected: _selectHole,
+              onAskCaddie: widget.onAskCaddie,
+              onAnalyze: widget.onAnalyze,
             ),
           ),
         ],
@@ -907,12 +917,16 @@ class _BottomPanel extends StatelessWidget {
     required this.selectedHole,
     required this.onHoleSelected,
     this.selectedTee,
+    this.onAskCaddie,
+    this.onAnalyze,
   });
 
   final NormalizedCourse course;
   final int? selectedHole;
   final String? selectedTee;
   final ValueChanged<int?> onHoleSelected;
+  final VoidCallback? onAskCaddie;
+  final VoidCallback? onAnalyze;
 
   @override
   Widget build(BuildContext context) {
@@ -976,6 +990,39 @@ class _BottomPanel extends StatelessWidget {
                 ],
               ),
             ),
+            // Ask Caddie + Analyze buttons
+            if (selectedHole != null && (onAskCaddie != null || onAnalyze != null))
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Row(
+                  children: [
+                    if (onAskCaddie != null)
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: onAskCaddie,
+                          icon: const Icon(Icons.sports_golf, size: 18),
+                          label: const Text('Ask Caddie'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF2E7D32),
+                          ),
+                        ),
+                      ),
+                    if (onAskCaddie != null && onAnalyze != null)
+                      const SizedBox(width: 12),
+                    if (onAnalyze != null)
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: onAnalyze,
+                          icon: const Icon(Icons.auto_awesome, size: 18),
+                          label: const Text('Analyze'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             // Hole selector strip
             SizedBox(
               height: 48,

@@ -27,10 +27,12 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:go_router/go_router.dart';
 
 import '../../../core/location/geolocator_location_service.dart';
 import '../../../core/location/location_gate.dart';
 import '../../../core/location/location_service.dart';
+import '../../../core/routing/app_router.dart';
 import '../../../main.dart' show logger;
 import '../../../models/normalized_course.dart';
 import 'course_map_screen.dart';
@@ -104,6 +106,17 @@ class _CoursePlaceholderState extends State<CoursePlaceholder> {
           return CourseMapScreen(
             course: snapshot.data!,
             logger: logger,
+            onAskCaddie: () {
+              // Navigate to the Caddie tab. The StatefulShellRoute
+              // preserves state so the map stays alive.
+              // ignore: use_build_context_synchronously
+              context.go(AppRoutes.caddie);
+            },
+            onAnalyze: () {
+              // Navigate to the Caddie tab for analysis.
+              // ignore: use_build_context_synchronously
+              context.go(AppRoutes.caddie);
+            },
           );
         },
       ),
