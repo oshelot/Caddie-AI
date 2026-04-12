@@ -121,9 +121,14 @@ class CourseSearchEntry {
   }
 
   factory CourseSearchEntry.fromJson(Map<String, dynamic> json) {
+    final rawKey = json['cacheKey']
+        ?? json['id']
+        ?? json['serverCacheKey']
+        ?? json['courseId']
+        ?? json['name']
+        ?? '';
     return CourseSearchEntry(
-      cacheKey: (json['cacheKey'] ?? json['id'] ?? json['serverCacheKey'])
-          as String,
+      cacheKey: '$rawKey',
       name: json['name'] as String? ?? '',
       city: json['city'] as String? ?? '',
       state: json['state'] as String? ?? '',

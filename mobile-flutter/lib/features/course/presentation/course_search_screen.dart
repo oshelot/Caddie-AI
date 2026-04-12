@@ -230,7 +230,11 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
     CourseSearchOutcome outcome;
     try {
       outcome = await widget.onSearch(query, city);
-    } catch (e) {
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('SEARCH ERROR: $e');
+      // ignore: avoid_print
+      print('SEARCH STACK: $st');
       outcome = CourseSearchOutcome(entries: const [], error: '$e');
     }
     if (!mounted) return;
@@ -245,6 +249,7 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
         'resultCount': '${outcome.entries.length}',
         'hasLocation': '${widget.locationGranted && _useNearby}',
         'cityProvided': '${city.isNotEmpty}',
+        if (outcome.error != null) 'error': outcome.error!,
       },
     );
     setState(() {
