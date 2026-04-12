@@ -8,6 +8,7 @@
 // constructs `flutter_tts` / `speech_to_text` / `dart:io HttpClient`
 // instances which all need real platform channels.
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../../core/courses/http_transport.dart';
@@ -124,8 +125,14 @@ class _CaddiePageState extends State<CaddiePage> {
       gender: _parseGender(profile.caddieVoiceGender),
       accent: _parseAccent(profile.caddieVoiceAccent),
     );
-    final tier =
-        profile.userTier.toLowerCase() == 'pro' ? LlmTier.paid : LlmTier.free;
+    // Debug builds default to paid tier so the proxy/Bedrock path
+    // works out-of-the-box without requiring an API key. Release
+    // builds respect the profile's userTier field.
+    final tier = kDebugMode
+        ? LlmTier.paid
+        : (profile.userTier.toLowerCase() == 'pro'
+            ? LlmTier.paid
+            : LlmTier.free);
     final preferredProvider =
         LlmProviderId.fromWireName(profile.llmProvider) ??
             LlmProviderId.openAi;
