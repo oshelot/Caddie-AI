@@ -95,7 +95,7 @@ class DartIoHttpTransport implements HttpTransport {
     // transparently before we read the body.
     req.headers.set(HttpHeaders.acceptEncodingHeader, 'gzip');
     if (request.body != null) {
-      req.write(request.body);
+      req.add(utf8.encode(request.body!));
     }
     final response = await req.close().timeout(request.timeout);
     final body = await response.transform(utf8.decoder).join();
