@@ -107,16 +107,13 @@ class _CoursePlaceholderState extends State<CoursePlaceholder> {
             course: snapshot.data!,
             logger: logger,
             onAskCaddie: () {
-              // Navigate to the Caddie tab. The StatefulShellRoute
-              // preserves state so the map stays alive.
+              // Navigate to the Caddie tab.
               // ignore: use_build_context_synchronously
               context.go(AppRoutes.caddie);
             },
-            onAnalyze: () {
-              // Navigate to the Caddie tab for analysis.
-              // ignore: use_build_context_synchronously
-              context.go(AppRoutes.caddie);
-            },
+            // Analyze uses the built-in hole analysis sheet — no
+            // navigation needed. Passing null tells the map screen
+            // to show its own sheet.
           );
         },
       ),

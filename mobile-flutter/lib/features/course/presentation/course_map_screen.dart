@@ -58,6 +58,7 @@ import '../../../core/logging/log_event.dart';
 import '../../../core/logging/logging_service.dart';
 import '../../../core/courses/http_transport.dart';
 import '../../../core/mapbox/layer_helpers.dart';
+import 'hole_analysis_sheet.dart';
 import '../../../core/weather/weather_data.dart';
 import '../../../core/weather/weather_service.dart';
 import '../../../models/normalized_course.dart';
@@ -117,8 +118,8 @@ class CourseMapScreen extends StatefulWidget {
   /// navigates to the Caddie tab with hole context.
   final VoidCallback? onAskCaddie;
 
-  /// Called when the user taps "Analyze". The caller typically
-  /// runs the deterministic hole analysis engine.
+  /// Called when the user taps "Analyze". If null, the screen
+  /// shows the built-in hole analysis bottom sheet.
   final VoidCallback? onAnalyze;
 
   @override
@@ -343,11 +344,28 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
               selectedTee: _selectedTee,
               onHoleSelected: _selectHole,
               onAskCaddie: widget.onAskCaddie,
-              onAnalyze: widget.onAnalyze,
+              onAnalyze: widget.onAnalyze ?? () => _showHoleAnalysis(),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  void _showHoleAnalysis() {
+    final holeNum = _selectedHole;
+    if (holeNum == null) return;
+    final hole = widget.course.holes.cast<NormalizedHole?>().firstWhere(
+          (h) => h!.number == holeNum,
+          orElse: () => null,
+        );
+    if (hole == null) return;
+    showHoleAnalysisSheet(
+      context: context,
+      course: widget.course,
+      hole: hole,
+      selectedTee: _selectedTee,
+      weather: _weather,
     );
   }
 
