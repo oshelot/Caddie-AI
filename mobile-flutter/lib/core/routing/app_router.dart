@@ -17,9 +17,11 @@ import '../../features/caddie/presentation/caddie_page.dart';
 import '../../features/course/presentation/course_placeholder.dart';
 import '../../features/course/presentation/course_search_page.dart';
 import '../../features/history/presentation/history_page.dart';
+import '../../features/onboarding/presentation/onboarding_page.dart';
 import '../../features/profile/presentation/profile_page.dart';
 import '../../models/normalized_course.dart';
 import '../../shell/main_shell.dart';
+import '../storage/profile_repository.dart';
 
 /// Top-level routes used by the bottom navigation. Exposed as constants
 /// so feature code can `context.go(AppRoutes.caddie)` etc. without
@@ -42,6 +44,12 @@ abstract final class AppRoutes {
 
   static const history = '/history';
   static const profile = '/profile';
+
+  /// First-run onboarding wizard (KAN-S14). The router-level
+  /// `redirect` callback sends users with
+  /// `PlayerProfile.hasCompletedSwingOnboarding == false` here on
+  /// every navigation until they finish or skip the wizard.
+  static const onboarding = '/onboarding';
 }
 
 /// Build the app's `GoRouter`. Called once from `lib/app.dart` and
@@ -54,7 +62,31 @@ GoRouter buildAppRouter() {
     // defaulted to `caddie` and was flagged as a parity bug in the
     // (now closed) KAN-157 audit.
     initialLocation: AppRoutes.course,
+    // KAN-S14 first-run gate. Per the AC, first-run detection uses
+    // the profile store (NOT a separate flag) — the
+    // `hasCompletedSwingOnboarding` field is the single source of
+    // truth. Defensive try/catch covers the unit-test runtime
+    // where Hive isn't initialized; in tests the redirect is a
+    // no-op so the existing tab tests still work.
+    redirect: (context, state) {
+      // Don't redirect if we're already on the onboarding route
+      // (otherwise we'd loop forever).
+      if (state.matchedLocation == AppRoutes.onboarding) return null;
+      try {
+        final profile = ProfileRepository().loadOrDefault();
+        if (!profile.hasCompletedSwingOnboarding) {
+          return AppRoutes.onboarding;
+        }
+      } catch (_) {
+        // Hive not initialized (unit tests). Don't redirect.
+      }
+      return null;
+    },
     routes: [
+      GoRoute(
+        path: AppRoutes.onboarding,
+        builder: (context, state) => const OnboardingPage(),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
             MainShell(navigationShell: navigationShell),
