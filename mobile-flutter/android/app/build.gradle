@@ -32,7 +32,11 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.withReader("UTF-8") { reader -> localProperties.load(reader) }
 }
 
-if (project.findProperty("dart-defines") == null) {
+// The Flutter CLI invokes gradle with `-Pdart-defines=` (empty string,
+// NOT absent) when the user doesn't pass --dart-define flags. So we
+// must check for null OR empty, not just null.
+def existingDartDefines = project.findProperty("dart-defines")?.toString() ?: ""
+if (existingDartDefines.isEmpty()) {
     def secretKeys = [
         "COURSE_CACHE_ENDPOINT",
         "COURSE_CACHE_API_KEY",

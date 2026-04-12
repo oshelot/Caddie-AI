@@ -24,6 +24,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app.dart';
+import 'core/logging/log_event.dart';
 import 'core/logging/log_sender.dart';
 import 'core/logging/logging_service.dart';
 import 'core/mapbox/mapbox_init.dart';
@@ -96,7 +97,7 @@ LoggingService _buildLogger() {
     deviceModel: Platform.localHostname,
   );
 
-  return LoggingService(
+  final svc = LoggingService(
     sender: sender,
     // Device + session id placeholders. KAN-S2 ships the storage
     // layer that owns the persisted device id; a follow-up should
@@ -104,6 +105,32 @@ LoggingService _buildLogger() {
     // for the foundation story.
     deviceId: 'flutter-${DateTime.now().millisecondsSinceEpoch}',
     sessionId: '${DateTime.now().millisecondsSinceEpoch}',
-    enabled: !kDebugMode,
+    // Enable logging in ALL builds so debug runs still write to
+    // CloudWatch. The HttpLogSender.send short-circuits gracefully
+    // when endpoint or apiKey is empty, so dev runs without
+    // dart-defines are safe — they just no-op.
+    enabled: true,
   );
+
+  // Startup diagnostic — visible in CloudWatch so you can confirm
+  // the dart-define wiring landed. Logs whether each secret is set
+  // (not the values themselves).
+  svc.info(
+    LogCategory.lifecycle,
+    'app_startup',
+    metadata: {
+      'loggingEndpoint': endpoint.isEmpty ? 'MISSING' : 'set',
+      'loggingApiKey': apiKey.isEmpty ? 'MISSING' : 'set',
+      'courseCacheEndpoint': const String.fromEnvironment('COURSE_CACHE_ENDPOINT').isEmpty
+          ? 'MISSING'
+          : 'set',
+      'mapboxToken': const String.fromEnvironment('MAPBOX_TOKEN').isEmpty
+          ? 'MISSING'
+          : 'set',
+      'buildMode': kDebugMode ? 'debug' : 'release',
+      'platform': Platform.isIOS ? 'ios' : 'android',
+    },
+  );
+
+  return svc;
 }
