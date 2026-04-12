@@ -16,6 +16,7 @@ import '../../../core/golf/golf_enums.dart' as golf;
 import '../../../core/golf/shot_context.dart';
 import '../../../core/llm/direct_openai_provider.dart';
 import '../../../core/llm/llm_messages.dart';
+import '../../../core/logging/log_event.dart';
 import '../../../core/llm/llm_proxy_provider.dart';
 import '../../../core/llm/llm_router.dart';
 import '../../../core/storage/profile_repository.dart';
@@ -78,6 +79,19 @@ class _CaddiePageState extends State<CaddiePage> {
     final openAi = DirectOpenAiProvider(
       userApiKey: openAiKey,
       transport: transport,
+    );
+
+    // Diagnostic log so CloudWatch shows exactly what the router
+    // was built with — helps debug "no providers" errors.
+    logger.info(
+      LogCategory.llm,
+      'caddie_router_init',
+      metadata: {
+        'proxyAvailable': '${proxy.isAvailable}',
+        'proxyEndpoint': proxyEndpoint.isEmpty ? 'MISSING' : 'set',
+        'openAiKeyAvailable': '${openAi.isAvailable}',
+        'kDebugMode': '$kDebugMode',
+      },
     );
 
     if (!mounted) return;
