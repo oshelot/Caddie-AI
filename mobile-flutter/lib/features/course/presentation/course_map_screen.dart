@@ -146,16 +146,54 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
   late final WeatherService _weatherService =
       WeatherService(transport: DartIoHttpTransport());
 
+  /// Deduped tee entries: [{displayName, canonicalTee}].
+  /// Computed once in initState per KAN-182 algorithm.
+  late final List<_DeduplicatedTee> _dedupedTees =
+      _deduplicateTees(widget.course);
+
   @override
   void initState() {
     super.initState();
-    // Init tee selection to the first available tee.
-    final tees = widget.course.teeNames;
-    if (tees.isNotEmpty) {
-      _selectedTee = tees.first;
+    if (_dedupedTees.isNotEmpty) {
+      _selectedTee = _dedupedTees.first.canonicalTee;
     }
-    // Fetch weather for the course location.
     _fetchWeather();
+  }
+
+  /// KAN-182 dedup algorithm:
+  /// 1. Group tee names by their full yardage array across all holes
+  /// 2. Join groups with " / " for display
+  /// 3. Sort by total yardage descending (longest first)
+  /// 4. Store mapping from display name → canonical tee (first in group)
+  static List<_DeduplicatedTee> _deduplicateTees(NormalizedCourse course) {
+    final teeNames = course.teeNames;
+    if (teeNames.isEmpty) return const [];
+
+    // Build per-tee yardage signature: ordered list of yardages per hole.
+    final signatures = <String, List<String>>{};
+    for (final tee in teeNames) {
+      final sig = <int>[];
+      for (final hole in course.holes) {
+        sig.add(hole.yardages[tee] ?? 0);
+      }
+      final key = sig.join(',');
+      signatures.putIfAbsent(key, () => []).add(tee);
+    }
+
+    // Build deduped entries sorted by total yardage descending.
+    final entries = signatures.values.map((group) {
+      final displayName = group.join(' / ');
+      final canonical = group.first;
+      final total = course.teeYardageTotals[canonical] ?? 0;
+      return _DeduplicatedTee(
+        displayName: displayName,
+        canonicalTee: canonical,
+        totalYardage: total,
+      );
+    }).toList()
+      ..sort((a, b) => b.totalYardage.compareTo(a.totalYardage));
+
+    return entries;
   }
 
   Future<void> _fetchWeather() async {
@@ -176,33 +214,38 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     final course = widget.course;
     final centroid = course.centroid;
 
-    final tees = course.teeNames;
+    // Find display name for the currently selected canonical tee.
+    final selectedDisplay = _dedupedTees
+        .cast<_DeduplicatedTee?>()
+        .firstWhere((t) => t!.canonicalTee == _selectedTee, orElse: () => null)
+        ?.displayName;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Course Map'),
         actions: [
-          // Tee box selector — matches iOS top-right chip
-          if (tees.isNotEmpty)
+          // Tee box selector — KAN-182 deduped, matches iOS top-right chip
+          if (_dedupedTees.length > 1)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: PopupMenuButton<String>(
                 initialValue: _selectedTee,
-                onSelected: (tee) => setState(() => _selectedTee = tee),
-                itemBuilder: (_) => tees.map((tee) {
-                  final total = course.teeYardageTotals[tee];
+                onSelected: (canonical) =>
+                    setState(() => _selectedTee = canonical),
+                itemBuilder: (_) => _dedupedTees.map((entry) {
                   return PopupMenuItem(
-                    value: tee,
+                    value: entry.canonicalTee,
                     child: Row(
                       children: [
-                        if (tee == _selectedTee)
+                        if (entry.canonicalTee == _selectedTee)
                           const Icon(Icons.check, size: 18)
                         else
                           const SizedBox(width: 18),
                         const SizedBox(width: 8),
-                        Text(tee),
-                        if (total != null) ...[
+                        Text(entry.displayName),
+                        if (entry.totalYardage > 0) ...[
                           const Spacer(),
-                          Text('$total yds',
+                          Text('${entry.totalYardage} yds',
                               style: const TextStyle(
                                   color: Colors.grey, fontSize: 12)),
                         ],
@@ -212,9 +255,19 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
                 }).toList(),
                 child: Chip(
                   avatar: const Icon(Icons.flag, size: 16),
-                  label: Text(_selectedTee ?? 'Tees'),
-                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  label: Text(selectedDisplay ?? 'Tees'),
+                  backgroundColor:
+                      Theme.of(context).colorScheme.primaryContainer,
                 ),
+              ),
+            ),
+          // Single tee — show as a static label, no dropdown
+          if (_dedupedTees.length == 1)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Chip(
+                avatar: const Icon(Icons.flag, size: 16),
+                label: Text(_dedupedTees.first.displayName),
               ),
             ),
         ],
@@ -744,6 +797,24 @@ class _WeatherBadge extends StatelessWidget {
     if (code <= 77) return Icons.ac_unit; // snow
     return Icons.thunderstorm;
   }
+}
+
+/// One entry in the deduped tee list per KAN-182.
+class _DeduplicatedTee {
+  const _DeduplicatedTee({
+    required this.displayName,
+    required this.canonicalTee,
+    required this.totalYardage,
+  });
+
+  /// Merged display name, e.g. "Black / Silver".
+  final String displayName;
+
+  /// First tee name in the group — used as the key for yardage lookups.
+  final String canonicalTee;
+
+  /// Total yardage for sorting (longest first).
+  final int totalYardage;
 }
 
 class _DistanceHud extends StatelessWidget {
