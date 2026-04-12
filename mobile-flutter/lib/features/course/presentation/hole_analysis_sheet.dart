@@ -81,6 +81,16 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
       selectedTee: widget.selectedTee,
       weather: widget.weather,
     );
+    // ignore: avoid_print
+    print('ANALYSIS hole ${_analysis.holeNumber}: '
+        'lineOfPlay=${widget.hole.lineOfPlay != null ? "${widget.hole.lineOfPlay!.points.length} pts" : "NULL"}, '
+        'green=${widget.hole.green != null ? "${widget.hole.green!.outerRing.length} pts" : "NULL"}, '
+        'bunkers=${widget.hole.bunkers.length}, '
+        'fairwayWidth=${_analysis.fairwayWidthAtLandingYards}, '
+        'greenDepth=${_analysis.greenDepthYards}, '
+        'greenWidth=${_analysis.greenWidthYards}, '
+        'dogleg=${_analysis.dogleg?.direction}, '
+        'hazards=${_analysis.hazards.length}');
     _fetchStrategy();
   }
 
