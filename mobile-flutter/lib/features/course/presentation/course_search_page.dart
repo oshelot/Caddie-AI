@@ -418,9 +418,8 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
             if (course != null) {
               // ignore: avoid_print
               print('DOWNLOAD: normalized ${course.holes.length} holes');
-              if (cacheKeyForSave != null) {
-                _cacheClient.putCourse(cacheKeyForSave, course).ignore();
-              }
+              // Upload to server cache happens AFTER enrichment
+              // (Step 4) so tee data is included.
             } else {
               // ignore: avoid_print
               print('DOWNLOAD: normalizer returned null');
@@ -452,15 +451,19 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       course = await _enrichWithScorecardData(course, entry.name);
     }
 
-    // Step 5: Save to local disk cache so the Saved tab shows it
-    // and subsequent opens are instant.
+    // Step 5: Save to local disk cache AND upload to server cache.
+    // Both happen AFTER enrichment so geometry + tee data are
+    // included. The server upload is fire-and-forget so the next
+    // user gets an instant cache hit with full data.
     final repo = _cacheRepository;
-    if (course != null && cacheKeyForSave != null && repo != null) {
-      try {
-        await repo.save(cacheKeyForSave, course);
-      } catch (_) {
-        // Non-fatal: navigation still proceeds.
+    if (course != null && cacheKeyForSave != null) {
+      if (repo != null) {
+        try {
+          await repo.save(cacheKeyForSave, course);
+        } catch (_) {}
       }
+      // Upload enriched course to server cache (fire-and-forget).
+      _cacheClient.putCourse(cacheKeyForSave, course).ignore();
     }
 
     if (!mounted) return;

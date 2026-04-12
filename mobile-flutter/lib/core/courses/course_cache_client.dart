@@ -31,6 +31,7 @@
 
 import 'dart:convert';
 
+import '../geo/geo.dart';
 import '../../models/normalized_course.dart';
 import 'course_search_results.dart';
 import 'http_transport.dart';
@@ -279,6 +280,14 @@ class CourseCacheClient {
     return {
       'id': course.id,
       'name': course.name,
+      'city': course.city,
+      'state': course.state,
+      'centroid': {
+        'latitude': course.centroid.lat,
+        'longitude': course.centroid.lon,
+      },
+      'teeNames': course.teeNames,
+      'teeYardageTotals': course.teeYardageTotals,
       'holes': course.holes.map(_serializeHole).toList(),
     };
   }
@@ -289,12 +298,60 @@ class CourseCacheClient {
       'par': hole.par,
       'strokeIndex': hole.strokeIndex,
       'yardages': hole.yardages,
-      // Geometry is intentionally NOT re-serialized — the upload
-      // path is for clients that DISCOVER courses (e.g. via OSM
-      // ingestion) which isn't part of S5's scope. The server only
-      // accepts uploads from the discovery pipeline today; the
-      // mobile client's putCourse is here for future-proofing the
-      // API surface, not for actual production traffic.
+      'lineOfPlay': hole.lineOfPlay != null
+          ? {
+              'coordinates': hole.lineOfPlay!.points
+                  .map((p) => [p.lon, p.lat])
+                  .toList(growable: false)
+            }
+          : null,
+      'green': hole.green != null
+          ? {
+              'coordinates': [
+                _closedRing(hole.green!.outerRing)
+                    .map((p) => [p.lon, p.lat])
+                    .toList(growable: false)
+              ]
+            }
+          : null,
+      'pin': hole.pin != null
+          ? {'latitude': hole.pin!.lat, 'longitude': hole.pin!.lon}
+          : null,
+      'teeAreas': hole.teeAreas
+          .map((t) => {
+                'coordinates': [
+                  _closedRing(t.outerRing)
+                      .map((p) => [p.lon, p.lat])
+                      .toList(growable: false)
+                ]
+              })
+          .toList(growable: false),
+      'bunkers': hole.bunkers
+          .map((b) => {
+                'coordinates': [
+                  _closedRing(b.outerRing)
+                      .map((p) => [p.lon, p.lat])
+                      .toList(growable: false)
+                ]
+              })
+          .toList(growable: false),
+      'water': hole.water
+          .map((w) => {
+                'coordinates': [
+                  _closedRing(w.outerRing)
+                      .map((p) => [p.lon, p.lat])
+                      .toList(growable: false)
+                ]
+              })
+          .toList(growable: false),
     };
+  }
+
+  static List<LngLat> _closedRing(List<LngLat> ring) {
+    if (ring.length < 3) return ring;
+    final first = ring.first;
+    final last = ring.last;
+    if (first.lon == last.lon && first.lat == last.lat) return ring;
+    return [...ring, first];
   }
 }
