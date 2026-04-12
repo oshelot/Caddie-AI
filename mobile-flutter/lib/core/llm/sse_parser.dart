@@ -86,14 +86,25 @@ String? _processLine(String line) {
   if (payload == '[DONE]') return _doneSentinel;
   try {
     final json = jsonDecode(payload) as Map<String, dynamic>;
+    // Standard OpenAI format: choices[0].delta.content
     final choices = json['choices'] as List?;
-    if (choices == null || choices.isEmpty) return null;
-    final first = choices[0] as Map<String, dynamic>;
-    final delta = first['delta'] as Map<String, dynamic>?;
-    if (delta == null) return null;
-    final content = delta['content'] as String?;
-    if (content == null || content.isEmpty) return null;
-    return content;
+    if (choices != null && choices.isNotEmpty) {
+      final first = choices[0] as Map<String, dynamic>;
+      final delta = first['delta'] as Map<String, dynamic>?;
+      if (delta != null) {
+        final content = delta['content'] as String?;
+        if (content != null && content.isNotEmpty) return content;
+      }
+      return null;
+    }
+    // CaddieAI proxy format: {"content": "Hello"} — the Lambda
+    // proxy (caddieai-llm-proxy) uses a simplified SSE shape when
+    // streaming via Lambda Function URL RESPONSE_STREAM mode.
+    final directContent = json['content'] as String?;
+    if (directContent != null && directContent.isNotEmpty) {
+      return directContent;
+    }
+    return null;
   } catch (_) {
     // Malformed JSON — skip the line and continue. Matches the
     // iOS native's "best-effort streaming" behavior.
