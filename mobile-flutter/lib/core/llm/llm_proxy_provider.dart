@@ -80,19 +80,8 @@ class LlmProxyProvider implements LlmProvider {
         recoverable: false,
       );
     }
-    // The current `HttpTransport` interface returns the full body
-    // as a string, not a chunked stream. For the streaming path
-    // we re-use the same transport but parse the response as one
-    // SSE blob — the parser handles multi-event payloads. A
-    // future story can extend `HttpTransport` to expose a true
-    // chunked stream, which would let us render tokens as they
-    // arrive instead of after the whole response. For now, the
-    // streaming method returns deltas in one batch — but the
-    // public API is still `Stream<String>` so the caddie screen
-    // doesn't need to change when the underlying transport adds
-    // real chunking.
     final body = jsonEncode(request.toOpenAiJson(stream: true));
-    final response = await transport.send(HttpRequestLike(
+    final streaming = await transport.sendStreaming(HttpRequestLike(
       method: 'POST',
       url: Uri.parse(endpoint),
       headers: {
@@ -103,16 +92,16 @@ class LlmProxyProvider implements LlmProvider {
       body: body,
       timeout: _timeout,
     ));
-    if (!response.isSuccess) {
+    if (streaming.statusCode < 200 || streaming.statusCode >= 300) {
       throw LlmException(
-        'Proxy returned HTTP ${response.statusCode}',
-        statusCode: response.statusCode,
-        recoverable: response.statusCode >= 500,
+        'Proxy returned HTTP ${streaming.statusCode}',
+        statusCode: streaming.statusCode,
+        recoverable: streaming.statusCode >= 500,
       );
     }
-    // Wrap the response body in a single-element stream and let
-    // the SSE parser do its thing.
-    yield* parseOpenAiSseStream(Stream.value(response.body));
+    // True streaming: chunks arrive as the Lambda generates them.
+    // The SSE parser reassembles across chunk boundaries.
+    yield* parseOpenAiSseStream(streaming.body);
   }
 
   /// Parses the standard OpenAI Chat Completions response shape

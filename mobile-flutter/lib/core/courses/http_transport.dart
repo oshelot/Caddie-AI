@@ -63,6 +63,21 @@ class HttpRequestLike {
 
 abstract class HttpTransport {
   Future<HttpResponseLike> send(HttpRequestLike request);
+
+  /// Streaming variant — returns the raw response body as a
+  /// `Stream<String>` of UTF-8 chunks instead of buffering into
+  /// a single string. Used by the LLM proxy for token-by-token
+  /// SSE streaming. Also returns the status code so the caller
+  /// can bail on non-2xx before consuming the stream.
+  Future<({int statusCode, Stream<String> body})> sendStreaming(
+      HttpRequestLike request) async {
+    // Default implementation falls back to buffered send.
+    final response = await send(request);
+    return (
+      statusCode: response.statusCode,
+      body: Stream.value(response.body),
+    );
+  }
 }
 
 /// Production HTTP transport. Wraps `dart:io HttpClient` with
@@ -107,6 +122,24 @@ class DartIoHttpTransport implements HttpTransport {
       statusCode: response.statusCode,
       body: body,
       headers: headers,
+    );
+  }
+
+  /// True streaming — returns the response body as a Stream<String>
+  /// of raw UTF-8 chunks. Each chunk may contain zero, one, or
+  /// multiple SSE event lines. The SSE parser handles reassembly.
+  @override
+  Future<({int statusCode, Stream<String> body})> sendStreaming(
+      HttpRequestLike request) async {
+    final req = await _client.postUrl(request.url).timeout(request.timeout);
+    request.headers.forEach(req.headers.set);
+    if (request.body != null) {
+      req.add(utf8.encode(request.body!));
+    }
+    final response = await req.close().timeout(request.timeout);
+    return (
+      statusCode: response.statusCode,
+      body: response.transform(utf8.decoder),
     );
   }
 }

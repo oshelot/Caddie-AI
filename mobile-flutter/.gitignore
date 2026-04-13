@@ -42,3 +42,4 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 mobile-flutter/tool/run-ios.sh
+tool/run-ios.sh

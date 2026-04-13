@@ -45,6 +45,7 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../../core/golf/golf_enums.dart';
@@ -152,6 +153,7 @@ class _CaddieScreenState extends State<CaddieScreen> {
   final StringBuffer _llmTranscript = StringBuffer();
   StreamSubscription<String>? _llmSub;
   String? _llmError;
+  int? _llmLatencyMs;
 
   // TTS state
   StreamSubscription<bool>? _ttsSpeakingSub;
@@ -246,45 +248,54 @@ class _CaddieScreenState extends State<CaddieScreen> {
       _stage = CaddieFlowStage.streamingLlm;
       _llmTranscript.clear();
       _llmError = null;
+      _llmLatencyMs = null;
     });
 
     final request = _buildLlmRequest(analysis);
+    final stopwatch = Stopwatch()..start();
     try {
-      // Use the non-streaming path first — more reliable than SSE
-      // streaming through Lambda Function URL RESPONSE_STREAM mode
-      // where chunked transfer encoding can cause silent failures
-      // on some Android devices. The full response arrives in one
-      // shot; the caddie screen displays it immediately then hands
-      // off to TTS. A future story can re-enable streaming once the
-      // transport supports true chunked reads with timeouts.
-      final response = await widget.llmRouter.chatCompletion(
+      _llmSub = widget.llmRouter
+          .chatCompletionStream(
         request: request,
         tier: widget.tier,
         preferredProvider: widget.preferredProvider,
+      )
+          .listen(
+        (chunk) {
+          if (!mounted) return;
+          if (_llmLatencyMs == null) {
+            _llmLatencyMs = stopwatch.elapsedMilliseconds;
+          }
+          setState(() => _llmTranscript.write(chunk));
+        },
+        onError: (Object error) {
+          stopwatch.stop();
+          // ignore: avoid_print
+          print('LLM STREAM ERROR: $error');
+          if (!mounted) return;
+          setState(() {
+            _llmError = '$error';
+            _stage = CaddieFlowStage.engineDone;
+          });
+        },
+        onDone: () {
+          stopwatch.stop();
+          _llmLatencyMs ??= stopwatch.elapsedMilliseconds;
+          if (!mounted) return;
+          final fullText = _llmTranscript.toString();
+          if (fullText.isEmpty) {
+            setState(() => _stage = CaddieFlowStage.engineDone);
+            return;
+          }
+          setState(() => _stage = CaddieFlowStage.done);
+        },
       );
-      if (!mounted) return;
-      final text = response.text;
-      if (text.isEmpty) {
-        setState(() => _stage = CaddieFlowStage.engineDone);
-        return;
-      }
-      setState(() {
-        _llmTranscript.write(text);
-        _stage = CaddieFlowStage.done;
-      });
     } catch (e, stackTrace) {
-      // Print to debug console (visible in the terminal running
-      // ./tool/run.sh) so we can see the EXACT error + stack trace
-      // without waiting for CloudWatch log flush.
+      stopwatch.stop();
       // ignore: avoid_print
       print('LLM CALL ERROR: $e');
       // ignore: avoid_print
       print('STACK TRACE: $stackTrace');
-      widget.logger.warning(
-        LogCategory.llm,
-        'llm_call_error',
-        metadata: {'error': '$e', 'tier': widget.tier.name},
-      );
       if (!mounted) return;
       setState(() {
         _llmError = '$e';
@@ -380,6 +391,7 @@ class _CaddieScreenState extends State<CaddieScreen> {
                 llmTranscript: _llmTranscript.toString(),
                 llmError: _llmError,
                 ttsActive: _ttsActive,
+                llmLatencyMs: _llmLatencyMs,
                 onAskAi: _streamLlmCommentary,
                 onStopSpeaking: _stopSpeaking,
                 onResetFlow: _resetFlow,
@@ -587,6 +599,7 @@ class RecommendationCard extends StatelessWidget {
     required this.onStopSpeaking,
     required this.onResetFlow,
     this.onListenPressed,
+    this.llmLatencyMs,
   });
 
   final DeterministicAnalysis analysis;
@@ -594,6 +607,7 @@ class RecommendationCard extends StatelessWidget {
   final String llmTranscript;
   final String? llmError;
   final bool ttsActive;
+  final int? llmLatencyMs;
   final VoidCallback onAskAi;
   final VoidCallback onStopSpeaking;
   final VoidCallback onResetFlow;
@@ -668,6 +682,17 @@ class RecommendationCard extends StatelessWidget {
                     'AI commentary streaming…',
                     style: theme.textTheme.bodySmall,
                   ),
+                  if (kDebugMode && llmLatencyMs != null) ...[
+                    const Spacer(),
+                    Text(
+                      '${llmLatencyMs}ms',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 8),
@@ -702,6 +727,18 @@ class RecommendationCard extends StatelessWidget {
               ),
             ],
             if (stage == CaddieFlowStage.done) ...[
+              if (kDebugMode && llmLatencyMs != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'LLM: ${llmLatencyMs}ms to first token',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
               Text(
                 llmTranscript,
                 key: const Key('caddie-final-transcript'),

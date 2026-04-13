@@ -13,7 +13,7 @@
 
 import 'package:caddieai/core/courses/http_transport.dart';
 
-class FakeHttpTransport implements HttpTransport {
+class FakeHttpTransport extends HttpTransport {
   /// Every request the client made, in call order. Tests assert
   /// against `[0]`, `[1]`, etc.
   final List<HttpRequestLike> requests = [];
