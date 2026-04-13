@@ -38,7 +38,19 @@ class ProfileRepository {
   /// Returns the stored profile or a default `PlayerProfile()` if
   /// nothing has been written yet. Use this in UI code that always
   /// needs a profile to render against.
-  PlayerProfile loadOrDefault() => load() ?? const PlayerProfile();
+  PlayerProfile loadOrDefault() {
+    final profile = load() ?? const PlayerProfile();
+    // Backfill: if an existing profile has an empty bag (saved before
+    // the default bag was added), apply the defaults so the user
+    // doesn't start with zero clubs.
+    if (profile.clubDistances.isEmpty) {
+      return profile.copyWith(
+        clubDistances: const PlayerProfile().clubDistances,
+        bagClubs: const PlayerProfile().bagClubs,
+      );
+    }
+    return profile;
+  }
 
   /// Persists the profile, stamping `updatedAtMs` (and `createdAtMs`
   /// on first write).
