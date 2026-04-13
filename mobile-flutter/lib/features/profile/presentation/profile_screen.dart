@@ -243,19 +243,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
           // ── Section 3: Navigation links ─────────────────────────
           // iOS ProfileView.swift:63-86
           _NavLinkRow(
-            icon: Icons.shopping_bag_outlined,
+            icon: CaddieIcons.club(size: 28, color: theme.colorScheme.primary),
             title: 'Your Bag',
             subtitle: '${_draft.clubDistances.length}/13 clubs',
             onTap: () => _pushSubScreen(YourBagScreen(profile: _draft)),
           ),
           _NavLinkRow(
-            icon: Icons.sports_golf_outlined,
+            icon: CaddieIcons.golfer(size: 28, color: theme.colorScheme.primary),
             title: 'Swing Info',
             subtitle: 'Shape, tendencies, short game',
             onTap: () => _pushSubScreen(SwingInfoScreen(profile: _draft)),
           ),
           _NavLinkRow(
-            icon: Icons.flag_outlined,
+            icon: CaddieIcons.flag(size: 28, color: theme.colorScheme.primary),
             title: 'Tee Box Preference',
             subtitle: _teeBoxDisplayName(_draft.preferredTeeBox),
             onTap: () => _pushSubScreen(
@@ -282,8 +282,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline,
-                          size: 16, color: theme.colorScheme.outline),
+                      CaddieIcons.info(size: 16, color: theme.colorScheme.outline),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -408,7 +407,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           // ── Section 6: Contact Info ─────────────────────────────
           // iOS ProfileView.swift:126-132
           _NavLinkRow(
-            icon: Icons.email_outlined,
+            icon: CaddieIcons.send(size: 28, color: theme.colorScheme.primary),
             title: 'Contact Info',
             subtitle: _draft.name.isNotEmpty
                 ? _draft.name
@@ -547,7 +546,7 @@ class _NavLinkRow extends StatelessWidget {
     required this.onTap,
   });
 
-  final IconData icon;
+  final Widget icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
@@ -563,7 +562,7 @@ class _NavLinkRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
         ),
         child: ListTile(
-          leading: Icon(icon, size: 28, color: theme.colorScheme.primary),
+          leading: icon,
           title: Text(
             title,
             style: theme.textTheme.titleSmall?.copyWith(
@@ -576,7 +575,7 @@ class _NavLinkRow extends StatelessWidget {
               color: theme.colorScheme.outline,
             ),
           ),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: CaddieIcons.chevronRight(size: 20),
           onTap: onTap,
         ),
       ),

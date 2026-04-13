@@ -184,7 +184,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       itemBuilder: (context, i) {
         final card = widget.scorecards[i];
         return ListTile(
-          leading: const Icon(Icons.scoreboard_outlined),
+          leading: CaddieIcons.target(size: 24),
           title: Text(card.courseName.isNotEmpty
               ? card.courseName
               : 'Round ${i + 1}'),

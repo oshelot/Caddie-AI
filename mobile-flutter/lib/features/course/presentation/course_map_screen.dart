@@ -286,7 +286,7 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
                   );
                 }).toList(),
                 child: Chip(
-                  avatar: const Icon(Icons.flag, size: 16),
+                  avatar: CaddieIcons.tee(size: 16),
                   label: Text(selectedDisplay ?? 'Tees'),
                   backgroundColor:
                       Theme.of(context).colorScheme.primaryContainer,
@@ -298,7 +298,7 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 12),
               child: Chip(
-                avatar: const Icon(Icons.flag, size: 16),
+                avatar: CaddieIcons.tee(size: 16),
                 label: Text(_dedupedTees.first.displayName),
               ),
             ),
@@ -850,7 +850,7 @@ class _WeatherBadge extends StatelessWidget {
                   fontSize: 13)),
           if (weather.windSpeedMph >= 1) ...[
             const SizedBox(width: 8),
-            const Icon(Icons.air, color: Colors.white, size: 14),
+            CaddieIcons.wind(size: 14, color: Colors.white),
             const SizedBox(width: 3),
             Text(wind,
                 style: const TextStyle(color: Colors.white, fontSize: 13)),
@@ -1045,7 +1045,7 @@ class _BottomPanel extends StatelessWidget {
                       Expanded(
                         child: FilledButton.icon(
                           onPressed: onAskCaddie,
-                          icon: const Icon(Icons.sports_golf, size: 18),
+                          icon: CaddieIcons.golfer(size: 18),
                           label: const Text('Ask Caddie'),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF2E7D32),
@@ -1058,7 +1058,7 @@ class _BottomPanel extends StatelessWidget {
                       Expanded(
                         child: FilledButton.icon(
                           onPressed: onAnalyze,
-                          icon: const Icon(Icons.auto_awesome, size: 18),
+                          icon: CaddieIcons.target(size: 18),
                           label: const Text('Analyze'),
                           style: FilledButton.styleFrom(
                             backgroundColor: Theme.of(context).colorScheme.primary,

@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../core/icons/caddie_icons.dart';
 import '../../../core/courses/http_transport.dart';
 import '../../../core/geo/geo.dart';
 import '../../../core/llm/llm_messages.dart';
@@ -348,7 +349,7 @@ class _AskCaddieContentState extends State<_AskCaddieContent> {
             else ...[
               Row(
                 children: [
-                  const Icon(Icons.my_location, size: 16, color: Colors.blue),
+                  CaddieIcons.pinTarget(size: 16, color: Colors.blue),
                   const SizedBox(width: 6),
                   if (_distanceToGreenYards != null)
                     Text(
@@ -375,7 +376,7 @@ class _AskCaddieContentState extends State<_AskCaddieContent> {
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Icon(Icons.air, size: 14, color: Colors.cyan),
+                    CaddieIcons.wind(size: 14, color: Colors.cyan),
                     const SizedBox(width: 6),
                     Text(
                       '${widget.weather!.temperatureF.round()}\u00B0F, '
@@ -448,7 +449,7 @@ class _AskCaddieContentState extends State<_AskCaddieContent> {
                       )
                     : IconButton(
                         onPressed: _submitFollowUp,
-                        icon: const Icon(Icons.arrow_upward_rounded),
+                        icon: CaddieIcons.send(size: 20),
                         style: IconButton.styleFrom(
                           backgroundColor: theme.colorScheme.primary,
                           foregroundColor: theme.colorScheme.onPrimary,

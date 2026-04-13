@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/icons/caddie_icons.dart';
 import '../../../../models/player_profile.dart';
 
 /// All clubs that can appear in a bag, with their default carry yards.
@@ -161,7 +162,7 @@ class _YourBagScreenState extends State<YourBagScreen> {
                         alignment: Alignment.centerRight,
                         color: Colors.red,
                         padding: const EdgeInsets.only(right: 16),
-                        child: const Icon(Icons.delete, color: Colors.white),
+                        child: CaddieIcons.delete(size: 24, color: Colors.white),
                       ),
                       onDismissed: (_) => _removeClub(entry.key),
                       child: Padding(
@@ -197,7 +198,7 @@ class _YourBagScreenState extends State<YourBagScreen> {
                       padding: const EdgeInsets.only(top: 8),
                       child: TextButton.icon(
                         onPressed: _showAddClubSheet,
-                        icon: const Icon(Icons.add),
+                        icon: CaddieIcons.add(size: 18),
                         label: const Text('Add Club'),
                       ),
                     ),

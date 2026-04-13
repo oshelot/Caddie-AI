@@ -450,16 +450,16 @@ class _TabBar extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: SegmentedButton<int>(
-        segments: const [
+        segments: [
           ButtonSegment<int>(
             value: 0,
-            icon: Icon(Icons.search),
-            label: Text('Search'),
+            icon: CaddieIcons.course(size: 18),
+            label: const Text('Search'),
           ),
           ButtonSegment<int>(
             value: 1,
-            icon: Icon(Icons.bookmark),
-            label: Text('Saved'),
+            icon: CaddieIcons.course(size: 18),
+            label: const Text('Saved'),
           ),
         ],
         selected: {selectedIndex},
@@ -515,7 +515,7 @@ class _SearchBar extends StatelessWidget {
             textInputAction: TextInputAction.search,
             decoration: InputDecoration(
               hintText: 'Course name (e.g. Sharp Park)',
-              prefixIcon: const Icon(Icons.search),
+              prefixIcon: CaddieIcons.course(size: 20),
               suffixIcon: isSearching
                   ? const Padding(
                       padding: EdgeInsets.all(12),
@@ -541,7 +541,7 @@ class _SearchBar extends StatelessWidget {
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 hintText: 'City (optional)',
-                prefixIcon: const Icon(Icons.location_city_outlined),
+                prefixIcon: CaddieIcons.pinTarget(size: 20),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -559,10 +559,7 @@ class _SearchBar extends StatelessWidget {
                         ListTile(
                           key: Key('course-search-city-suggestion-$i'),
                           dense: true,
-                          leading: const Icon(
-                            Icons.place_outlined,
-                            size: 18,
-                          ),
+                          leading: CaddieIcons.pinTarget(size: 18),
                           title: Text(
                             citySuggestions[i].mainText.isNotEmpty
                                 ? citySuggestions[i].mainText
@@ -607,7 +604,7 @@ class _SearchBar extends StatelessWidget {
             child: FilledButton.icon(
               key: CourseSearchKeys.searchButton,
               onPressed: isSearching ? null : onSubmit,
-              icon: const Icon(Icons.search),
+              icon: CaddieIcons.course(size: 18),
               label: const Text('Search'),
             ),
           ),
@@ -786,7 +783,7 @@ class _CourseRow extends StatelessWidget {
       subtitle: subtitle == null ? null : Text(subtitle),
       onTap: () => onSelect(entry),
       trailing: isStarFilled == null
-          ? const Icon(Icons.chevron_right)
+          ? CaddieIcons.chevronRight(size: 20)
           : IconButton(
               key: CourseSearchKeys.favoriteToggle,
               icon: Icon(
@@ -814,7 +811,7 @@ class _CourseRow extends StatelessWidget {
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 20),
           color: Colors.red,
-          child: const Icon(Icons.delete, color: Colors.white),
+          child: CaddieIcons.delete(size: 24, color: Colors.white),
         ),
         child: tile,
       );
@@ -861,7 +858,7 @@ class _IdleState extends StatelessWidget {
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: () => onSelectDemo(demoEntry!),
-              icon: const Icon(Icons.map_outlined),
+              icon: CaddieIcons.course(size: 18),
               label: Text('Open demo: ${demoEntry!.name}'),
             ),
           ],

@@ -370,7 +370,7 @@ class _CaddieScreenState extends State<CaddieScreen> {
                       _stage == CaddieFlowStage.speaking
                   ? null
                   : _runEngine,
-              icon: const Icon(Icons.calculate_outlined),
+              icon: CaddieIcons.target(size: 18),
               label: const Text('Get recommendation'),
             ),
             const SizedBox(height: 16),
@@ -534,7 +534,7 @@ class VoiceInputControl extends StatelessWidget {
                 FilledButton.tonalIcon(
                   key: const Key('caddie-voice-button'),
                   onPressed: isListening ? onStop : onStart,
-                  icon: Icon(isListening ? Icons.stop : Icons.mic),
+                  icon: isListening ? const Icon(Icons.stop) : CaddieIcons.mic(),
                   label: Text(isListening ? 'Stop' : 'Speak shot details'),
                 ),
                 const Spacer(),
@@ -627,7 +627,7 @@ class RecommendationCard extends StatelessWidget {
               FilledButton.icon(
                 key: const Key('caddie-ask-ai-button'),
                 onPressed: onAskAi,
-                icon: const Icon(Icons.auto_awesome),
+                icon: CaddieIcons.target(),
                 label: const Text('Ask AI for commentary'),
               ),
             if (llmError != null) ...[
@@ -669,7 +669,7 @@ class RecommendationCard extends StatelessWidget {
             if (stage == CaddieFlowStage.speaking) ...[
               Row(
                 children: [
-                  Icon(Icons.volume_up, color: theme.colorScheme.primary),
+                  CaddieIcons.listen(color: theme.colorScheme.primary),
                   const SizedBox(width: 8),
                   Text(
                     ttsActive ? 'Speaking…' : 'Preparing…',
@@ -679,7 +679,7 @@ class RecommendationCard extends StatelessWidget {
                   TextButton.icon(
                     key: const Key('caddie-stop-speaking-button'),
                     onPressed: onStopSpeaking,
-                    icon: const Icon(Icons.stop),
+                    icon: CaddieIcons.close(size: 18),
                     label: const Text('Stop'),
                   ),
                 ],
@@ -700,7 +700,7 @@ class RecommendationCard extends StatelessWidget {
               OutlinedButton.icon(
                 key: const Key('caddie-reset-button'),
                 onPressed: onResetFlow,
-                icon: const Icon(Icons.refresh),
+                icon: CaddieIcons.refresh(),
                 label: const Text('New shot'),
               ),
             ],

@@ -4,6 +4,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../core/icons/caddie_icons.dart';
 import '../../../core/courses/hole_analysis_engine.dart';
 import '../../../core/courses/http_transport.dart';
 import '../../../core/llm/llm_messages.dart';
@@ -271,7 +272,7 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
             Row(
               children: [
                 if (a.par != null) ...[
-                  const Icon(Icons.flag, size: 16, color: Colors.grey),
+                  CaddieIcons.flag(size: 16, color: Colors.grey),
                   const SizedBox(width: 4),
                   Text('Par ${a.par}',
                       style: theme.textTheme.bodyMedium
@@ -279,7 +280,7 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
                 ],
                 if (displayYds != null) ...[
                   const SizedBox(width: 12),
-                  const Icon(Icons.straighten, size: 16, color: Colors.grey),
+                  CaddieIcons.distance(size: 16, color: Colors.grey),
                   const SizedBox(width: 4),
                   Text('$displayYds yds',
                       style: theme.textTheme.bodyMedium
@@ -378,7 +379,7 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
                       )
                     : IconButton(
                         onPressed: _submitFollowUp,
-                        icon: const Icon(Icons.arrow_upward_rounded),
+                        icon: CaddieIcons.send(size: 20),
                         style: IconButton.styleFrom(
                           backgroundColor: theme.colorScheme.primary,
                           foregroundColor: theme.colorScheme.onPrimary,
@@ -487,7 +488,7 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
       facts.add(_factRow(
         label: 'Weather',
         value: a.weather!.summaryText,
-        icon: Icons.air,
+        iconWidget: CaddieIcons.wind(size: 14, color: Colors.cyan),
         color: Colors.cyan,
         theme: theme,
       ));
@@ -517,7 +518,7 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
     required String value,
     required ThemeData theme,
     Color? color,
-    IconData? icon,
+    Widget? iconWidget,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -526,9 +527,8 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
         children: [
           Padding(
             padding: const EdgeInsets.only(top: 4),
-            child: icon != null
-                ? Icon(icon, size: 14, color: color ?? Colors.green)
-                : Icon(Icons.circle, size: 10, color: color ?? Colors.green),
+            child: iconWidget ??
+                Icon(Icons.circle, size: 10, color: color ?? Colors.green),
           ),
           const SizedBox(width: 10),
           Expanded(
