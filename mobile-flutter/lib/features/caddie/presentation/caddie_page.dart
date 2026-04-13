@@ -8,7 +8,7 @@
 // constructs `flutter_tts` / `speech_to_text` / `dart:io HttpClient`
 // instances which all need real platform channels.
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import '../../../core/build_mode.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/courses/http_transport.dart';
@@ -90,7 +90,7 @@ class _CaddiePageState extends State<CaddiePage> {
         'proxyAvailable': '${proxy.isAvailable}',
         'proxyEndpoint': proxyEndpoint.isEmpty ? 'MISSING' : 'set',
         'openAiKeyAvailable': '${openAi.isAvailable}',
-        'kDebugMode': '$kDebugMode',
+        'isDevMode': '$isDevMode',
       },
     );
 
@@ -142,7 +142,7 @@ class _CaddiePageState extends State<CaddiePage> {
     // Debug builds default to paid tier so the proxy/Bedrock path
     // works out-of-the-box without requiring an API key. Release
     // builds respect the profile's userTier field.
-    final tier = kDebugMode
+    final tier = isDevMode
         ? LlmTier.paid
         : (profile.userTier.toLowerCase() == 'pro'
             ? LlmTier.paid

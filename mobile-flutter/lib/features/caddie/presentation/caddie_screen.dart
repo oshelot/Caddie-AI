@@ -45,7 +45,7 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import '../../../core/build_mode.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/golf/golf_enums.dart';
@@ -682,7 +682,7 @@ class RecommendationCard extends StatelessWidget {
                     'AI commentary streaming…',
                     style: theme.textTheme.bodySmall,
                   ),
-                  if (kDebugMode && llmLatencyMs != null) ...[
+                  if (isDevMode && llmLatencyMs != null) ...[
                     const Spacer(),
                     Text(
                       '${llmLatencyMs}ms',
@@ -727,7 +727,7 @@ class RecommendationCard extends StatelessWidget {
               ),
             ],
             if (stage == CaddieFlowStage.done) ...[
-              if (kDebugMode && llmLatencyMs != null)
+              if (isDevMode && llmLatencyMs != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(

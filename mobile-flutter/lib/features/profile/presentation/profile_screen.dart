@@ -17,7 +17,7 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import '../../../core/build_mode.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/icons/caddie_icons.dart';
@@ -48,7 +48,7 @@ class ProfileScreen extends StatefulWidget {
     required this.onSave,
     this.initialSecrets = const {},
     this.subscriptionService,
-    this.showDebugSection = kDebugMode,
+    this.showDebugSection = isDevMode,
     this.adService,
   });
 

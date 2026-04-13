@@ -19,7 +19,7 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import '../../../core/build_mode.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/monetization/subscription_service.dart';
@@ -47,7 +47,7 @@ class _ProfilePageState extends State<ProfilePage> {
   final _secureKeys = SecureKeysStorage();
   late final SubscriptionService _subscriptionService =
       widget.subscriptionService ?? StubSubscriptionService()
-        ..debugForcePro = kDebugMode;
+        ..debugForcePro = isDevMode;
   late final bool _ownsSubscriptionService = widget.subscriptionService == null;
   StreamSubscription<bool>? _adSyncSub;
 

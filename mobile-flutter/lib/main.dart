@@ -24,6 +24,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app.dart';
+import 'core/build_mode.dart';
 import 'core/logging/log_event.dart';
 import 'core/monetization/ad_service.dart';
 import 'core/monetization/google_mobile_ads_service.dart';
@@ -86,7 +87,7 @@ Future<void> main() async {
   // hidden automatically via setSubscribed(true).
   final ads = GoogleMobileAdsService();
   await ads.initialize();
-  if (kDebugMode) ads.setSubscribed(true);
+  if (isDevMode) ads.setSubscribed(true);
   adService = ads;
   runApp(CaddieApp());
 }
