@@ -368,7 +368,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'No API key configured. Add your ${_activeKeyLabel()} '
+                          'No API key configured. Add your LLM provider API key '
                           'below to use AI-powered recommendations.',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: Colors.orange,
