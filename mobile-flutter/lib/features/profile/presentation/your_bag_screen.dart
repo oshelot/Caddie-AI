@@ -154,6 +154,30 @@ class _YourBagScreenState extends State<YourBagScreen> {
               title: 'Clubs (${sorted.length}/$_maxClubs)',
               child: Column(
                 children: [
+                  // Legend row
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text('Club',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: Colors.grey)),
+                        ),
+                        SizedBox(
+                          width: 80,
+                          child: Text('Carry (yds)',
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: Colors.grey)),
+                        ),
+                      ],
+                    ),
+                  ),
                   for (final entry in sorted)
                     Dismissible(
                       key: ValueKey(entry.key),
@@ -177,7 +201,6 @@ class _YourBagScreenState extends State<YourBagScreen> {
                                 keyboardType: TextInputType.number,
                                 textAlign: TextAlign.end,
                                 decoration: const InputDecoration(
-                                  suffixText: 'yds',
                                   isDense: true,
                                   border: OutlineInputBorder(),
                                 ),
