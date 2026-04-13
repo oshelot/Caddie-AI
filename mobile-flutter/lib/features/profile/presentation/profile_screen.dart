@@ -321,16 +321,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             title: 'Settings',
             theme: theme,
             children: [
-              // AI Provider + keys inline (a future story can
-              // extract to a separate route matching iOS/Android)
-              _stringDropdown(
-                key: const Key('profile-llm-provider'),
-                label: 'AI Provider',
-                value: _draft.llmProvider,
-                options: const ['openAI', 'claude', 'gemini'],
-                onChanged: (v) =>
-                    setState(() => _draft = _draft.copyWith(llmProvider: v)),
-              ),
               _stringDropdown(
                 key: const Key('profile-tier'),
                 label: 'Tier',
@@ -339,6 +329,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onChanged: (v) =>
                     setState(() => _draft = _draft.copyWith(userTier: v)),
               ),
+              if (_isSubscribed)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      CaddieIcons.info(size: 16, color: theme.colorScheme.outline),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'All AI features managed by CaddieAI. No API keys needed.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               SwitchListTile(
                 key: const Key('profile-telemetry-toggle'),
                 title: const Text('Share Usage Data'),
@@ -373,42 +381,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ],
           ),
-          // ── Section 5b: API Keys card ──────────────────────────
-          _ProfileCard(
-            title: 'API Keys',
-            theme: theme,
-            subtitle: 'Stored in platform Keychain / '
-                'EncryptedSharedPreferences.',
-            children: [
-              TextField(
-                key: const Key('profile-openai-key-field'),
-                controller: _openAiKeyController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'OpenAI API key',
-                  border: OutlineInputBorder(),
+          // ── Section 5b: API Keys (free tier only) ─────────────
+          // Pro tier: managed by CaddieAI backend, no keys needed.
+          // Free tier: show the selected provider's key input only.
+          if (!_isSubscribed)
+            _ProfileCard(
+              title: 'API Key',
+              theme: theme,
+              subtitle: _apiKeySubtitle(),
+              children: [
+                _stringDropdown(
+                  key: const Key('profile-llm-provider'),
+                  label: 'AI Provider',
+                  value: _draft.llmProvider,
+                  options: const ['openAI', 'claude', 'gemini'],
+                  onChanged: (v) =>
+                      setState(() => _draft = _draft.copyWith(llmProvider: v)),
                 ),
-              ),
-              TextField(
-                key: const Key('profile-claude-key-field'),
-                controller: _claudeKeyController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Claude API key',
-                  border: OutlineInputBorder(),
+                TextField(
+                  key: Key('profile-${_draft.llmProvider}-key-field'),
+                  controller: _activeKeyController(),
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: _activeKeyLabel(),
+                    hintText: _activeKeyHint(),
+                    border: const OutlineInputBorder(),
+                  ),
                 ),
-              ),
-              TextField(
-                key: const Key('profile-gemini-key-field'),
-                controller: _geminiKeyController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Gemini API key',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
           // ── Section 6: Contact Info ─────────────────────────────
           // iOS ProfileView.swift:126-132
           _NavLinkRow(
@@ -425,6 +426,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       bottomNavigationBar: widget.adService?.bannerAd(),
     );
+  }
+
+  TextEditingController _activeKeyController() {
+    switch (_draft.llmProvider) {
+      case 'claude': return _claudeKeyController;
+      case 'gemini': return _geminiKeyController;
+      default: return _openAiKeyController;
+    }
+  }
+
+  String _activeKeyLabel() {
+    switch (_draft.llmProvider) {
+      case 'claude': return 'Claude API key';
+      case 'gemini': return 'Gemini API key';
+      default: return 'OpenAI API key';
+    }
+  }
+
+  String _activeKeyHint() {
+    switch (_draft.llmProvider) {
+      case 'claude': return 'sk-ant-...';
+      case 'gemini': return 'AIza...';
+      default: return 'sk-...';
+    }
+  }
+
+  String _apiKeySubtitle() {
+    switch (_draft.llmProvider) {
+      case 'claude': return 'Get your key at console.anthropic.com';
+      case 'gemini': return 'Get your key at aistudio.google.com';
+      default: return 'Get your key at platform.openai.com';
+    }
   }
 
   Widget _stringDropdown({

@@ -73,7 +73,7 @@ void main() {
       expect(find.text('Caddie Voice & Personality'), findsOneWidget);
       expect(find.text('Features'), findsOneWidget);
       expect(find.text('Settings'), findsOneWidget);
-      expect(find.text('API Keys'), findsOneWidget);
+      expect(find.text('API Key'), findsOneWidget);
       // Navigation links
       expect(find.text('Your Bag'), findsOneWidget);
       expect(find.text('Swing Info'), findsOneWidget);
@@ -167,7 +167,7 @@ void main() {
       const sentinel = 'sk-canary-DO-NOT-LEAK-INTO-PROFILE-9f3a2b';
 
       await tester.enterText(
-        find.byKey(const Key('profile-openai-key-field')),
+        find.byKey(const Key('profile-openAI-key-field')),
         sentinel,
       );
       await tester.tap(find.byKey(const Key('profile-save-button')));
@@ -194,7 +194,7 @@ void main() {
       expect(profileJson.toLowerCase().contains('token'), isFalse);
     });
 
-    testWidgets('initialSecrets pre-populates the API key fields',
+    testWidgets('initialSecrets pre-populates the active provider key field',
         (tester) async {
       await _pumpScreen(
         tester,
@@ -202,17 +202,13 @@ void main() {
         onSave: (_) async {},
         initialSecrets: const {
           SecureKey.openAi: 'sk-existing-openai',
-          SecureKey.claude: 'sk-ant-existing',
         },
       );
+      // Default provider is openAI — its key should be pre-filled.
       final openaiField = tester.widget<TextField>(
-        find.byKey(const Key('profile-openai-key-field')),
+        find.byKey(const Key('profile-openAI-key-field')),
       );
       expect(openaiField.controller!.text, 'sk-existing-openai');
-      final claudeField = tester.widget<TextField>(
-        find.byKey(const Key('profile-claude-key-field')),
-      );
-      expect(claudeField.controller!.text, 'sk-ant-existing');
     });
 
     testWidgets('clearing an API key field saves an empty string '
@@ -226,7 +222,7 @@ void main() {
         initialSecrets: const {SecureKey.openAi: 'sk-old'},
       );
       await tester.enterText(
-        find.byKey(const Key('profile-openai-key-field')),
+        find.byKey(const Key('profile-openAI-key-field')),
         '',
       );
       await tester.tap(find.byKey(const Key('profile-save-button')));
