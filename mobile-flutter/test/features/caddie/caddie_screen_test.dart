@@ -320,7 +320,7 @@ void main() {
       // Effective distance for 160y / fairway / no wind / level → 160.
       expect(find.textContaining('160 yards'), findsWidgets);
       // 7-iron carries 160 in the test bag → recommended.
-      expect(find.text('iron7'), findsOneWidget);
+      expect(find.text('7-Iron'), findsOneWidget);
       // The "Ask AI" CTA is now visible.
       expect(find.byKey(const Key('caddie-ask-ai-button')), findsOneWidget);
     });
@@ -379,8 +379,8 @@ void main() {
 
   group('TTS playback', () {
     testWidgets(
-        'on LLM completion, TTS.speak is called with the full '
-        'transcript and the configured persona', (tester) async {
+        'on LLM completion, TTS does NOT auto-play — user taps Listen',
+        (tester) async {
       llmProvider = FakeLlmProvider(streamChunks: const ['One.', ' Two.']);
       await _pumpScreen(
         tester,
@@ -392,13 +392,13 @@ void main() {
       await tester.tap(find.text('Get recommendation'));
       await tester.pump();
       await tester.tap(find.byKey(const Key('caddie-ask-ai-button')));
-      // Drain stream + the speak call.
       for (var i = 0; i < 6; i++) {
         await tester.pump();
       }
-      expect(tts.speakCallCount, 1);
-      expect(tts.lastSpokenText, 'One. Two.');
-      expect(tts.lastPersona, CaddieVoicePersona.defaultPersona);
+      // TTS should NOT have been called automatically.
+      expect(tts.speakCallCount, 0);
+      // A Listen button should be visible.
+      expect(find.byKey(const Key('caddie-listen-button')), findsOneWidget);
       logger.dispose();
     });
   });
@@ -445,7 +445,7 @@ void main() {
       // distance = 150 → 8-iron (carry 150) is the perfect fit.
       await tester.tap(find.text('Get recommendation'));
       await tester.pump();
-      expect(find.text('iron8'), findsOneWidget);
+      expect(find.text('8-Iron'), findsOneWidget);
     });
 
     testWidgets('voice button calls requestPermission before listening',

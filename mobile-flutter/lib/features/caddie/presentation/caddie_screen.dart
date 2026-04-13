@@ -270,9 +270,8 @@ class _CaddieScreenState extends State<CaddieScreen> {
       }
       setState(() {
         _llmTranscript.write(text);
-        _stage = CaddieFlowStage.speaking;
+        _stage = CaddieFlowStage.done;
       });
-      await widget.ttsService.speak(text, persona: widget.persona);
     } catch (e, stackTrace) {
       // Print to debug console (visible in the terminal running
       // ./tool/run.sh) so we can see the EXACT error + stack trace
@@ -303,11 +302,11 @@ class _CaddieScreenState extends State<CaddieScreen> {
         "to the player. Don't repeat the numbers — interpret them.";
     final userPrompt = StringBuffer()
       ..writeln('Distance: ${ctx.distanceYards} yards')
-      ..writeln('Lie: ${ctx.lieType.name}')
-      ..writeln('Wind: ${ctx.windStrength.name} ${ctx.windDirection.name}')
-      ..writeln('Slope: ${ctx.slope.name}')
+      ..writeln('Lie: ${ctx.lieType.displayName}')
+      ..writeln('Wind: ${ctx.windStrength.name} ${ctx.windDirection.displayName}')
+      ..writeln('Slope: ${ctx.slope.displayName}')
       ..writeln('Effective distance: ${analysis.effectiveDistanceYards} yards')
-      ..writeln('Recommended club: ${analysis.recommendedClub.name}')
+      ..writeln('Recommended club: ${analysis.recommendedClub.displayName}')
       ..writeln('Target: ${analysis.targetStrategy.target}')
       ..writeln('Preferred miss: ${analysis.targetStrategy.preferredMiss}');
     return LlmRequest(
@@ -384,6 +383,10 @@ class _CaddieScreenState extends State<CaddieScreen> {
                 onAskAi: _streamLlmCommentary,
                 onStopSpeaking: _stopSpeaking,
                 onResetFlow: _resetFlow,
+                onListenPressed: (text) async {
+                  setState(() => _stage = CaddieFlowStage.speaking);
+                  await widget.ttsService.speak(text, persona: widget.persona);
+                },
               ),
           ],
         ),
@@ -440,6 +443,7 @@ class ShotInputForm extends StatelessWidget {
               value: context.shotType,
               values: ShotType.values,
               onChanged: (v) => onChanged(context.copyWith(shotType: v)),
+              displayName: (v) => v.displayName,
             ),
             const SizedBox(height: 12),
             _enumDropdown<LieType>(
@@ -447,6 +451,7 @@ class ShotInputForm extends StatelessWidget {
               value: context.lieType,
               values: LieType.values,
               onChanged: (v) => onChanged(context.copyWith(lieType: v)),
+              displayName: (v) => v.displayName,
             ),
             const SizedBox(height: 12),
             _enumDropdown<WindStrength>(
@@ -455,6 +460,7 @@ class ShotInputForm extends StatelessWidget {
               values: WindStrength.values,
               onChanged: (v) =>
                   onChanged(context.copyWith(windStrength: v)),
+              displayName: (v) => v.displayName,
             ),
             const SizedBox(height: 12),
             _enumDropdown<WindDirection>(
@@ -463,6 +469,7 @@ class ShotInputForm extends StatelessWidget {
               values: WindDirection.values,
               onChanged: (v) =>
                   onChanged(context.copyWith(windDirection: v)),
+              displayName: (v) => v.displayName,
             ),
             const SizedBox(height: 12),
             _enumDropdown<Slope>(
@@ -470,6 +477,7 @@ class ShotInputForm extends StatelessWidget {
               value: context.slope,
               values: Slope.values,
               onChanged: (v) => onChanged(context.copyWith(slope: v)),
+              displayName: (v) => v.displayName,
             ),
           ],
         ),
@@ -482,6 +490,7 @@ class ShotInputForm extends StatelessWidget {
     required T value,
     required List<T> values,
     required ValueChanged<T> onChanged,
+    String Function(T)? displayName,
   }) {
     return DropdownButtonFormField<T>(
       key: Key('caddie-${label.toLowerCase().replaceAll(' ', '-')}'),
@@ -493,7 +502,7 @@ class ShotInputForm extends StatelessWidget {
       items: values
           .map((v) => DropdownMenuItem<T>(
                 value: v,
-                child: Text(v.name),
+                child: Text(displayName?.call(v) ?? v.name),
               ))
           .toList(),
       onChanged: (v) {
@@ -577,6 +586,7 @@ class RecommendationCard extends StatelessWidget {
     required this.onAskAi,
     required this.onStopSpeaking,
     required this.onResetFlow,
+    this.onListenPressed,
   });
 
   final DeterministicAnalysis analysis;
@@ -587,6 +597,7 @@ class RecommendationCard extends StatelessWidget {
   final VoidCallback onAskAi;
   final VoidCallback onStopSpeaking;
   final VoidCallback onResetFlow;
+  final void Function(String text)? onListenPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -605,9 +616,9 @@ class RecommendationCard extends StatelessWidget {
             const SizedBox(height: 12),
             _row('Effective distance',
                 '${analysis.effectiveDistanceYards} yards'),
-            _row('Club', analysis.recommendedClub.name),
+            _row('Club', analysis.recommendedClub.displayName),
             if (analysis.alternateClub != null)
-              _row('Alternate', analysis.alternateClub!.name),
+              _row('Alternate', analysis.alternateClub!.displayName),
             const SizedBox(height: 8),
             Text(
               analysis.targetStrategy.target,
@@ -697,11 +708,25 @@ class RecommendationCard extends StatelessWidget {
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 8),
-              OutlinedButton.icon(
-                key: const Key('caddie-reset-button'),
-                onPressed: onResetFlow,
-                icon: CaddieIcons.refresh(),
-                label: const Text('New shot'),
+              Row(
+                children: [
+                  if (llmTranscript.isNotEmpty)
+                    OutlinedButton.icon(
+                      key: const Key('caddie-listen-button'),
+                      onPressed: () async {
+                        onListenPressed?.call(llmTranscript);
+                      },
+                      icon: CaddieIcons.listen(size: 18),
+                      label: const Text('Listen'),
+                    ),
+                  if (llmTranscript.isNotEmpty) const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    key: const Key('caddie-reset-button'),
+                    onPressed: onResetFlow,
+                    icon: CaddieIcons.refresh(),
+                    label: const Text('New shot'),
+                  ),
+                ],
               ),
             ],
           ],

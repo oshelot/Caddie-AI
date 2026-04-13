@@ -54,6 +54,43 @@ enum Club {
   /// Wire string — matches the iOS Swift `rawValue` casing exactly.
   String get wireName => name;
 
+  /// Human-readable name for UI display.
+  String get displayName {
+    switch (this) {
+      case Club.driver: return 'Driver';
+      case Club.twoWood: return '2-Wood';
+      case Club.threeWood: return '3-Wood';
+      case Club.fourWood: return '4-Wood';
+      case Club.fiveWood: return '5-Wood';
+      case Club.sevenWood: return '7-Wood';
+      case Club.nineWood: return '9-Wood';
+      case Club.hybrid2: return '2-Hybrid';
+      case Club.hybrid3: return '3-Hybrid';
+      case Club.hybrid4: return '4-Hybrid';
+      case Club.hybrid5: return '5-Hybrid';
+      case Club.hybrid6: return '6-Hybrid';
+      case Club.iron2: return '2-Iron';
+      case Club.iron3: return '3-Iron';
+      case Club.iron4: return '4-Iron';
+      case Club.iron5: return '5-Iron';
+      case Club.iron6: return '6-Iron';
+      case Club.iron7: return '7-Iron';
+      case Club.iron8: return '8-Iron';
+      case Club.iron9: return '9-Iron';
+      case Club.pitchingWedge: return 'PW';
+      case Club.wedge46: return '46°';
+      case Club.wedge48: return '48°';
+      case Club.wedge50: return '50°';
+      case Club.gapWedge: return 'GW';
+      case Club.wedge54: return '54°';
+      case Club.sandWedge: return 'SW';
+      case Club.wedge58: return '58°';
+      case Club.lobWedge: return 'LW';
+      case Club.wedge64: return '64°';
+      case Club.putter: return 'Putter';
+    }
+  }
+
   /// Lifted from iOS `Club.defaultCarryYards` for the same enum
   /// case. Used by GolfLogicEngine when the player profile is
   /// missing a custom carry distance for this club.
@@ -156,7 +193,27 @@ enum ClubCategory { woods, hybrids, irons }
 /// What kind of shot the player is hitting. Drives archetype
 /// selection in ExecutionEngine and validates lie-type pickers in
 /// the UI (the latter not in scope for S7.1).
-enum ShotType { tee, approach, chip, pitch, bunker, punchRecovery, layup }
+enum ShotType {
+  tee,
+  approach,
+  chip,
+  pitch,
+  bunker,
+  punchRecovery,
+  layup;
+
+  String get displayName {
+    switch (this) {
+      case ShotType.tee: return 'Tee Shot';
+      case ShotType.approach: return 'Approach';
+      case ShotType.chip: return 'Chip';
+      case ShotType.pitch: return 'Pitch';
+      case ShotType.bunker: return 'Bunker';
+      case ShotType.punchRecovery: return 'Punch / Recovery';
+      case ShotType.layup: return 'Layup';
+    }
+  }
+}
 
 enum LieType {
   fairway,
@@ -170,9 +227,37 @@ enum LieType {
   treesObstructed;
 
   String get wireName => name;
+
+  String get displayName {
+    switch (this) {
+      case LieType.fairway: return 'Fairway';
+      case LieType.firstCut: return 'First Cut';
+      case LieType.rough: return 'Rough';
+      case LieType.deepRough: return 'Deep Rough';
+      case LieType.greensideBunker: return 'Greenside Bunker';
+      case LieType.fairwayBunker: return 'Fairway Bunker';
+      case LieType.hardpan: return 'Hardpan';
+      case LieType.pineStraw: return 'Pine Straw';
+      case LieType.treesObstructed: return 'Trees / Obstructed';
+    }
+  }
 }
 
-enum WindStrength { none, light, moderate, strong }
+enum WindStrength {
+  none,
+  light,
+  moderate,
+  strong;
+
+  String get displayName {
+    switch (this) {
+      case WindStrength.none: return 'None';
+      case WindStrength.light: return 'Light';
+      case WindStrength.moderate: return 'Moderate';
+      case WindStrength.strong: return 'Strong';
+    }
+  }
+}
 
 enum WindDirection {
   /// Wind blowing INTO the player (head-on).
@@ -185,10 +270,35 @@ enum WindDirection {
   crossLeftToRight,
 
   /// Cross wind from the player's right, pushing ball left.
-  crossRightToLeft,
+  crossRightToLeft;
+
+  String get displayName {
+    switch (this) {
+      case WindDirection.into: return 'Into';
+      case WindDirection.helping: return 'Helping';
+      case WindDirection.crossLeftToRight: return 'Cross Left-to-Right';
+      case WindDirection.crossRightToLeft: return 'Cross Right-to-Left';
+    }
+  }
 }
 
-enum Slope { level, uphill, downhill, ballAboveFeet, ballBelowFeet }
+enum Slope {
+  level,
+  uphill,
+  downhill,
+  ballAboveFeet,
+  ballBelowFeet;
+
+  String get displayName {
+    switch (this) {
+      case Slope.level: return 'Level';
+      case Slope.uphill: return 'Uphill';
+      case Slope.downhill: return 'Downhill';
+      case Slope.ballAboveFeet: return 'Ball Above Feet';
+      case Slope.ballBelowFeet: return 'Ball Below Feet';
+    }
+  }
+}
 
 enum Aggressiveness { conservative, normal, aggressive }
 
