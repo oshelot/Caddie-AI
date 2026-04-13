@@ -321,17 +321,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
             title: 'Settings',
             theme: theme,
             children: [
-              _stringDropdown(
-                key: const Key('profile-tier'),
-                label: 'Tier',
-                value: _draft.userTier,
-                options: const ['free', 'pro'],
-                onChanged: (v) =>
-                    setState(() => _draft = _draft.copyWith(userTier: v)),
+              // Current tier display (read-only)
+              Row(
+                children: [
+                  Text('Subscription',
+                      style: theme.textTheme.bodyMedium),
+                  const Spacer(),
+                  Chip(
+                    label: Text(
+                      _isSubscribed ? 'Pro' : 'Free',
+                      style: TextStyle(
+                        color: _isSubscribed ? Colors.white : null,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    backgroundColor: _isSubscribed
+                        ? Colors.green
+                        : theme.colorScheme.surfaceContainerHighest,
+                  ),
+                ],
               ),
               if (_isSubscribed)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  padding: const EdgeInsets.only(bottom: 4),
                   child: Row(
                     children: [
                       CaddieIcons.info(size: 16, color: theme.colorScheme.outline),
@@ -341,6 +353,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           'All AI features managed by CaddieAI. No API keys needed.',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (!_isSubscribed && _activeKeyController().text.trim().isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      CaddieIcons.warning(size: 16, color: Colors.orange),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'No API key configured. Add your ${_activeKeyLabel()} '
+                          'below to use AI-powered recommendations.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: Colors.orange,
                           ),
                         ),
                       ),
