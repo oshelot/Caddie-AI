@@ -58,6 +58,7 @@ dependencies:
   # token-by-token transcription.
   speech_to_text: ^7.0.0
   flutter_tts: ^4.0.2
+  google_mobile_ads: ^7.0.0
 
 dev_dependencies:
   flutter_test:

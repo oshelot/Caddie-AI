@@ -24,6 +24,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/icons/caddie_icons.dart';
+import '../../../core/monetization/ad_service.dart';
 import '../../../models/scorecard_entry.dart';
 import '../../../models/shot_history_entry.dart';
 
@@ -34,12 +35,14 @@ class HistoryScreen extends StatefulWidget {
     this.scorecards = const [],
     this.scoringEnabled = false,
     this.onRefresh,
+    this.adService,
   });
 
   final List<ShotHistoryEntry> entries;
   final List<ScorecardEntry> scorecards;
   final bool scoringEnabled;
   final Future<void> Function()? onRefresh;
+  final AdService? adService;
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -98,6 +101,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               _buildScorecardsTab(context),
             ],
           ),
+          bottomNavigationBar: widget.adService?.bannerAd(),
         ),
       );
     }
@@ -113,6 +117,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ),
       ),
       body: _buildShotsTab(context),
+      bottomNavigationBar: widget.adService?.bannerAd(),
     );
   }
 

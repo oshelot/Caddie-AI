@@ -25,6 +25,9 @@ import 'package:flutter/material.dart';
 
 import 'app.dart';
 import 'core/logging/log_event.dart';
+import 'core/monetization/ad_service.dart';
+import 'core/monetization/google_mobile_ads_service.dart';
+import 'core/monetization/subscription_service.dart';
 import 'core/logging/log_sender.dart';
 import 'core/logging/logging_service.dart';
 import 'core/mapbox/mapbox_init.dart';
@@ -69,11 +72,22 @@ class _NoopLogSender implements LogSender {
       true;
 }
 
+/// Global ad service — accessible from screens that need to show
+/// banner ads. Initialized in main() before runApp. Falls back to
+/// StubAdService in test runtime where main() hasn't run.
+AdService adService = StubAdService();
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initMapbox();
   await AppStorage.init();
   _logger = _buildLogger();
+  // Initialize ads. In debug builds with Pro override, banners are
+  // hidden automatically via setSubscribed(true).
+  final ads = GoogleMobileAdsService();
+  await ads.initialize();
+  if (kDebugMode) ads.setSubscribed(true);
+  adService = ads;
   runApp(CaddieApp());
 }
 

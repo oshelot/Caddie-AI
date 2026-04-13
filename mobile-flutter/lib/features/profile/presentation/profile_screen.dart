@@ -21,6 +21,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../../core/icons/caddie_icons.dart';
+import '../../../core/monetization/ad_service.dart';
 import '../../../core/monetization/subscription_service.dart';
 import '../../../core/storage/secure_keys_storage.dart';
 import '../../../models/player_profile.dart';
@@ -48,6 +49,7 @@ class ProfileScreen extends StatefulWidget {
     this.initialSecrets = const {},
     this.subscriptionService,
     this.showDebugSection = kDebugMode,
+    this.adService,
   });
 
   final PlayerProfile profile;
@@ -55,6 +57,9 @@ class ProfileScreen extends StatefulWidget {
   final Map<String, String> initialSecrets;
   final SubscriptionService? subscriptionService;
   final bool showDebugSection;
+
+  /// Optional ad service for banner ads on the profile screen.
+  final AdService? adService;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -418,6 +423,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 24),
         ],
       ),
+      bottomNavigationBar: widget.adService?.bannerAd(),
     );
   }
 

@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/storage/profile_repository.dart';
+import '../../../main.dart' show adService;
 import '../../../core/storage/scorecard_repository.dart';
 import '../../../core/storage/shot_history_repository.dart';
 import '../../../models/scorecard_entry.dart';
@@ -66,6 +67,7 @@ class _HistoryPageState extends State<HistoryPage> {
       scorecards: _scorecards,
       scoringEnabled: _scoringEnabled,
       onRefresh: _onRefresh,
+      adService: adService,
     );
   }
 }

@@ -45,6 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>CaddieAI uses this to show you relevant ads. Your data is never shared with third parties.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>CaddieAI uses your location to show where you are on the course and compute distances to the pin.</string>
 	<key>NSMicrophoneUsageDescription</key>

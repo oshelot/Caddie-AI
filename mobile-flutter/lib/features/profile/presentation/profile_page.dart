@@ -21,6 +21,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../../core/monetization/subscription_service.dart';
+import '../../../main.dart' show adService;
 import '../../../core/storage/profile_repository.dart';
 import '../../../core/storage/secure_keys_storage.dart';
 import '../../../main.dart' show logger;
@@ -122,6 +123,7 @@ class _ProfilePageState extends State<ProfilePage> {
       initialSecrets: _secrets,
       onSave: _onSave,
       subscriptionService: _subscriptionService,
+      adService: adService,
     );
   }
 }

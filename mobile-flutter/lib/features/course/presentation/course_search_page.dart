@@ -46,6 +46,7 @@ import '../../../core/courses/nominatim_client.dart';
 import '../../../core/courses/osm_parser.dart';
 import '../../../core/courses/overpass_client.dart';
 import '../../../core/courses/places_client.dart';
+import '../../../main.dart' show adService;
 import '../../../core/location/geolocator_location_service.dart';
 import '../../../core/location/location_service.dart';
 import '../../../core/logging/logging_service.dart';
@@ -496,6 +497,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       locationGranted: _locationGranted,
       initialDemoEntry: kSharpParkDemoEntry,
       favoritesController: _favoritesController,
+      adService: adService,
     );
   }
 }

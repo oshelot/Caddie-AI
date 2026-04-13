@@ -42,6 +42,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/courses/course_search_results.dart';
+import '../../../core/monetization/ad_service.dart';
 import '../../../core/courses/places_client.dart';
 import '../../../core/icons/caddie_icons.dart';
 import '../../../core/logging/log_event.dart';
@@ -118,6 +119,7 @@ class CourseSearchScreen extends StatefulWidget {
     this.initialDemoEntry,
     this.onCityAutocomplete,
     this.favoritesController,
+    this.adService,
   });
 
   /// Called once per Search-button tap. Receives the trimmed
@@ -155,12 +157,12 @@ class CourseSearchScreen extends StatefulWidget {
   final Future<List<PlaceAutocompleteSuggestion>> Function(String input)?
       onCityAutocomplete;
 
-  /// Optional favorites + saved-courses store. When `null` the
-  /// screen runs in single-tab Search-only mode (used by older
-  /// widget tests). When non-null, the segmented Search/Saved
-  /// tabs render and the Favorites quick-list appears under the
-  /// Search form.
+  /// Optional favorites + saved-courses store.
   final FavoritesController? favoritesController;
+
+  /// Optional ad service. When provided and the user is on the
+  /// free tier, a banner ad renders at the bottom of the screen.
+  final AdService? adService;
 
   @override
   State<CourseSearchScreen> createState() => _CourseSearchScreenState();
@@ -317,6 +319,9 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
                 ? _buildSearchTab(theme)
                 : _buildSavedTab(theme),
           ),
+          // Banner ad at the bottom — matches iOS safeAreaInset pattern.
+          // Hidden for Pro subscribers via adService.bannerVisible.
+          if (widget.adService != null) widget.adService!.bannerAd(),
         ],
       ),
     );
