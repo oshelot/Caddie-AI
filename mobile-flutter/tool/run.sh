@@ -46,5 +46,13 @@ done
 echo "Injecting dart-defines for: $(echo $DART_DEFINES | grep -oP '(?<=--dart-define=)[A-Z_]+(?==)' | tr '\n' ' ')"
 echo ""
 
+# Force --debug unless the user explicitly passes --release or --profile.
+# Without this, flutter.buildMode=profile in local.properties causes
+# kDebugMode=false, hiding the debug Pro toggle and disabling debug features.
+MODE="--debug"
+for arg in "$@"; do
+  case "$arg" in --release|--profile) MODE="" ;; esac
+done
+
 # shellcheck disable=SC2086
-exec $FLUTTER run $DART_DEFINES "$@"
+exec $FLUTTER run $MODE $DART_DEFINES "$@"
