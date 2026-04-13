@@ -105,13 +105,13 @@ void main() {
       await tester.tap(find.byKey(const Key('onboarding-next-button')));
       await tester.pumpAndSettle();
 
-      // Step 5: bag
-      expect(find.text('Your bag'), findsOneWidget);
+      // Step 5: tee box
+      expect(find.text('Tee box'), findsOneWidget);
       await tester.tap(find.byKey(const Key('onboarding-next-button')));
       await tester.pumpAndSettle();
 
-      // Step 6: tee box
-      expect(find.text('Tee box'), findsOneWidget);
+      // Step 6: bag (last step)
+      expect(find.text('Your bag'), findsOneWidget);
       // Final button label is "Finish".
       expect(find.text('Finish'), findsOneWidget);
     });
