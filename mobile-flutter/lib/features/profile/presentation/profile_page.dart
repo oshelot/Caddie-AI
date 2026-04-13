@@ -17,6 +17,8 @@
 // (`test/storage/secure_keys_isolation_test.dart`) verifies
 // that the profile blob on disk never contains the secret values.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
@@ -47,9 +49,23 @@ class _ProfilePageState extends State<ProfilePage> {
       widget.subscriptionService ?? StubSubscriptionService()
         ..debugForcePro = kDebugMode;
   late final bool _ownsSubscriptionService = widget.subscriptionService == null;
+  StreamSubscription<bool>? _adSyncSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Sync adService with the subscription state so toggling the
+    // debug Pro switch immediately shows/hides ads.
+    adService.setSubscribed(_subscriptionService.isSubscribed);
+    _adSyncSub = _subscriptionService.subscriptionStream.listen((subscribed) {
+      adService.setSubscribed(subscribed);
+    });
+    _loadSecrets();
+  }
 
   @override
   void dispose() {
+    _adSyncSub?.cancel();
     if (_ownsSubscriptionService) {
       _subscriptionService.dispose();
     }
@@ -70,12 +86,6 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (_) {
       return const PlayerProfile();
     }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSecrets();
   }
 
   Future<void> _loadSecrets() async {
