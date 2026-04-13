@@ -299,8 +299,14 @@ class _CaddiePageState extends State<CaddiePage> {
 
   golf.Club? _parseClub(String s) {
     final normalized = s.toLowerCase().replaceAll(RegExp(r'[\s_-]'), '');
+    // Direct enum name match.
     for (final club in golf.Club.values) {
       if (club.name.toLowerCase() == normalized) return club;
+    }
+    // Match via displayName (handles "3-Wood" → "3-Wood", "5-Iron" → "5-Iron").
+    final displayNorm = s.trim().toLowerCase();
+    for (final club in golf.Club.values) {
+      if (club.displayName.toLowerCase() == displayNorm) return club;
     }
     // Friendly aliases.
     if (normalized.contains('driver')) return golf.Club.driver;
