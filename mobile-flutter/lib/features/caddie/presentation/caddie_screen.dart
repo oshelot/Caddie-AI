@@ -328,7 +328,7 @@ class _CaddieScreenState extends State<CaddieScreen> {
     final userPrompt = StringBuffer()
       ..writeln('Distance: ${ctx.distanceYards} yards')
       ..writeln('Lie: ${ctx.lieType.displayName}')
-      ..writeln('Wind: ${ctx.windStrength.name} ${ctx.windDirection.displayName}')
+      ..writeln('Wind: ${ctx.windStrength.displayName}${ctx.windStrength != WindStrength.none ? ' ${ctx.windDirection.displayName}' : ''}')
       ..writeln('Slope: ${ctx.slope.displayName}')
       ..writeln('Effective distance: ${analysis.effectiveDistanceYards} yards')
       ..writeln('Recommended club: ${analysis.recommendedClub.displayName}')
@@ -488,15 +488,17 @@ class ShotInputForm extends StatelessWidget {
                   onChanged(context.copyWith(windStrength: v)),
               displayName: (v) => v.displayName,
             ),
-            const SizedBox(height: 12),
-            _enumDropdown<WindDirection>(
-              label: 'Wind direction',
-              value: context.windDirection,
-              values: WindDirection.values,
-              onChanged: (v) =>
-                  onChanged(context.copyWith(windDirection: v)),
-              displayName: (v) => v.displayName,
-            ),
+            if (context.windStrength != WindStrength.none) ...[
+              const SizedBox(height: 12),
+              _enumDropdown<WindDirection>(
+                label: 'Wind direction',
+                value: context.windDirection,
+                values: WindDirection.values,
+                onChanged: (v) =>
+                    onChanged(context.copyWith(windDirection: v)),
+                displayName: (v) => v.displayName,
+              ),
+            ],
             const SizedBox(height: 12),
             _enumDropdown<Slope>(
               label: 'Slope',
