@@ -43,19 +43,48 @@ abstract final class CaddieTheme {
   /// The light Material 3 theme used by the entire app. Set this on
   /// `MaterialApp.theme` (we don't ship a separate dark theme yet —
   /// the project owner picked light as the migration default).
-  static ThemeData get light => ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: seedColor,
-          brightness: Brightness.light,
-        ),
-        // Tighten up the default M3 spacing for navigation. The Flutter
-        // M3 defaults are quite generous; the native iOS app uses
-        // tighter padding throughout.
-        navigationBarTheme: const NavigationBarThemeData(
-          height: 64,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        ),
-      );
+  static ThemeData get light {
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: seedColor,
+      brightness: Brightness.light,
+    ).copyWith(
+      // Force pure white surfaces — removes the green tint that
+      // Material 3 derives from the seed color.
+      surface: Colors.white,
+      surfaceContainerLowest: Colors.white,
+      surfaceContainerLow: const Color(0xFFF8F8F8),
+      surfaceContainer: const Color(0xFFF2F2F2),
+      surfaceContainerHigh: const Color(0xFFECECEC),
+      surfaceContainerHighest: const Color(0xFFE6E6E6),
+      onSurface: Colors.black,
+    );
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: Colors.white,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+      ),
+      cardTheme: const CardThemeData(
+        color: Colors.white,
+        surfaceTintColor: Colors.transparent,
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        height: 64,
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
+          return TextStyle(
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+            color: selected ? colorScheme.primary : colorScheme.outline,
+          );
+        }),
+      ),
+    );
+  }
 }
