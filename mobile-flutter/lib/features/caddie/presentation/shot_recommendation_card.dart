@@ -1,8 +1,14 @@
 // ShotRecommendationCard — animated bottom sheet card that reveals
-// the LLM's structured shot recommendation row by row. Each row
-// has a CaddieIcon + label + value, staggered with a cascade
-// animation so the user sees club first, then target, rationale,
-// execution details — distracting from LLM latency.
+// the LLM's structured shot recommendation row by row.
+//
+// Layout (consolidated from 15 fields to ~5 visible + expandable):
+//   HERO: Club (large bold)
+//   Target: where to aim
+//   Swing Thought: one actionable cue
+//   Setup: ball position · weight · stance (merged)
+//   Tempo: backswing → follow through, tempo
+//   AI Reasoning (expandable): rationale, risk, preferred miss,
+//     conservative option, mistake to avoid
 
 import 'dart:convert';
 
@@ -52,10 +58,8 @@ class ShotRecommendation {
     this.mistakeToAvoid,
   });
 
-  /// Parse from LLM JSON response. Tolerant of missing fields.
   static ShotRecommendation? tryParse(String raw) {
     try {
-      // Strip markdown code fences if present.
       var cleaned = raw.trim();
       if (cleaned.startsWith('```')) {
         cleaned = cleaned.replaceFirst(RegExp(r'^```\w*\n?'), '');
@@ -92,9 +96,35 @@ class ShotRecommendation {
       return null;
     }
   }
+
+  /// Merged setup line: "Ball center · 50/50 weight · Shoulder width"
+  String? get setupSummary {
+    final parts = <String>[
+      if (ballPosition != null && ballPosition!.isNotEmpty) ballPosition!,
+      if (weightDistribution != null && weightDistribution!.isNotEmpty)
+        weightDistribution!,
+      if (stanceWidth != null && stanceWidth!.isNotEmpty) stanceWidth!,
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
+  /// Merged tempo line: "Three-quarter → controlled finish, smooth"
+  String? get tempoSummary {
+    final parts = <String>[];
+    if (backswingLength != null && backswingLength!.isNotEmpty) {
+      parts.add(backswingLength!);
+    }
+    if (followThrough != null && followThrough!.isNotEmpty) {
+      parts.add(followThrough!);
+    }
+    final swing = parts.isNotEmpty ? parts.join(' → ') : '';
+    if (tempo != null && tempo!.isNotEmpty) {
+      return swing.isNotEmpty ? '$swing, $tempo' : tempo!;
+    }
+    return swing.isNotEmpty ? swing : null;
+  }
 }
 
-/// Shows the animated recommendation card as a bottom sheet.
 Future<void> showShotRecommendationSheet({
   required BuildContext context,
   required ShotRecommendation rec,
@@ -121,8 +151,10 @@ class _AnimatedRecommendationCard extends StatefulWidget {
 
 class _AnimatedRecommendationCardState
     extends State<_AnimatedRecommendationCard> {
-  final List<_RecRow> _allRows = [];
+  final List<_RecRow> _mainRows = [];
+  final List<_RecRow> _reasoningRows = [];
   int _visibleCount = 0;
+  bool _reasoningExpanded = false;
 
   @override
   void initState() {
@@ -134,113 +166,80 @@ class _AnimatedRecommendationCardState
   void _buildRows() {
     final r = widget.rec;
 
-    // Strategy section
+    // Main section — the actionable stuff
     if (r.club.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.club(size: 20),
+      _mainRows.add(_RecRow(
+        icon: CaddieIcons.club(size: 22),
         label: 'Club',
         value: r.club,
         isHero: true,
       ));
     }
     if (r.target.isNotEmpty) {
-      _allRows.add(_RecRow(
+      _mainRows.add(_RecRow(
         icon: CaddieIcons.target(size: 20),
         label: 'Target',
         value: r.target,
       ));
     }
-    if (r.preferredMiss.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.flag(size: 20),
-        label: 'Preferred Miss',
-        value: r.preferredMiss,
-      ));
-    }
-    if (r.riskLevel.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.hazard(size: 20),
-        label: 'Risk',
-        value: '${r.riskLevel}${r.confidence.isNotEmpty ? ' · ${r.confidence} confidence' : ''}',
-        valueColor: _riskColor(r.riskLevel),
-      ));
-    }
-    if (r.rationale.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.info(size: 20),
-        label: 'Rationale',
-        value: r.rationale.map((s) => '• $s').join('\n'),
-      ));
-    }
-    if (r.conservativeOption != null && r.conservativeOption!.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.flag(size: 20),
-        label: 'Conservative Option',
-        value: r.conservativeOption!,
-      ));
-    }
-
-    // Execution section
-    if (r.ballPosition != null && r.ballPosition!.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.stance(size: 20),
-        label: 'Ball Position',
-        value: r.ballPosition!,
-      ));
-    }
-    if (r.weightDistribution != null && r.weightDistribution!.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.slope(size: 20),
-        label: 'Weight',
-        value: r.weightDistribution!,
-      ));
-    }
-    if (r.alignment != null && r.alignment!.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.target(size: 20),
-        label: 'Alignment',
-        value: r.alignment!,
-      ));
-    }
-    if (r.clubface != null && r.clubface!.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.club(size: 20),
-        label: 'Club Face',
-        value: r.clubface!,
-      ));
-    }
-    if (r.backswingLength != null && r.backswingLength!.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.tempo(size: 20),
-        label: 'Backswing',
-        value: r.backswingLength!,
-      ));
-    }
-    if (r.followThrough != null && r.followThrough!.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.tempo(size: 20),
-        label: 'Follow Through',
-        value: r.followThrough!,
-      ));
-    }
-    if (r.tempo != null && r.tempo!.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.tempo(size: 20),
-        label: 'Tempo',
-        value: r.tempo!,
-      ));
-    }
     if (r.swingThought.isNotEmpty) {
-      _allRows.add(_RecRow(
+      _mainRows.add(_RecRow(
         icon: CaddieIcons.chat(size: 20),
         label: 'Swing Thought',
         value: r.swingThought,
       ));
     }
+    final setup = r.setupSummary;
+    if (setup != null) {
+      _mainRows.add(_RecRow(
+        icon: CaddieIcons.stance(size: 20),
+        label: 'Setup',
+        value: setup,
+      ));
+    }
+    final tempo = r.tempoSummary;
+    if (tempo != null) {
+      _mainRows.add(_RecRow(
+        icon: CaddieIcons.tempo(size: 20),
+        label: 'Tempo',
+        value: tempo,
+      ));
+    }
+
+    // AI Reasoning section — expandable
+    if (r.rationale.isNotEmpty) {
+      _reasoningRows.add(_RecRow(
+        icon: CaddieIcons.info(size: 18),
+        label: 'Rationale',
+        value: r.rationale.map((s) => '• $s').join('\n'),
+      ));
+    }
+    if (r.riskLevel.isNotEmpty) {
+      _reasoningRows.add(_RecRow(
+        icon: CaddieIcons.hazard(size: 18),
+        label: 'Risk',
+        value: '${r.riskLevel}${r.confidence.isNotEmpty ? ' · ${r.confidence} confidence' : ''}',
+        valueColor: _riskColor(r.riskLevel),
+      ));
+    }
+    if (r.preferredMiss.isNotEmpty) {
+      _reasoningRows.add(_RecRow(
+        icon: CaddieIcons.flag(size: 18),
+        label: 'Preferred Miss',
+        value: r.preferredMiss,
+      ));
+    }
+    if (r.conservativeOption != null && r.conservativeOption!.isNotEmpty) {
+      _reasoningRows.add(_RecRow(
+        icon: CaddieIcons.flag(size: 18),
+        label: 'Conservative Option',
+        value: r.conservativeOption!,
+      ));
+    }
     if (r.mistakeToAvoid != null && r.mistakeToAvoid!.isNotEmpty) {
-      _allRows.add(_RecRow(
-        icon: CaddieIcons.warning(size: 20),
-        label: 'Mistake to Avoid',
+      _reasoningRows.add(_RecRow(
+        icon: CaddieIcons.warning(size: 18),
+        label: 'Avoid',
         value: r.mistakeToAvoid!,
         valueColor: Colors.orange,
       ));
@@ -248,8 +247,8 @@ class _AnimatedRecommendationCardState
   }
 
   void _revealNextRow() {
-    if (_visibleCount >= _allRows.length) return;
-    Future.delayed(Duration(milliseconds: _visibleCount == 0 ? 100 : 150), () {
+    if (_visibleCount >= _mainRows.length) return;
+    Future.delayed(Duration(milliseconds: _visibleCount == 0 ? 100 : 200), () {
       if (!mounted) return;
       setState(() => _visibleCount++);
       _revealNextRow();
@@ -273,7 +272,7 @@ class _AnimatedRecommendationCardState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return DraggableScrollableSheet(
-      initialChildSize: 0.7,
+      initialChildSize: 0.55,
       minChildSize: 0.3,
       maxChildSize: 0.92,
       expand: false,
@@ -296,9 +295,9 @@ class _AnimatedRecommendationCardState
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            // Animated rows
-            for (int i = 0; i < _allRows.length; i++)
+            const SizedBox(height: 8),
+            // Main rows — animated
+            for (int i = 0; i < _mainRows.length; i++)
               AnimatedOpacity(
                 opacity: i < _visibleCount ? 1.0 : 0.0,
                 duration: const Duration(milliseconds: 300),
@@ -309,16 +308,51 @@ class _AnimatedRecommendationCardState
                       : const Offset(0, 0.3),
                   duration: const Duration(milliseconds: 300),
                   curve: Curves.easeOut,
-                  child: _buildRow(_allRows[i], theme, i == 0),
+                  child: _buildRow(_mainRows[i], theme),
                 ),
               ),
+            // AI Reasoning — expandable section
+            if (_reasoningRows.isNotEmpty &&
+                _visibleCount >= _mainRows.length) ...[
+              const SizedBox(height: 4),
+              const Divider(),
+              InkWell(
+                onTap: () =>
+                    setState(() => _reasoningExpanded = !_reasoningExpanded),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      CaddieIcons.info(size: 18, color: theme.colorScheme.outline),
+                      const SizedBox(width: 8),
+                      Text(
+                        'AI Reasoning',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                      const Spacer(),
+                      Icon(
+                        _reasoningExpanded
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        color: theme.colorScheme.outline,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_reasoningExpanded)
+                for (final row in _reasoningRows)
+                  _buildRow(row, theme),
+            ],
           ],
         );
       },
     );
   }
 
-  Widget _buildRow(_RecRow row, ThemeData theme, bool isFirst) {
+  Widget _buildRow(_RecRow row, ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(

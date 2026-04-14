@@ -755,11 +755,30 @@ class RecommendationCard extends StatelessWidget {
                     ),
                   ),
                 ),
-              Text(
-                llmTranscript,
-                key: const Key('caddie-final-transcript'),
-                style: theme.textTheme.bodyMedium,
-              ),
+              // If the response was structured JSON (parsed into the
+              // recommendation card), show a summary instead of raw JSON.
+              if (ShotRecommendation.tryParse(llmTranscript) != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      final rec = ShotRecommendation.tryParse(llmTranscript);
+                      if (rec != null) {
+                        showShotRecommendationSheet(context: context, rec: rec);
+                      }
+                    },
+                    icon: CaddieIcons.club(size: 18),
+                    label: Text(
+                      '${ShotRecommendation.tryParse(llmTranscript)?.club ?? "View"} — Tap to view recommendation',
+                    ),
+                  ),
+                )
+              else
+                Text(
+                  llmTranscript,
+                  key: const Key('caddie-final-transcript'),
+                  style: theme.textTheme.bodyMedium,
+                ),
               const SizedBox(height: 8),
               Row(
                 children: [
