@@ -49,6 +49,7 @@ import '../../../core/build_mode.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/golf/golf_enums.dart';
+import '../../../core/llm/prompt_service.dart';
 import '../../../core/golf/golf_logic_engine.dart';
 import '../../../core/golf/shot_context.dart';
 import '../../../core/golf/target_strategy.dart';
@@ -95,6 +96,7 @@ class CaddieScreen extends StatefulWidget {
     this.preferredProvider = LlmProviderId.openAi,
     this.tier = LlmTier.free,
     this.persona = CaddieVoicePersona.defaultPersona,
+    this.personaName,
     this.engine = _defaultEngine,
     this.initialContext = const ShotContext(),
   });
@@ -117,6 +119,10 @@ class CaddieScreen extends StatefulWidget {
 
   /// Voice persona for the TTS playback at the end of the flow.
   final CaddieVoicePersona persona;
+  /// Raw persona name string from PlayerProfile.caddiePersona
+  /// (e.g. 'professional', 'collegeBuddy'). Used to look up the
+  /// persona fragment from PromptService.
+  final String? personaName;
 
   /// Engine override for tests. Production uses
   /// `GolfLogicEngine.analyze`.
@@ -306,11 +312,10 @@ class _CaddieScreenState extends State<CaddieScreen> {
 
   LlmRequest _buildLlmRequest(DeterministicAnalysis analysis) {
     final ctx = _context;
-    const systemPrompt =
-        'You are a calm, expert golf caddie. Given the deterministic '
-        "shot analysis below, give the player a 2-3 sentence commentary "
-        'explaining why this club + target makes sense. Speak directly '
-        "to the player. Don't repeat the numbers — interpret them.";
+    // Use the centralized S3 prompt (KAN-62) with persona augmentation.
+    final systemPrompt = PromptService.shared.caddieSystemPromptWithPersona(
+      widget.personaName,
+    );
     final userPrompt = StringBuffer()
       ..writeln('Distance: ${ctx.distanceYards} yards')
       ..writeln('Lie: ${ctx.lieType.displayName}')
@@ -322,7 +327,7 @@ class _CaddieScreenState extends State<CaddieScreen> {
       ..writeln('Preferred miss: ${analysis.targetStrategy.preferredMiss}');
     return LlmRequest(
       messages: [
-        const LlmMessage(role: 'system', content: systemPrompt),
+        LlmMessage(role: 'system', content: systemPrompt),
         LlmMessage(role: 'user', content: userPrompt.toString()),
       ],
     );

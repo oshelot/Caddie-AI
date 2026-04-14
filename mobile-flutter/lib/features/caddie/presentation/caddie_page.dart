@@ -160,6 +160,7 @@ class _CaddiePageState extends State<CaddiePage> {
       preferredProvider: preferredProvider,
       tier: tier,
       persona: persona,
+      personaName: profile.caddiePersona,
     );
   }
 

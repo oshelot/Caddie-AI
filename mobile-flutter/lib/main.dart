@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'app.dart';
 import 'core/build_mode.dart';
 import 'core/logging/log_event.dart';
+import 'core/llm/prompt_service.dart';
 import 'core/monetization/ad_service.dart';
 import 'core/monetization/google_mobile_ads_service.dart';
 import 'core/monetization/subscription_service.dart';
@@ -83,6 +84,8 @@ Future<void> main() async {
   await initMapbox();
   await AppStorage.init();
   _logger = _buildLogger();
+  // Download centralized prompts from S3 (KAN-62).
+  await PromptService.shared.fetchIfNeeded();
   // Initialize ads. In debug builds with Pro override, banners are
   // hidden automatically via setSubscribed(true).
   final ads = GoogleMobileAdsService();

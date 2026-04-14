@@ -12,6 +12,7 @@ import '../../../core/courses/http_transport.dart';
 import '../../../core/geo/geo.dart';
 import '../../../core/llm/llm_messages.dart';
 import '../../../core/llm/llm_proxy_provider.dart';
+import '../../../core/llm/prompt_service.dart';
 import '../../../core/location/location_service.dart';
 import '../../../core/storage/profile_repository.dart';
 import '../../../core/weather/weather_data.dart';
@@ -76,13 +77,12 @@ class _AskCaddieContentState extends State<_AskCaddieContent> {
   String? _followUpResponse;
   bool _loadingFollowUp = false;
 
-  static const _systemPrompt =
-      'You are an expert golf caddie standing next to your player on the '
-      'course. They are about to hit their next shot. Given their exact '
-      'distance to the green, the hole layout, weather, and their swing '
-      'profile, give a specific club recommendation and aiming advice. '
-      'Be direct and confident — 2-3 sentences max. Factor in wind, '
-      'hazards, and the player\'s tendencies. Do NOT use markdown.';
+  // Use the centralized S3 prompt for on-course caddie advice.
+  String get _systemPrompt =>
+      PromptService.shared.caddieSystemPrompt.isNotEmpty
+          ? PromptService.shared.caddieSystemPrompt
+          : 'You are an expert golf caddie. Give a specific club '
+              'recommendation and aiming advice. Be direct, 2-3 sentences.';
 
   @override
   void initState() {
@@ -149,7 +149,7 @@ class _AskCaddieContentState extends State<_AskCaddieContent> {
 
     final userMessage = _buildPrompt();
     _conversationHistory.addAll([
-      const LlmMessage(role: 'system', content: _systemPrompt),
+      LlmMessage(role: 'system', content: _systemPrompt),
       LlmMessage(role: 'user', content: userMessage),
     ]);
 

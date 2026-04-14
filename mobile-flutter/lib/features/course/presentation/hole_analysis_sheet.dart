@@ -9,6 +9,7 @@ import '../../../core/courses/hole_analysis_engine.dart';
 import '../../../core/courses/http_transport.dart';
 import '../../../core/llm/llm_messages.dart';
 import '../../../core/llm/llm_proxy_provider.dart';
+import '../../../core/llm/prompt_service.dart';
 import '../../../core/weather/weather_data.dart';
 import '../../../models/normalized_course.dart';
 
@@ -64,15 +65,8 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
   String? _followUpResponse;
   bool _loadingFollowUp = false;
 
-  static const _systemPrompt =
-      'You are an expert golf caddie with 20+ years of PGA Tour '
-      'experience. Standing on the tee box with your player, give a '
-      'focused tee shot recommendation. Be specific and actionable in '
-      'a natural, conversational caddie tone. Cover ONLY the tee shot: '
-      'what club to hit and why, where to aim, what to avoid. If '
-      'weather data is provided, factor wind into club selection. Keep '
-      'it to 2-3 short sentences. Do NOT use markdown. Speak directly '
-      'to the player.';
+  String get _systemPrompt =>
+      PromptService.shared.holeAnalysisSystemPrompt;
 
   @override
   void initState() {
@@ -125,7 +119,7 @@ class _HoleAnalysisContentState extends State<_HoleAnalysisContent> {
 
     final userMessage = _buildAnalysisPrompt();
     _conversationHistory.addAll([
-      const LlmMessage(role: 'system', content: _systemPrompt),
+      LlmMessage(role: 'system', content: _systemPrompt),
       LlmMessage(role: 'user', content: userMessage),
     ]);
 
