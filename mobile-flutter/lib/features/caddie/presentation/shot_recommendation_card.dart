@@ -14,7 +14,11 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/courses/http_transport.dart';
 import '../../../core/icons/caddie_icons.dart';
+import '../../../core/llm/llm_messages.dart';
+import '../../../core/llm/llm_proxy_provider.dart';
+import '../../../core/llm/prompt_service.dart';
 
 /// Parsed shot recommendation from the LLM JSON response.
 class ShotRecommendation {
@@ -128,6 +132,7 @@ class ShotRecommendation {
 Future<void> showShotRecommendationSheet({
   required BuildContext context,
   required ShotRecommendation rec,
+  String? originalPrompt,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -136,13 +141,20 @@ Future<void> showShotRecommendationSheet({
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (_) => _AnimatedRecommendationCard(rec: rec),
+    builder: (_) => _AnimatedRecommendationCard(
+      rec: rec,
+      originalPrompt: originalPrompt,
+    ),
   );
 }
 
 class _AnimatedRecommendationCard extends StatefulWidget {
-  const _AnimatedRecommendationCard({required this.rec});
+  const _AnimatedRecommendationCard({
+    required this.rec,
+    this.originalPrompt,
+  });
   final ShotRecommendation rec;
+  final String? originalPrompt;
 
   @override
   State<_AnimatedRecommendationCard> createState() =>
@@ -156,11 +168,70 @@ class _AnimatedRecommendationCardState
   int _visibleCount = 0;
   bool _reasoningExpanded = false;
 
+  // Follow-up conversation
+  final TextEditingController _followUpController = TextEditingController();
+  final List<LlmMessage> _conversationHistory = [];
+  String? _followUpResponse;
+  bool _loadingFollowUp = false;
+
   @override
   void initState() {
     super.initState();
     _buildRows();
+    _buildConversationHistory();
     _revealNextRow();
+  }
+
+  @override
+  void dispose() {
+    _followUpController.dispose();
+    super.dispose();
+  }
+
+  void _buildConversationHistory() {
+    final systemPrompt = PromptService.shared.caddieSystemPrompt.isNotEmpty
+        ? '${PromptService.shared.caddieSystemPrompt}${PromptService.shared.followUpAugmentation}'
+        : 'You are an expert golf caddie. Answer follow-up questions concisely.';
+    _conversationHistory.add(LlmMessage(role: 'system', content: systemPrompt));
+    if (widget.originalPrompt != null) {
+      _conversationHistory.add(LlmMessage(role: 'user', content: widget.originalPrompt!));
+    }
+    // Add the structured response as assistant context
+    _conversationHistory.add(LlmMessage(
+      role: 'assistant',
+      content: 'Club: ${widget.rec.club}. Target: ${widget.rec.target}. '
+          '${widget.rec.swingThought.isNotEmpty ? "Swing thought: ${widget.rec.swingThought}. " : ""}'
+          '${widget.rec.rationale.isNotEmpty ? widget.rec.rationale.join(". ") : ""}',
+    ));
+  }
+
+  Future<void> _submitFollowUp() async {
+    final question = _followUpController.text.trim();
+    if (question.isEmpty || _loadingFollowUp) return;
+
+    const endpoint = String.fromEnvironment('LLM_PROXY_ENDPOINT', defaultValue: '');
+    const apiKey = String.fromEnvironment('LLM_PROXY_API_KEY', defaultValue: '');
+    if (endpoint.isEmpty) return;
+
+    _followUpController.clear();
+    setState(() { _loadingFollowUp = true; _followUpResponse = null; });
+
+    _conversationHistory.add(LlmMessage(role: 'user', content: question));
+
+    try {
+      final proxy = LlmProxyProvider(
+        endpoint: endpoint, apiKey: apiKey, transport: DartIoHttpTransport(),
+      );
+      final response = await proxy.chatCompletion(LlmRequest(
+        messages: _conversationHistory, maxTokens: 300,
+      ));
+      if (!mounted) return;
+      _conversationHistory.add(LlmMessage(role: 'assistant', content: response.text));
+      setState(() { _followUpResponse = response.text; _loadingFollowUp = false; });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _followUpResponse = 'Sorry: $e'; _loadingFollowUp = false; });
+    }
   }
 
   void _buildRows() {
@@ -345,6 +416,66 @@ class _AnimatedRecommendationCardState
               if (_reasoningExpanded)
                 for (final row in _reasoningRows)
                   _buildRow(row, theme),
+            ],
+            // Follow-up section
+            if (_visibleCount >= _mainRows.length) ...[
+              const SizedBox(height: 8),
+              const Divider(),
+              const SizedBox(height: 8),
+              Text('Ask a follow-up',
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _followUpController,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _submitFollowUp(),
+                      decoration: InputDecoration(
+                        hintText: 'e.g. What about a 6-iron?',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10,
+                        ),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _loadingFollowUp
+                      ? const SizedBox(
+                          width: 40, height: 40,
+                          child: Padding(
+                            padding: EdgeInsets.all(8),
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : IconButton(
+                          onPressed: _submitFollowUp,
+                          icon: CaddieIcons.send(size: 20),
+                          style: IconButton.styleFrom(
+                            backgroundColor: theme.colorScheme.primary,
+                            foregroundColor: theme.colorScheme.onPrimary,
+                          ),
+                        ),
+                ],
+              ),
+              if (_followUpResponse != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(_followUpResponse!,
+                      style: theme.textTheme.bodyMedium),
+                ),
+              ],
             ],
           ],
         );
