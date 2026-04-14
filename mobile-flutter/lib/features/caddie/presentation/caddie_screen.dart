@@ -50,6 +50,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/golf/golf_enums.dart';
 import '../../../core/llm/prompt_service.dart';
+import 'shot_recommendation_card.dart';
 import '../../../core/golf/golf_logic_engine.dart';
 import '../../../core/golf/shot_context.dart';
 import '../../../core/golf/target_strategy.dart';
@@ -293,6 +294,14 @@ class _CaddieScreenState extends State<CaddieScreen> {
             setState(() => _stage = CaddieFlowStage.engineDone);
             return;
           }
+          // Try to parse as structured JSON recommendation.
+          final rec = ShotRecommendation.tryParse(fullText);
+          if (rec != null && rec.club.isNotEmpty) {
+            setState(() => _stage = CaddieFlowStage.done);
+            showShotRecommendationSheet(context: context, rec: rec);
+            return;
+          }
+          // Fallback: show as plain text.
           setState(() => _stage = CaddieFlowStage.done);
         },
       );
