@@ -66,6 +66,12 @@ abstract final class CaddieTheme {
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
+        centerTitle: true,
+        titleTextStyle: TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 20,
+          color: Colors.black,
+        ),
       ),
       cardTheme: const CardThemeData(
         color: Colors.white,
@@ -80,7 +86,7 @@ abstract final class CaddieTheme {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
             fontSize: 12,
-            fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+            fontWeight: FontWeight.bold,
             color: selected ? colorScheme.primary : colorScheme.outline,
           );
         }),
