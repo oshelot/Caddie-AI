@@ -178,9 +178,9 @@ class SpeechToTextService implements SttService {
   void _logSttLatency({required int latencyMs, required int wordCount}) {
     _logger.info(
       LogCategory.llm,
-      LoggingService.events.sttLatency,
+      'stt_complete',
       metadata: {
-        'latencyMs': '$latencyMs',
+        'latency': '$latencyMs',
         'wordCount': '$wordCount',
       },
     );

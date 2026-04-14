@@ -92,10 +92,10 @@ class TtsLatencyTracker {
         _clock().millisecondsSinceEpoch - start.millisecondsSinceEpoch;
     logger.info(
       LogCategory.general,
-      LoggingService.events.ttsLatency,
+      'tts_start',
       metadata: {
-        'latencyMs': '$latencyMs',
-        'charCount': '$_pendingCharCount',
+        'latency': '$latencyMs',
+        'textLength': '$_pendingCharCount',
         'voiceGender': persona.gender.name,
         'voiceAccent': persona.accent.name,
       },

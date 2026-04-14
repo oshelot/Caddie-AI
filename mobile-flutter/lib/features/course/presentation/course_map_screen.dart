@@ -149,6 +149,7 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
   int? _selectedHole;
   String? _selectedTee;
   bool _layersAdded = false;
+  int _styleLoadStart = 0;
   bool _firstTapAuditDone = false;
 
   /// Set of layer ids that failed the post-add audit.
@@ -398,10 +399,15 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
 
   void _onMapCreated(mbx.MapboxMap map) {
     _map = map;
+    _styleLoadStart = DateTime.now().millisecondsSinceEpoch;
   }
 
   Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
     if (_layersAdded) return;
+    final ms = DateTime.now().millisecondsSinceEpoch - _styleLoadStart;
+    widget.logger.info(LogCategory.map, 'map_style_load', metadata: {
+      'latency': '$ms',
+    });
     await _addCourseLayers();
   }
 

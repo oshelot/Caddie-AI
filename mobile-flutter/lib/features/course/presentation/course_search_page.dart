@@ -30,6 +30,7 @@
 // screen owns the debounce; this page just hands over the callback.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -46,6 +47,7 @@ import '../../../core/courses/nominatim_client.dart';
 import '../../../core/courses/osm_parser.dart';
 import '../../../core/courses/overpass_client.dart';
 import '../../../core/courses/places_client.dart';
+import '../../../core/logging/log_event.dart';
 import '../../../main.dart' show adService;
 import '../../../core/location/geolocator_location_service.dart';
 import '../../../core/location/location_service.dart';
@@ -345,6 +347,8 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
     if (_navigatingToMap) return;
     setState(() => _navigatingToMap = true);
 
+    final totalSw = Stopwatch()..start();
+    String source = 'overpass';
     NormalizedCourse? course;
     String? cacheKeyForSave;
     String? errorMessage;
@@ -361,9 +365,19 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         cacheKeyForSave = NormalizedCourse.serverCacheKey(entry.name);
         final repo = _cacheRepository;
         if (repo != null) {
+          final localSw = Stopwatch()..start();
           final cached = repo.load(cacheKeyForSave);
+          localSw.stop();
+          final localHit = cached != null;
+          _logger.info(LogCategory.map, 'cache_check', metadata: {
+            'latency': '${localSw.elapsedMilliseconds}',
+            'cacheHit': '$localHit',
+            'source': 'local',
+            'courseName': entry.name,
+          });
           if (cached != null) {
             course = cached.course;
+            source = 'local';
             // ignore: avoid_print
             print('DOWNLOAD: local cache HIT for ${entry.name}');
           }
@@ -373,14 +387,24 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         if (course == null) {
           // ignore: avoid_print
           print('DOWNLOAD: trying server cache for ${entry.name}');
+          final serverSw = Stopwatch()..start();
           course = await _cacheClient.searchFullCourse(
             query: entry.name,
             latitude: entry.latitude,
             longitude: entry.longitude,
           );
-          if (course != null) {
+          serverSw.stop();
+          final serverHit = course != null;
+          _logger.info(LogCategory.map, 'cache_check', metadata: {
+            'latency': '${serverSw.elapsedMilliseconds}',
+            'cacheHit': '$serverHit',
+            'source': 'server',
+            'courseName': entry.name,
+          });
+          if (serverHit) {
+            source = 'server';
             // ignore: avoid_print
-            print('DOWNLOAD: server cache HIT — ${course.holes.length} holes');
+            print('DOWNLOAD: server cache HIT — ${course!.holes.length} holes');
           } else {
             // ignore: avoid_print
             print('DOWNLOAD: server cache MISS');
@@ -471,6 +495,13 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
     setState(() => _navigatingToMap = false);
 
     if (course != null) {
+      totalSw.stop();
+      _logger.info(LogCategory.map, 'total_ingestion', metadata: {
+        'latency': '${totalSw.elapsedMilliseconds}',
+        'courseName': entry.name,
+        'source': source,
+        'platform': Platform.isIOS ? 'ios' : 'android',
+      });
       // ignore: use_build_context_synchronously
       context.push(AppRoutes.courseMap, extra: course);
       return;

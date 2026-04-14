@@ -80,6 +80,7 @@ class _NoopLogSender implements LogSender {
 AdService adService = StubAdService();
 
 Future<void> main() async {
+  final startupSw = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
   await initMapbox();
   await AppStorage.init();
@@ -92,6 +93,15 @@ Future<void> main() async {
   await ads.initialize();
   if (isDevMode) ads.setSubscribed(true);
   adService = ads;
+  startupSw.stop();
+  logger.info(
+    LogCategory.lifecycle,
+    'app_startup',
+    metadata: {
+      'latency': '${startupSw.elapsedMilliseconds}',
+      'platform': Platform.isIOS ? 'ios' : 'android',
+    },
+  );
   runApp(CaddieApp());
 }
 

@@ -65,9 +65,9 @@ void main() {
 
     expect(sender.sent, hasLength(1));
     final entry = sender.sent.first;
-    expect(entry.message, 'tts_latency');
-    expect(entry.metadata['latencyMs'], '250');
-    expect(entry.metadata['charCount'], '20');
+    expect(entry.message, 'tts_start');
+    expect(entry.metadata['latency'], '250');
+    expect(entry.metadata['textLength'], '20');
     expect(entry.metadata['voiceGender'], 'female');
     expect(entry.metadata['voiceAccent'], 'scottish');
   });
@@ -108,9 +108,9 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(sender.sent, hasLength(2));
-    expect(sender.sent[0].metadata['latencyMs'], '100');
-    expect(sender.sent[0].metadata['charCount'], '5');
-    expect(sender.sent[1].metadata['latencyMs'], '50');
-    expect(sender.sent[1].metadata['charCount'], '19');
+    expect(sender.sent[0].metadata['latency'], '100');
+    expect(sender.sent[0].metadata['textLength'], '5');
+    expect(sender.sent[1].metadata['latency'], '50');
+    expect(sender.sent[1].metadata['textLength'], '19');
   });
 }

@@ -34,6 +34,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../courses/http_transport.dart';
+import '../logging/log_event.dart';
+import '../../main.dart' show logger;
 import 'weather_data.dart';
 
 class WeatherService {
@@ -144,12 +146,19 @@ class WeatherService {
       'wind_speed_unit': 'mph',
     });
     try {
+      final sw = Stopwatch()..start();
       final response = await transport.send(HttpRequestLike(
         method: 'GET',
         url: url,
         timeout: const Duration(seconds: 10),
       ));
+      sw.stop();
       if (!response.isSuccess) return _cached;
+      logger.info(LogCategory.network, 'weather_fetch', metadata: {
+        'latency': '${sw.elapsedMilliseconds}',
+        'latitude': '$lat',
+        'longitude': '$lon',
+      });
       final json = jsonDecode(response.body) as Map<String, dynamic>;
       final current = (json['current'] as Map?)?.cast<String, dynamic>();
       if (current == null) return _cached;

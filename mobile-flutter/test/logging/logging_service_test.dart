@@ -224,8 +224,8 @@ void main() {
       // dashboards stop receiving data — fail the build instead.
       expect(LoggingService.events.layerRender, 'layer_render');
       expect(LoggingService.events.llmLatency, 'llm_latency');
-      expect(LoggingService.events.sttLatency, 'stt_latency');
-      expect(LoggingService.events.ttsLatency, 'tts_latency');
+      expect(LoggingService.events.sttComplete, 'stt_complete');
+      expect(LoggingService.events.ttsStart, 'tts_start');
     });
   });
 

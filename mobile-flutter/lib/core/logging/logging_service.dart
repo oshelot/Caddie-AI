@@ -243,15 +243,23 @@ class _CanonicalEvents {
   /// filter: `LlmLatencyMs`.
   String get llmLatency => 'llm_latency';
 
-  /// Speech-to-text latency from start of utterance to final
+  /// Speech-to-text completion from start of utterance to final
   /// transcript. Emitted by the STT service (KAN-S8). Metadata:
-  /// `latencyMs`, `transcriptLen`. Filter: `SttLatencyMs`.
-  String get sttLatency => 'stt_latency';
+  /// `latency`, `wordCount`. Filter: `SttLatencyMs`.
+  String get sttComplete => 'stt_complete';
 
-  /// Text-to-speech synthesis latency from request to first audio
-  /// frame. Emitted by the TTS service (KAN-S8). Metadata:
-  /// `latencyMs`, `voiceGender`, `voiceAccent`. Filter: `TtsLatencyMs`.
-  String get ttsLatency => 'tts_latency';
+  /// Legacy alias — kept so any feature code referencing the old
+  /// name still compiles. Prefer `sttComplete`.
+  String get sttLatency => 'stt_complete';
+
+  /// Text-to-speech start event from request to first audio frame.
+  /// Emitted by the TTS service (KAN-S8). Metadata: `latency`,
+  /// `textLength`, `voiceGender`, `voiceAccent`. Filter: `TtsLatencyMs`.
+  String get ttsStart => 'tts_start';
+
+  /// Legacy alias — kept so any feature code referencing the old
+  /// name still compiles. Prefer `ttsStart`.
+  String get ttsLatency => 'tts_start';
 
   /// Course search latency from typing-stop (debounce fire) to
   /// the search-result list rendering. Emitted by the course
