@@ -153,15 +153,19 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
 
   Future<void> _checkLocationPermission() async {
     try {
-      final status = await _locationService.permissionStatus();
+      var status = await _locationService.permissionStatus();
+      // If not yet determined, request permission now so the iOS
+      // system prompt fires and the app appears in Settings.
+      if (status == LocationPermission.notDetermined ||
+          status == LocationPermission.denied) {
+        status = await _locationService.requestPermission();
+      }
       if (!mounted) return;
       setState(() {
         _locationGranted = status == LocationPermission.granted;
         _checkingLocation = false;
       });
     } catch (_) {
-      // Platform plugin unavailable (e.g. unit tests). Treat as
-      // not-granted; the search-by-name path still works.
       if (mounted) {
         setState(() {
           _locationGranted = false;
