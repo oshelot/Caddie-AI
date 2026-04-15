@@ -514,8 +514,10 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   }
 
                   source = 'golf_api';
-                  cacheKeyForSave =
-                      NormalizedCourse.serverCacheKey(combinedName);
+                  // Don't cache multi-course selections — the user
+                  // may play different nines on different days. The
+                  // picker should always re-prompt.
+                  cacheKeyForSave = null;
                   // ignore: avoid_print
                   print('MULTI: built ${combinedName} — '
                       '${skeletonHoles.length} holes from Golf API');
