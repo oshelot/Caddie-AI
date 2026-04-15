@@ -38,7 +38,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/courses/course_cache_client.dart';
 import '../../../core/courses/course_cache_repository.dart';
+import '../../../core/courses/course_matcher.dart';
 import '../../../core/courses/course_normalizer.dart';
+import 'course_picker_dialog.dart';
 import '../../../core/courses/course_search_merger.dart';
 import '../../../core/courses/course_search_results.dart';
 import '../../../core/courses/golf_course_api_client.dart';
@@ -50,6 +52,7 @@ import '../../../core/courses/places_client.dart';
 
 import '../../../core/logging/log_event.dart';
 import '../../../main.dart' show adService;
+import '../../../core/geo/geo.dart';
 import '../../../core/location/geolocator_location_service.dart';
 import '../../../core/location/location_service.dart';
 import '../../../core/logging/logging_service.dart';
@@ -427,7 +430,102 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
           }
         }
 
-        // Step 3: Discover via Overpass.
+        // Step 3: Check Golf API for multi-course facility FIRST.
+        // If the Golf API returns 2+ courses for this facility,
+        // show a picker and build the course from API data. OSM
+        // geometry is overlaid as best-effort.
+        if (course == null) {
+          final golfApi = _buildGolfApi();
+          if (golfApi != null) {
+            final apiResults = await golfApi.searchCourses(entry.name);
+            if (apiResults.length >= 2) {
+              // Fetch details for each
+              final details = await Future.wait(
+                apiResults.take(6).map((r) => golfApi.getCourse(r.id)),
+              );
+              final apiDetails = details
+                  .whereType<GolfCourseApiResult>()
+                  .toList(growable: false);
+
+              if (apiDetails.length >= 2) {
+                final extracted =
+                    CourseMatcher.extractCourses(apiDetails);
+
+                if (extracted.length >= 2) {
+                  // ignore: avoid_print
+                  print('MULTI: ${extracted.length} courses found: '
+                      '${extracted.map((e) => e.name).toList()}');
+
+                  // Show picker — user picks 1 or 2 nines
+                  if (!mounted) return;
+                  final picks = await showCoursePickerDialog(
+                    context: context,
+                    courses: extracted,
+                  );
+                  if (picks == null || picks.isEmpty || !mounted) {
+                    setState(() {
+                      _navigatingToMap = false;
+                      _downloadComplete = false;
+                    });
+                    return;
+                  }
+
+                  // Build course from Golf API data (skeleton with
+                  // pars/yardages but no geometry yet).
+                  final combinedName = picks.length == 1
+                      ? '${entry.name} - ${picks.first.name}'
+                      : '${entry.name} - ${picks.map((p) => p.name).join(" + ")}';
+                  final skeletonHoles = <NormalizedHole>[];
+                  for (final pick in picks) {
+                    for (var i = 0; i < pick.pars.length; i++) {
+                      skeletonHoles.add(NormalizedHole(
+                        number: skeletonHoles.length + 1,
+                        par: pick.pars[i],
+                        strokeIndex: null,
+                        yardages: const {},
+                        teeAreas: const [],
+                        lineOfPlay: null,
+                        green: null,
+                        pin: null,
+                        bunkers: const [],
+                        water: const [],
+                      ));
+                    }
+                  }
+
+                  course = NormalizedCourse(
+                    id: 'golf_api_${entry.latitude}_${entry.longitude}',
+                    name: combinedName,
+                    city: entry.city.isNotEmpty ? entry.city : null,
+                    state: entry.state.isNotEmpty ? entry.state : null,
+                    centroid: LngLat(entry.longitude, entry.latitude),
+                    holes: skeletonHoles,
+                  );
+
+                  // Enrich with tee/yardage data from each pick.
+                  for (final pick in picks) {
+                    if (pick.apiDetail != null) {
+                      course = await _enrichWithScorecardData(
+                        course!,
+                        entry.name,
+                        preMatchedDetail: pick.apiDetail,
+                      );
+                    }
+                  }
+
+                  source = 'golf_api';
+                  cacheKeyForSave =
+                      NormalizedCourse.serverCacheKey(combinedName);
+                  // ignore: avoid_print
+                  print('MULTI: built ${combinedName} — '
+                      '${skeletonHoles.length} holes from Golf API');
+                }
+              }
+            }
+          }
+        }
+
+        // Step 3b: Standard single-course Overpass discovery.
         if (course == null) {
           // ignore: avoid_print
           print('DOWNLOAD: starting Overpass ingestion for ${entry.name}');
@@ -449,55 +547,13 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 '${features.tees.length} tees, '
                 '${features.pins.length} pins');
             final normalizer = CourseNormalizer();
-
-            // Check for duplicate hole numbers in raw features BEFORE
-            // normalizing — normalize() returns only the largest
-            // spatial cluster which loses the duplicates.
-            final rawHoleNumbers = <int>{};
-            var hasDuplicateRawHoles = false;
-            for (final hl in features.holeLines) {
-              if (hl.number != null && hl.number! > 0) {
-                if (!rawHoleNumbers.add(hl.number!)) {
-                  hasDuplicateRawHoles = true;
-                }
-              }
-            }
-
-            if (hasDuplicateRawHoles) {
-              // Multi-course facility — build a single course with
-              // ALL holes (not just the largest cluster) so the
-              // backend can split them properly.
-              final allCourses = normalizer.normalizeAll(
-                features: features,
-                courseName: entry.name,
-                osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
-                city: entry.city.isNotEmpty ? entry.city : null,
-                state: entry.state.isNotEmpty ? entry.state : null,
-              );
-              // Merge all clusters into one course for the backend.
-              final allHoles = allCourses.expand((c) => c.holes).toList();
-              if (allHoles.isNotEmpty) {
-                course = NormalizedCourse(
-                  id: 'osm_${entry.latitude}_${entry.longitude}',
-                  name: entry.name,
-                  city: entry.city.isNotEmpty ? entry.city : null,
-                  state: entry.state.isNotEmpty ? entry.state : null,
-                  centroid: allCourses.first.centroid,
-                  holes: allHoles,
-                );
-                // ignore: avoid_print
-                print('DOWNLOAD: multi-course — ${allHoles.length} holes across ${allCourses.length} clusters');
-              }
-            } else {
-              course = normalizer.normalize(
-                features: features,
-                courseName: entry.name,
-                osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
-                city: entry.city.isNotEmpty ? entry.city : null,
-                state: entry.state.isNotEmpty ? entry.state : null,
-              );
-            }
-
+            course = normalizer.normalize(
+              features: features,
+              courseName: entry.name,
+              osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
+              city: entry.city.isNotEmpty ? entry.city : null,
+              state: entry.state.isNotEmpty ? entry.state : null,
+            );
             if (course != null && course.holes.isNotEmpty) {
               // ignore: avoid_print
               print('DOWNLOAD: normalized ${course.holes.length} holes');
@@ -522,43 +578,6 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       }
     } catch (e) {
       errorMessage = '$e';
-    }
-
-    // Step 3b: Multi-course detection. If the resolved course has
-    // duplicate hole numbers (multi-course facility), delegate to
-    // the backend for async processing. The backend will split by
-    // par sequence, enrich with Golf Course API data, and cache
-    // each sub-course. The user can retry in ~30s for instant hits.
-    if (course != null && cacheKeyForSave != null) {
-      final normalizer = CourseNormalizer();
-      if (normalizer.hasMultipleCourses(course)) {
-        // ignore: avoid_print
-        print('MULTI: detected multi-course facility — '
-            '${course.holes.length} holes with duplicates');
-
-        // Delegate to backend for async processing.
-        _cacheClient.requestIngestion(entry.name, course).then((accepted) {
-          // ignore: avoid_print
-          print('MULTI: backend ingestion ${accepted ? "accepted" : "failed"}');
-        }).ignore();
-
-        if (!mounted) return;
-        setState(() {
-          _navigatingToMap = false;
-          _downloadComplete = false;
-        });
-        // ignore: use_build_context_synchronously
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'This facility has multiple courses. We\'re preparing '
-              'them now — search again in about 30 seconds.',
-            ),
-            duration: Duration(seconds: 5),
-          ),
-        );
-        return;
-      }
     }
 
     // Step 4: Enrich with Golf Course API tee/yardage data.
