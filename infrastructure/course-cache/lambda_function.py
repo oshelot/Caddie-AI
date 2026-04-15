@@ -649,10 +649,484 @@ def normalize_course_for_android(course: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Golf Course API helpers (for async multi-course ingestion)
+# ---------------------------------------------------------------------------
+
+GOLF_COURSE_API_KEY = os.environ.get("GOLF_COURSE_API_KEY", "")
+GOLF_COURSE_API_BASE = "https://api.golfcourseapi.com/v1"
+
+# Suffixes stripped during retry search — mirrors the Flutter client.
+_GOLF_API_SUFFIXES = [
+    "Golf & Country Club", "Municipal Golf Course", "Public Golf Course",
+    "Country Club", "Golf Course", "Golf Links", "Golf Club",
+]
+
+
+def golf_api_search(name: str) -> list:
+    """Search the Golf Course API by course name with suffix-retry."""
+    results = _golf_api_search_once(name)
+    if results:
+        return results
+    lower = name.lower()
+    for suffix in _GOLF_API_SUFFIXES:
+        if lower.endswith(suffix.lower()):
+            stripped = name[:len(name) - len(suffix)].strip()
+            if stripped:
+                results = _golf_api_search_once(stripped)
+                if results:
+                    return results
+    return []
+
+
+def _golf_api_search_once(query: str) -> list:
+    url = f"{GOLF_COURSE_API_BASE}/search?{urllib.parse.urlencode({'search_query': query})}"
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", f"Key {GOLF_COURSE_API_KEY}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("courses", [])
+    except Exception as e:
+        print(f"Golf API search failed for '{query}': {e}")
+        return []
+
+
+def golf_api_detail(course_id: int) -> dict | None:
+    """Fetch full course detail by Golf Course API id."""
+    url = f"{GOLF_COURSE_API_BASE}/courses/{course_id}"
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", f"Key {GOLF_COURSE_API_KEY}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("course", data)
+    except Exception as e:
+        print(f"Golf API detail failed for id={course_id}: {e}")
+        return None
+
+
+def _extract_par_sequence(api_course: dict) -> list[int]:
+    """Extract par sequence from any tee of a Golf Course API result."""
+    tees = api_course.get("tees", {})
+    for gender in ("male", "female"):
+        gender_tees = tees.get(gender, [])
+        if isinstance(gender_tees, list) and gender_tees:
+            holes = gender_tees[0].get("holes", [])
+            return [h.get("par", 4) for h in holes]
+    return []
+
+
+# ---------------------------------------------------------------------------
+# Multi-course algorithms (Python port of Dart CourseMatcher + Normalizer)
+# ---------------------------------------------------------------------------
+
+def extract_courses(api_details: list[dict]) -> list[dict]:
+    """Extract individual named courses from Golf Course API results.
+
+    Handles two patterns:
+    - Standalone: "North", "South" → used directly
+    - Combos: "West-Lind", "West-Creek", "Lind-Creek" → decomposed
+      into individual 9s: West, Lind, Creek
+    """
+    if len(api_details) < 2:
+        return api_details
+
+    combo_parts: dict[str, list] = {}
+    is_combos = True
+
+    for detail in api_details:
+        name = (detail.get("course_name") or detail.get("courseName", "")).strip()
+        parts = [p.strip() for p in name.split("-")]
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            is_combos = False
+            break
+        combo_parts.setdefault(parts[0], []).append({"detail": detail, "is_front": True})
+        combo_parts.setdefault(parts[1], []).append({"detail": detail, "is_front": False})
+
+    if is_combos and len(combo_parts) >= 2:
+        # Validate: each sub-name should appear in at least 2 combos
+        valid = sum(1 for v in combo_parts.values() if len(v) >= 2)
+        if valid >= 2:
+            return _extract_from_combos(combo_parts)
+
+    # Standard pattern: return as-is with par sequences
+    return [
+        {"name": (d.get("course_name") or d.get("courseName", "")),
+         "pars": _extract_par_sequence(d), "detail": d}
+        for d in api_details
+    ]
+
+
+def _extract_from_combos(combo_parts: dict) -> list[dict]:
+    results = []
+    for sub_name, appearances in combo_parts.items():
+        pars = None
+        source_detail = None
+        front_or_back = None
+        for combo in appearances:
+            detail = combo["detail"]
+            full_pars = _extract_par_sequence(detail)
+            if len(full_pars) < 18:
+                continue
+            half = full_pars[:9] if combo["is_front"] else full_pars[9:18]
+            if pars is None:
+                pars = half
+                source_detail = detail
+                front_or_back = "front" if combo["is_front"] else "back"
+        if pars is not None:
+            results.append({
+                "name": sub_name,
+                "pars": pars,
+                "detail": source_detail,
+                "front_or_back": front_or_back,
+            })
+    return results
+
+
+def split_by_par_sequence(course_json: dict, par_sequences: list[list[int]]) -> list[dict]:
+    """Split a multi-course facility's holes into separate courses
+    using par sequences from the Golf Course API.
+
+    Each hole is assigned to the API course whose par at that hole
+    number matches. Works for both interleaved courses (Terra Lago)
+    and combo 9-hole courses (Kennedy).
+    """
+    holes = course_json.get("holes", [])
+    course_count = len(par_sequences)
+    buckets: list[list[dict]] = [[] for _ in range(course_count)]
+
+    # Group holes by number
+    by_number: dict[int, list[dict]] = {}
+    for h in holes:
+        num = h.get("number", 0)
+        by_number.setdefault(num, []).append(h)
+
+    for hole_num, candidates in by_number.items():
+        if len(candidates) == 1:
+            # Unique hole — assign to first matching par
+            h = candidates[0]
+            assigned = False
+            for ci in range(course_count):
+                seq = par_sequences[ci]
+                if hole_num - 1 < len(seq) and seq[hole_num - 1] == h.get("par", 0):
+                    buckets[ci].append(h)
+                    assigned = True
+                    break
+            if not assigned:
+                buckets[0].append(h)
+        else:
+            # Duplicate — match each to a different API course by par
+            used_courses: set[int] = set()
+            unmatched = []
+            for h in candidates:
+                matched = False
+                for ci in range(course_count):
+                    if ci in used_courses:
+                        continue
+                    seq = par_sequences[ci]
+                    if hole_num - 1 < len(seq) and seq[hole_num - 1] == h.get("par", 0):
+                        buckets[ci].append(h)
+                        used_courses.add(ci)
+                        matched = True
+                        break
+                if not matched:
+                    unmatched.append(h)
+            for h in unmatched:
+                for ci in range(course_count):
+                    if ci not in used_courses:
+                        buckets[ci].append(h)
+                        used_courses.add(ci)
+                        break
+
+    # Build sub-course JSON objects
+    results = []
+    for i, bucket in enumerate(buckets):
+        if not bucket:
+            continue
+        bucket.sort(key=lambda h: h.get("number", 0))
+        # Compute centroid from hole geometry
+        lats, lons = [], []
+        for h in bucket:
+            pin = h.get("pin")
+            if isinstance(pin, dict) and "latitude" in pin:
+                lats.append(pin["latitude"])
+                lons.append(pin["longitude"])
+            lop = h.get("lineOfPlay")
+            if isinstance(lop, dict):
+                for coord in (lop.get("coordinates") or []):
+                    if isinstance(coord, list) and len(coord) >= 2:
+                        lons.append(coord[0])
+                        lats.append(coord[1])
+
+        centroid_lat = sum(lats) / len(lats) if lats else 0
+        centroid_lon = sum(lons) / len(lons) if lons else 0
+
+        results.append({
+            "id": f"{course_json.get('id', '')}_{i}",
+            "name": course_json.get("name", ""),
+            "city": course_json.get("city", ""),
+            "state": course_json.get("state", ""),
+            "centroid": {"latitude": centroid_lat, "longitude": centroid_lon},
+            "holes": bucket,
+            "teeNames": [],
+            "teeYardageTotals": {},
+        })
+
+    return results
+
+
+def enrich_with_tee_data(course_json: dict, api_detail: dict,
+                          front_or_back: str | None = None) -> dict:
+    """Enrich a course with tee/yardage data from a Golf API detail."""
+    tees_raw = api_detail.get("tees", {})
+    tees: dict[str, dict] = {}
+    for gender in ("male", "female"):
+        for tee in (tees_raw.get(gender) or []):
+            tee_name = re.sub(r"\s+\d{3,}\s*$", "", tee.get("tee_name", "")).strip()
+            key = tee_name.lower()
+            if key not in tees:
+                tees[key] = {"name": tee_name, "tee": tee}
+
+    tee_names = []
+    tee_yardage_totals = {}
+    for info in tees.values():
+        tee = info["tee"]
+        tee_names.append(info["name"])
+        total = tee.get("total_yards", 0)
+        if total:
+            tee_yardage_totals[info["name"]] = total
+
+    # Sort by yardage descending
+    tee_names.sort(key=lambda n: tee_yardage_totals.get(n, 0), reverse=True)
+
+    # Determine hole offset for combo 9s
+    hole_offset = 9 if front_or_back == "back" else 0
+
+    enriched_holes = []
+    for hole in course_json.get("holes", []):
+        h = dict(hole)  # shallow copy
+        yardages = dict(h.get("yardages", {}))
+        par = h.get("par", 0)
+        stroke_index = h.get("strokeIndex")
+        hole_num = h.get("number", 0)
+        # Map to API hole index (for combo 9s, offset by 9)
+        api_idx = (hole_num - 1) + hole_offset
+
+        for info in tees.values():
+            tee = info["tee"]
+            api_holes = tee.get("holes", [])
+            if api_idx < len(api_holes):
+                api_hole = api_holes[api_idx]
+                yardages[info["name"]] = api_hole.get("yardage", 0)
+                if par == 0:
+                    par = api_hole.get("par", 0)
+                if stroke_index is None:
+                    stroke_index = api_hole.get("handicap")
+
+        h["yardages"] = yardages
+        h["par"] = par
+        h["strokeIndex"] = stroke_index
+        enriched_holes.append(h)
+
+    course_json["holes"] = enriched_holes
+    course_json["teeNames"] = tee_names
+    course_json["teeYardageTotals"] = tee_yardage_totals
+    return course_json
+
+
+# ---------------------------------------------------------------------------
+# Async ingestion handler
+# ---------------------------------------------------------------------------
+
+def handle_async_ingest(event: dict):
+    """Process a multi-course facility asynchronously.
+
+    Called via Lambda self-invocation (InvocationType=Event).
+    Receives the normalized course JSON, splits by par sequence,
+    enriches each sub-course, and saves to S3 + manifest.
+    """
+    name = event.get("name", "")
+    cache_key_base = event.get("cacheKey", "")
+    course_json = event.get("courseJson", {})
+    schema = event.get("schema", "1.0")
+
+    print(f"ASYNC_INGEST: starting for '{name}', {len(course_json.get('holes', []))} holes")
+
+    s3 = get_s3_client()
+    status_key = f"courses/status/{cache_key_base}.json"
+
+    try:
+        # 1. Search Golf Course API
+        if not GOLF_COURSE_API_KEY:
+            raise RuntimeError("GOLF_COURSE_API_KEY not configured")
+
+        api_results = golf_api_search(name)
+        print(f"ASYNC_INGEST: Golf API returned {len(api_results)} results")
+
+        if len(api_results) < 2:
+            raise RuntimeError(f"Golf API returned {len(api_results)} results, need ≥2")
+
+        # 2. Fetch details for each API result
+        api_details = []
+        for r in api_results[:6]:
+            detail = golf_api_detail(r.get("id", 0))
+            if detail:
+                api_details.append(detail)
+
+        if len(api_details) < 2:
+            raise RuntimeError(f"Golf API details: only {len(api_details)} valid, need ≥2")
+
+        # 3. Extract individual courses (handles combos like West-Lind)
+        extracted = extract_courses(api_details)
+        print(f"ASYNC_INGEST: extracted {len(extracted)} individual courses: "
+              f"{[e['name'] for e in extracted]}")
+
+        if len(extracted) < 2:
+            raise RuntimeError(f"Only {len(extracted)} courses extracted, need ≥2")
+
+        # 4. Split holes by par sequence
+        par_sequences = [e["pars"] for e in extracted]
+        sub_courses = split_by_par_sequence(course_json, par_sequences)
+        print(f"ASYNC_INGEST: split into {len(sub_courses)} sub-courses")
+
+        # 5. Name, enrich, and save each sub-course
+        for i, sub in enumerate(sub_courses):
+            ext = extracted[i] if i < len(extracted) else None
+            if ext:
+                sub["name"] = f"{name} - {ext['name']}"
+                sub = enrich_with_tee_data(
+                    sub, ext["detail"],
+                    front_or_back=ext.get("front_or_back"),
+                )
+            print(f"ASYNC_INGEST: sub-course '{sub['name']}' — "
+                  f"{len(sub.get('holes', []))} holes, "
+                  f"{len(sub.get('teeNames', []))} tees")
+
+            # Save to S3 via the same path as handle_put
+            sub_cache_key = normalize_name(sub["name"]).replace(" ", "-")
+            sub_s3_key = s3_key(schema, sub_cache_key)
+            compressed = gzip.compress(
+                json.dumps(sub, separators=(",", ":")).encode("utf-8")
+            )
+            s3.put_object(
+                Bucket=BUCKET_NAME,
+                Key=sub_s3_key,
+                Body=compressed,
+                ContentType="application/json",
+                ContentEncoding="gzip",
+            )
+
+            # Update manifest
+            lat = sub.get("centroid", {}).get("latitude", 0)
+            lon = sub.get("centroid", {}).get("longitude", 0)
+            try:
+                update_manifest(
+                    s3, sub_cache_key, sub["name"], lat, lon, schema,
+                    sub_s3_key,
+                    city=sub.get("city", ""),
+                    state=sub.get("state", ""),
+                )
+            except Exception as e:
+                print(f"ASYNC_INGEST: manifest update failed for {sub_cache_key}: {e}")
+
+        # 6. Done — delete status marker
+        try:
+            s3.delete_object(Bucket=BUCKET_NAME, Key=status_key)
+        except Exception:
+            pass
+
+        print(f"ASYNC_INGEST: completed successfully — {len(sub_courses)} courses saved")
+
+    except Exception as e:
+        print(f"ASYNC_INGEST: failed — {e}")
+        # Update status marker with error
+        try:
+            s3.put_object(
+                Bucket=BUCKET_NAME,
+                Key=status_key,
+                Body=json.dumps({"status": "failed", "error": str(e)}).encode(),
+                ContentType="application/json",
+            )
+        except Exception:
+            pass
+
+
+def handle_ingest(event: dict, context) -> dict:
+    """POST /courses/ingest — accept a multi-course facility for
+    async backend processing. Writes a status marker and invokes
+    this Lambda asynchronously to do the heavy work."""
+    body_str = event.get("body", "")
+    if event.get("isBase64Encoded"):
+        body_str = base64.b64decode(body_str).decode("utf-8")
+
+    if not body_str:
+        return error_response(400, "Empty request body.")
+
+    try:
+        payload = json.loads(body_str)
+    except json.JSONDecodeError:
+        return error_response(400, "Invalid JSON.")
+
+    name = payload.get("name", "")
+    course_json = payload.get("courseJson")
+    if not name or not course_json:
+        return error_response(400, "Missing 'name' or 'courseJson'.")
+
+    cache_key = normalize_name(name).replace(" ", "-")
+
+    # Write status marker
+    s3 = get_s3_client()
+    status_key = f"courses/status/{cache_key}.json"
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=status_key,
+        Body=json.dumps({"status": "processing",
+                         "startedAt": str(int(__import__("time").time()))}).encode(),
+        ContentType="application/json",
+    )
+
+    # Self-invoke asynchronously
+    async_payload = {
+        "_asyncIngest": True,
+        "name": name,
+        "cacheKey": cache_key,
+        "courseJson": course_json,
+        "schema": "1.0",
+    }
+
+    lambda_client = boto3.client("lambda",
+                                  region_name=os.environ.get("AWS_REGION", "us-east-2"))
+    lambda_client.invoke(
+        FunctionName=context.function_name,
+        InvocationType="Event",
+        Payload=json.dumps(async_payload).encode(),
+    )
+
+    print(f"INGEST: accepted '{name}', dispatched async processing")
+
+    return {
+        "statusCode": 202,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+        },
+        "body": json.dumps({
+            "status": "processing",
+            "cacheKey": cache_key,
+        }),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
 
 def lambda_handler(event, context):
+    # Async self-invocation for multi-course ingestion
+    if event.get("_asyncIngest"):
+        handle_async_ingest(event)
+        return {"statusCode": 200, "body": "ok"}
+
     # Handle CORS preflight
     http_method = (
         event.get("requestContext", {}).get("http", {}).get("method", "")
@@ -663,7 +1137,7 @@ def lambda_handler(event, context):
             "statusCode": 200,
             "headers": {
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+                "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
                 "Access-Control-Allow-Headers": "Content-Type, x-api-key",
             },
             "body": "",
@@ -677,10 +1151,15 @@ def lambda_handler(event, context):
     if not expected_key or client_key != expected_key:
         return error_response(401, "Unauthorized: invalid or missing API key.")
 
-    # KAN-296: Google Places proxy routes — dispatch by raw path before
-    # the courseId extraction below, since these routes don't have a
-    # {courseId} path param.
+    # Dispatch by raw path for routes that don't use {courseId}
     raw_path = event.get("rawPath") or event.get("path") or ""
+
+    # POST /courses/ingest — async multi-course ingestion
+    if http_method == "POST" and (raw_path == "/courses/ingest"
+                                  or raw_path.endswith("/courses/ingest")):
+        return handle_ingest(event, context)
+
+    # KAN-296: Google Places proxy routes
     if http_method == "GET":
         if raw_path == "/places/autocomplete" or raw_path.endswith("/places/autocomplete"):
             return handle_places_autocomplete(event)

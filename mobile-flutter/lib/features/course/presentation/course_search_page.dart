@@ -47,7 +47,7 @@ import '../../../core/courses/nominatim_client.dart';
 import '../../../core/courses/osm_parser.dart';
 import '../../../core/courses/overpass_client.dart';
 import '../../../core/courses/places_client.dart';
-import 'course_picker_dialog.dart';
+
 import '../../../core/logging/log_event.dart';
 import '../../../main.dart' show adService;
 import '../../../core/location/geolocator_location_service.dart';
@@ -485,114 +485,40 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       errorMessage = '$e';
     }
 
-    // Step 3b: Multi-course detection. Applies regardless of
-    // source (local cache, server cache, or Overpass). If the
-    // resolved course has duplicate hole numbers (e.g., 36-hole
-    // facility stored as one course), fetch Golf Course API par
-    // sequences to split holes into correctly-named courses.
-    //
-    // Uses par-based splitting (not spatial clustering) because
-    // courses like Terra Lago North/South are spatially interleaved
-    // — holes from both courses neighbor each other on the property.
+    // Step 3b: Multi-course detection. If the resolved course has
+    // duplicate hole numbers (multi-course facility), delegate to
+    // the backend for async processing. The backend will split by
+    // par sequence, enrich with Golf Course API data, and cache
+    // each sub-course. The user can retry in ~30s for instant hits.
     if (course != null && cacheKeyForSave != null) {
       final normalizer = CourseNormalizer();
       if (normalizer.hasMultipleCourses(course)) {
         // ignore: avoid_print
-        print('MULTI: duplicate hole numbers in ${course.holes.length}-hole payload');
-        final golfApi = _buildGolfApi();
-        List<GolfCourseApiResult> apiDetails = const [];
-        if (golfApi != null) {
-          final apiResults = await golfApi.searchCourses(entry.name);
-          if (apiResults.length >= 2) {
-            final details = await Future.wait(
-              apiResults
-                  .take(6)
-                  .map((r) => golfApi.getCourse(r.id)),
-            );
-            apiDetails = details
-                .whereType<GolfCourseApiResult>()
-                .toList(growable: false);
-          }
-        }
+        print('MULTI: detected multi-course facility — '
+            '${course.holes.length} holes with duplicates');
 
-        if (apiDetails.length >= 2) {
-          // Extract par sequences from API results.
-          final apiParSequences = apiDetails.map((d) {
-            if (d.tees.isEmpty) return const <int>[];
-            return d.tees.values.first.holes
-                .map((h) => h.par)
-                .toList(growable: false);
-          }).toList(growable: false);
+        // Delegate to backend for async processing.
+        _cacheClient.requestIngestion(entry.name, course).then((accepted) {
+          // ignore: avoid_print
+          print('MULTI: backend ingestion ${accepted ? "accepted" : "failed"}');
+        }).ignore();
 
-          final splits = normalizer.splitByParSequence(
-            course,
-            apiParSequences,
-          );
-
-          if (splits.length >= 2) {
-            // ignore: avoid_print
-            print('MULTI: split into ${splits.length} courses');
-
-            // Name each split after the matching API course.
-            final namedCourses = <NormalizedCourse>[];
-            final matches = <GolfCourseApiResult?>[];
-            for (var i = 0; i < splits.length; i++) {
-              final apiMatch = i < apiDetails.length ? apiDetails[i] : null;
-              matches.add(apiMatch);
-              namedCourses.add(NormalizedCourse(
-                id: apiMatch != null
-                    ? '${splits[i].id}_${apiMatch.id}'
-                    : splits[i].id,
-                name: apiMatch != null
-                    ? '${entry.name} - ${apiMatch.courseName}'
-                    : splits[i].name,
-                city: splits[i].city,
-                state: splits[i].state,
-                centroid: splits[i].centroid,
-                holes: splits[i].holes,
-              ));
-              // ignore: avoid_print
-              print('MULTI: course $i → "${namedCourses[i].name}" — ${namedCourses[i].holes.length} holes');
-            }
-
-            // Enrich and cache all variants.
-            for (var i = 0; i < namedCourses.length; i++) {
-              var variant = namedCourses[i];
-              if (variant.teeNames.isEmpty) {
-                variant = await _enrichWithScorecardData(
-                  variant,
-                  entry.name,
-                  preMatchedDetail: matches[i],
-                );
-              }
-              namedCourses[i] = variant;
-              final variantKey =
-                  NormalizedCourse.serverCacheKey(variant.name);
-              final repo = _cacheRepository;
-              if (repo != null) {
-                try { await repo.save(variantKey, variant); } catch (_) {}
-              }
-              _cacheClient.putCourse(variantKey, variant).ignore();
-            }
-
-            if (!mounted) return;
-            final picked = await showCoursePickerDialog(
-              context: context,
-              courses: namedCourses,
-            );
-            if (picked == null || !mounted) {
-              setState(() {
-                _navigatingToMap = false;
-                _downloadComplete = false;
-              });
-              return;
-            }
-            course = picked;
-            cacheKeyForSave = null; // already cached above
-            // ignore: avoid_print
-            print('MULTI: user picked "${course.name}" — ${course.holes.length} holes');
-          }
-        }
+        if (!mounted) return;
+        setState(() {
+          _navigatingToMap = false;
+          _downloadComplete = false;
+        });
+        // ignore: use_build_context_synchronously
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This facility has multiple courses. We\'re preparing '
+              'them now — search again in about 30 seconds.',
+            ),
+            duration: Duration(seconds: 5),
+          ),
+        );
+        return;
       }
     }
 

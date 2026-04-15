@@ -193,6 +193,32 @@ class CourseCacheClient {
     }
   }
 
+  // ── async ingestion ──────────────────────────────────────────────
+
+  /// Requests async backend processing for a multi-course facility.
+  /// The backend will split, enrich, and cache each sub-course.
+  /// Returns true if the request was accepted (202), false on error.
+  Future<bool> requestIngestion(
+    String name,
+    NormalizedCourse course,
+  ) async {
+    final url = Uri.parse('$baseUrl/courses/ingest');
+    try {
+      final response = await _send(
+        'POST',
+        url,
+        body: jsonEncode({
+          'name': name,
+          'courseJson': _serializeCourse(course),
+        }),
+        contentType: 'application/json',
+      );
+      return response.statusCode == 202;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── url builders ─────────────────────────────────────────────────
 
   Uri _buildSearchUrl({
