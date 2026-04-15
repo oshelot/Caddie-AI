@@ -448,18 +448,57 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 '${features.greens.length} greens, '
                 '${features.tees.length} tees, '
                 '${features.pins.length} pins');
-            // Use normalize() to get a single course with all holes.
-            // Multi-course splitting (if duplicate hole numbers exist)
-            // is handled in Step 3b using par-sequence matching.
             final normalizer = CourseNormalizer();
-            course = normalizer.normalize(
-              features: features,
-              courseName: entry.name,
-              osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
-              city: entry.city.isNotEmpty ? entry.city : null,
-              state: entry.state.isNotEmpty ? entry.state : null,
-            );
-            if (course.holes.isNotEmpty) {
+
+            // Check for duplicate hole numbers in raw features BEFORE
+            // normalizing — normalize() returns only the largest
+            // spatial cluster which loses the duplicates.
+            final rawHoleNumbers = <int>{};
+            var hasDuplicateRawHoles = false;
+            for (final hl in features.holeLines) {
+              if (hl.number != null && hl.number! > 0) {
+                if (!rawHoleNumbers.add(hl.number!)) {
+                  hasDuplicateRawHoles = true;
+                }
+              }
+            }
+
+            if (hasDuplicateRawHoles) {
+              // Multi-course facility — build a single course with
+              // ALL holes (not just the largest cluster) so the
+              // backend can split them properly.
+              final allCourses = normalizer.normalizeAll(
+                features: features,
+                courseName: entry.name,
+                osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
+                city: entry.city.isNotEmpty ? entry.city : null,
+                state: entry.state.isNotEmpty ? entry.state : null,
+              );
+              // Merge all clusters into one course for the backend.
+              final allHoles = allCourses.expand((c) => c.holes).toList();
+              if (allHoles.isNotEmpty) {
+                course = NormalizedCourse(
+                  id: 'osm_${entry.latitude}_${entry.longitude}',
+                  name: entry.name,
+                  city: entry.city.isNotEmpty ? entry.city : null,
+                  state: entry.state.isNotEmpty ? entry.state : null,
+                  centroid: allCourses.first.centroid,
+                  holes: allHoles,
+                );
+                // ignore: avoid_print
+                print('DOWNLOAD: multi-course — ${allHoles.length} holes across ${allCourses.length} clusters');
+              }
+            } else {
+              course = normalizer.normalize(
+                features: features,
+                courseName: entry.name,
+                osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
+                city: entry.city.isNotEmpty ? entry.city : null,
+                state: entry.state.isNotEmpty ? entry.state : null,
+              );
+            }
+
+            if (course != null && course.holes.isNotEmpty) {
               // ignore: avoid_print
               print('DOWNLOAD: normalized ${course.holes.length} holes');
             } else {
