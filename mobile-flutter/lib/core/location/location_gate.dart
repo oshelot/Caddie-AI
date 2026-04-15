@@ -112,6 +112,13 @@ class _LocationGateState extends State<LocationGate> {
           onContinue: _requesting ? null : _request,
         );
       case LocationPermission.denied:
+        // Denied (not permanent) — re-request permission so the
+        // system dialog fires again.
+        return _DeniedScaffold(
+          status: status,
+          onOpenSettings: _openSettings,
+          onRetry: () => _request(),
+        );
       case LocationPermission.permanentlyDenied:
       case LocationPermission.restricted:
         return _DeniedScaffold(

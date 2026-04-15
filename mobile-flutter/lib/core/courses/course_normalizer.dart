@@ -97,6 +97,121 @@ class CourseNormalizer {
     return courses;
   }
 
+  /// Returns true if [course] has duplicate hole numbers (i.e., it
+  /// is a multi-course facility stored as a single course).
+  bool hasMultipleCourses(NormalizedCourse course) {
+    final seen = <int>{};
+    for (final h in course.holes) {
+      if (h.number > 0 && !seen.add(h.number)) return true;
+    }
+    return false;
+  }
+
+  /// Splits a multi-course facility into separate courses using
+  /// Golf Course API par sequences to assign each hole to the
+  /// correct course. This works even when the courses are spatially
+  /// interleaved (e.g., Terra Lago North/South share the same
+  /// property and holes from both courses neighbor each other).
+  ///
+  /// For each duplicate hole number, the hole whose par matches
+  /// apiCourse[0] goes to course 0, and the hole matching
+  /// apiCourse[1] goes to course 1, etc. Holes with unique
+  /// numbers or no par match go to the first course.
+  ///
+  /// Returns a single-element list if no duplicates exist.
+  List<NormalizedCourse> splitByParSequence(
+    NormalizedCourse course,
+    List<List<int>> apiParSequences,
+  ) {
+    if (apiParSequences.length < 2) return [course];
+    if (!hasMultipleCourses(course)) return [course];
+
+    final courseCount = apiParSequences.length;
+    final buckets = List.generate(courseCount, (_) => <NormalizedHole>[]);
+
+    // Group holes by number.
+    final byNumber = <int, List<NormalizedHole>>{};
+    for (final h in course.holes) {
+      byNumber.putIfAbsent(h.number, () => []).add(h);
+    }
+
+    for (final entry in byNumber.entries) {
+      final holeNum = entry.key;
+      final candidates = entry.value;
+
+      if (candidates.length == 1) {
+        // Unique hole number — assign to whichever API course's par
+        // matches, defaulting to course 0.
+        final h = candidates.first;
+        var assigned = false;
+        for (var ci = 0; ci < courseCount; ci++) {
+          if (holeNum - 1 < apiParSequences[ci].length &&
+              apiParSequences[ci][holeNum - 1] == h.par) {
+            buckets[ci].add(h);
+            assigned = true;
+            break;
+          }
+        }
+        if (!assigned) buckets[0].add(h);
+      } else {
+        // Duplicate hole numbers — match each candidate to the API
+        // course whose par at this hole number agrees.
+        final usedCourses = <int>{};
+        final unmatched = <NormalizedHole>[];
+
+        for (final h in candidates) {
+          var matched = false;
+          for (var ci = 0; ci < courseCount; ci++) {
+            if (usedCourses.contains(ci)) continue;
+            if (holeNum - 1 < apiParSequences[ci].length &&
+                apiParSequences[ci][holeNum - 1] == h.par) {
+              buckets[ci].add(h);
+              usedCourses.add(ci);
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) unmatched.add(h);
+        }
+
+        // Assign remaining unmatched holes to unused courses.
+        for (final h in unmatched) {
+          for (var ci = 0; ci < courseCount; ci++) {
+            if (!usedCourses.contains(ci)) {
+              buckets[ci].add(h);
+              usedCourses.add(ci);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    final results = <NormalizedCourse>[];
+    for (var i = 0; i < courseCount; i++) {
+      final holes = buckets[i];
+      if (holes.isEmpty) continue;
+      holes.sort((a, b) => a.number.compareTo(b.number));
+
+      final allPoints = <LngLat>[];
+      for (final h in holes) {
+        allPoints.addAll(h.allGeometryPoints());
+      }
+      final centroid = _computeCentroid(allPoints);
+
+      results.add(NormalizedCourse(
+        id: '${course.id}_$i',
+        name: '${course.name} (${_subCourseName(i)})',
+        city: course.city,
+        state: course.state,
+        centroid: centroid,
+        holes: holes,
+      ));
+    }
+
+    return results.isEmpty ? [course] : results;
+  }
+
   // -------------------------------------------------------------------------
   // Hole building
   // -------------------------------------------------------------------------

@@ -47,6 +47,7 @@ import '../../../core/courses/nominatim_client.dart';
 import '../../../core/courses/osm_parser.dart';
 import '../../../core/courses/overpass_client.dart';
 import '../../../core/courses/places_client.dart';
+import 'course_picker_dialog.dart';
 import '../../../core/logging/log_event.dart';
 import '../../../main.dart' show adService;
 import '../../../core/location/geolocator_location_service.dart';
@@ -144,6 +145,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
   bool _locationGranted = false;
   bool _checkingLocation = true;
   bool _navigatingToMap = false;
+  bool _downloadComplete = false;
 
   @override
   void initState() {
@@ -243,33 +245,42 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
     }
   }
 
+  static const _golfApiKey =
+      String.fromEnvironment('GOLF_COURSE_API_KEY', defaultValue: '');
+
+  GolfCourseApiClient? _buildGolfApi() {
+    if (_golfApiKey.isEmpty) return null;
+    return GolfCourseApiClient(apiKey: _golfApiKey, transport: _transport);
+  }
+
   /// Enriches a course with tee/yardage data from the Golf Course
   /// API. Mirrors iOS enrichWithScorecardData(). Returns the
   /// enriched course, or the original if enrichment fails.
+  ///
+  /// When [preMatchedDetail] is provided (multi-course matching),
+  /// skips the search call and uses the pre-matched result directly.
   Future<NormalizedCourse> _enrichWithScorecardData(
     NormalizedCourse course,
-    String searchName,
-  ) async {
-    const golfApiKey =
-        String.fromEnvironment('GOLF_COURSE_API_KEY', defaultValue: '');
-    if (golfApiKey.isEmpty) return course;
-
+    String searchName, {
+    GolfCourseApiResult? preMatchedDetail,
+  }) async {
     try {
-      final golfApi = GolfCourseApiClient(
-        apiKey: golfApiKey,
-        transport: _transport,
-      );
-      // ignore: avoid_print
-      print('ENRICH: searching Golf Course API for "$searchName"');
-      final results = await golfApi.searchCourses(searchName);
-      if (results.isEmpty) {
+      GolfCourseApiResult? detail = preMatchedDetail;
+      if (detail == null) {
+        final golfApi = _buildGolfApi();
+        if (golfApi == null) return course;
         // ignore: avoid_print
-        print('ENRICH: no results');
-        return course;
-      }
+        print('ENRICH: searching Golf Course API for "$searchName"');
+        final results = await golfApi.searchCourses(searchName);
+        if (results.isEmpty) {
+          // ignore: avoid_print
+          print('ENRICH: no results');
+          return course;
+        }
 
-      // Get the detail for the first match (has full tee data).
-      final detail = await golfApi.getCourse(results.first.id);
+        // Get the detail for the first match (has full tee data).
+        detail = await golfApi.getCourse(results.first.id);
+      }
       if (detail == null || detail.tees.isEmpty) {
         // ignore: avoid_print
         print('ENRICH: no tee data');
@@ -356,6 +367,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
     NormalizedCourse? course;
     String? cacheKeyForSave;
     String? errorMessage;
+    GolfCourseApiResult? matchedApiDetail;
     try {
       if (entry.cacheKey == kLocalFixtureCacheKey) {
         // Bundled fixture path — no network required, no save.
@@ -408,7 +420,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
           if (serverHit) {
             source = 'server';
             // ignore: avoid_print
-            print('DOWNLOAD: server cache HIT — ${course!.holes.length} holes');
+            print('DOWNLOAD: server cache HIT — ${course.holes.length} holes');
           } else {
             // ignore: avoid_print
             print('DOWNLOAD: server cache MISS');
@@ -436,6 +448,9 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 '${features.greens.length} greens, '
                 '${features.tees.length} tees, '
                 '${features.pins.length} pins');
+            // Use normalize() to get a single course with all holes.
+            // Multi-course splitting (if duplicate hole numbers exist)
+            // is handled in Step 3b using par-sequence matching.
             final normalizer = CourseNormalizer();
             course = normalizer.normalize(
               features: features,
@@ -444,14 +459,13 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               city: entry.city.isNotEmpty ? entry.city : null,
               state: entry.state.isNotEmpty ? entry.state : null,
             );
-            if (course != null) {
+            if (course.holes.isNotEmpty) {
               // ignore: avoid_print
               print('DOWNLOAD: normalized ${course.holes.length} holes');
-              // Upload to server cache happens AFTER enrichment
-              // (Step 4) so tee data is included.
             } else {
+              course = null;
               // ignore: avoid_print
-              print('DOWNLOAD: normalizer returned null');
+              print('DOWNLOAD: normalizer returned empty');
             }
           } catch (e, st) {
             // ignore: avoid_print
@@ -471,13 +485,128 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       errorMessage = '$e';
     }
 
+    // Step 3b: Multi-course detection. Applies regardless of
+    // source (local cache, server cache, or Overpass). If the
+    // resolved course has duplicate hole numbers (e.g., 36-hole
+    // facility stored as one course), fetch Golf Course API par
+    // sequences to split holes into correctly-named courses.
+    //
+    // Uses par-based splitting (not spatial clustering) because
+    // courses like Terra Lago North/South are spatially interleaved
+    // — holes from both courses neighbor each other on the property.
+    if (course != null && cacheKeyForSave != null) {
+      final normalizer = CourseNormalizer();
+      if (normalizer.hasMultipleCourses(course)) {
+        // ignore: avoid_print
+        print('MULTI: duplicate hole numbers in ${course.holes.length}-hole payload');
+        final golfApi = _buildGolfApi();
+        List<GolfCourseApiResult> apiDetails = const [];
+        if (golfApi != null) {
+          final apiResults = await golfApi.searchCourses(entry.name);
+          if (apiResults.length >= 2) {
+            final details = await Future.wait(
+              apiResults
+                  .take(6)
+                  .map((r) => golfApi.getCourse(r.id)),
+            );
+            apiDetails = details
+                .whereType<GolfCourseApiResult>()
+                .toList(growable: false);
+          }
+        }
+
+        if (apiDetails.length >= 2) {
+          // Extract par sequences from API results.
+          final apiParSequences = apiDetails.map((d) {
+            if (d.tees.isEmpty) return const <int>[];
+            return d.tees.values.first.holes
+                .map((h) => h.par)
+                .toList(growable: false);
+          }).toList(growable: false);
+
+          final splits = normalizer.splitByParSequence(
+            course,
+            apiParSequences,
+          );
+
+          if (splits.length >= 2) {
+            // ignore: avoid_print
+            print('MULTI: split into ${splits.length} courses');
+
+            // Name each split after the matching API course.
+            final namedCourses = <NormalizedCourse>[];
+            final matches = <GolfCourseApiResult?>[];
+            for (var i = 0; i < splits.length; i++) {
+              final apiMatch = i < apiDetails.length ? apiDetails[i] : null;
+              matches.add(apiMatch);
+              namedCourses.add(NormalizedCourse(
+                id: apiMatch != null
+                    ? '${splits[i].id}_${apiMatch.id}'
+                    : splits[i].id,
+                name: apiMatch != null
+                    ? '${entry.name} - ${apiMatch.courseName}'
+                    : splits[i].name,
+                city: splits[i].city,
+                state: splits[i].state,
+                centroid: splits[i].centroid,
+                holes: splits[i].holes,
+              ));
+              // ignore: avoid_print
+              print('MULTI: course $i → "${namedCourses[i].name}" — ${namedCourses[i].holes.length} holes');
+            }
+
+            // Enrich and cache all variants.
+            for (var i = 0; i < namedCourses.length; i++) {
+              var variant = namedCourses[i];
+              if (variant.teeNames.isEmpty) {
+                variant = await _enrichWithScorecardData(
+                  variant,
+                  entry.name,
+                  preMatchedDetail: matches[i],
+                );
+              }
+              namedCourses[i] = variant;
+              final variantKey =
+                  NormalizedCourse.serverCacheKey(variant.name);
+              final repo = _cacheRepository;
+              if (repo != null) {
+                try { await repo.save(variantKey, variant); } catch (_) {}
+              }
+              _cacheClient.putCourse(variantKey, variant).ignore();
+            }
+
+            if (!mounted) return;
+            final picked = await showCoursePickerDialog(
+              context: context,
+              courses: namedCourses,
+            );
+            if (picked == null || !mounted) {
+              setState(() {
+                _navigatingToMap = false;
+                _downloadComplete = false;
+              });
+              return;
+            }
+            course = picked;
+            cacheKeyForSave = null; // already cached above
+            // ignore: avoid_print
+            print('MULTI: user picked "${course.name}" — ${course.holes.length} holes');
+          }
+        }
+      }
+    }
+
     // Step 4: Enrich with Golf Course API tee/yardage data.
     // Mirrors iOS CourseViewModel.swift:978-1095
     // enrichWithScorecardData(). Non-blocking — if the API is
     // unavailable or the course isn't found, we proceed with
     // whatever data we have (geometry-only is still useful).
     if (course != null && course.teeNames.isEmpty) {
-      course = await _enrichWithScorecardData(course, entry.name);
+      course = await _enrichWithScorecardData(
+        course,
+        entry.name,
+        preMatchedDetail: matchedApiDetail,
+      );
     }
 
     // Step 5: Save to local disk cache AND upload to server cache.
@@ -496,7 +625,6 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
     }
 
     if (!mounted) return;
-    setState(() => _navigatingToMap = false);
 
     if (course != null) {
       totalSw.stop();
@@ -506,11 +634,20 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         'source': source,
         'platform': Platform.isIOS ? 'ios' : 'android',
       });
+      // Flash the green checkmark before navigating.
+      setState(() => _downloadComplete = true);
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      if (!mounted) return;
+      setState(() {
+        _navigatingToMap = false;
+        _downloadComplete = false;
+      });
       // ignore: use_build_context_synchronously
       context.push(AppRoutes.courseMap, extra: course);
       return;
     }
 
+    setState(() => _navigatingToMap = false);
     // ignore: use_build_context_synchronously
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(errorMessage ?? 'Failed to open course')),
@@ -524,15 +661,43 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
-    return CourseSearchScreen(
-      onSearch: _onSearch,
-      onSelectCourse: _onSelectCourse,
-      onCityAutocomplete: _onCityAutocomplete,
-      logger: _logger,
-      locationGranted: _locationGranted,
-      initialDemoEntry: kSharpParkDemoEntry,
-      favoritesController: _favoritesController,
-      adService: adService,
+    return Stack(
+      children: [
+        CourseSearchScreen(
+          onSearch: _onSearch,
+          onSelectCourse: _onSelectCourse,
+          onCityAutocomplete: _onCityAutocomplete,
+          logger: _logger,
+          locationGranted: _locationGranted,
+          initialDemoEntry: kSharpParkDemoEntry,
+          favoritesController: _favoritesController,
+          adService: adService,
+        ),
+        if (_navigatingToMap)
+          Container(
+            color: Colors.black54,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_downloadComplete)
+                    const Icon(Icons.check_circle, color: Colors.green, size: 64)
+                  else
+                    const CircularProgressIndicator(color: Colors.white),
+                  const SizedBox(height: 16),
+                  Text(
+                    _downloadComplete ? 'Ready!' : 'Loading course\u2026',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
