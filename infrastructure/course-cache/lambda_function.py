@@ -1129,6 +1129,206 @@ If you cannot confidently locate a hole, omit it from the array."""
     return sub_courses
 
 
+def _llm_assign_holes(
+    course_json: dict,
+    extracted: list[dict],
+    facility_lat: float,
+    facility_lon: float,
+) -> list[dict] | None:
+    """Use Bedrock Nova Pro to assign all OSM holes to the correct
+    courses AND locate any missing holes via satellite imagery.
+    Returns a list of sub-course dicts, or None on failure."""
+
+    holes = course_json.get("holes", [])
+
+    # Build hole descriptions for the prompt
+    hole_lines = []
+    for h in holes:
+        num = h.get("number", 0)
+        par = h.get("par", 0)
+        # Get a representative coordinate
+        lat, lon = 0, 0
+        lop = h.get("lineOfPlay")
+        if isinstance(lop, dict) and lop.get("coordinates"):
+            coords = lop["coordinates"]
+            mid = coords[len(coords) // 2]
+            lon, lat = mid[0], mid[1]
+        elif h.get("pin"):
+            lat = h["pin"].get("latitude", 0)
+            lon = h["pin"].get("longitude", 0)
+        # Include the raw ref if available
+        raw_refs = h.get("rawRefs", "")
+        ref_info = f", rawRef=\"{raw_refs}\"" if raw_refs else ""
+        hole_lines.append(
+            f"  hole_number={num}, par={par}, lat={lat:.5f}, lon={lon:.5f}{ref_info}"
+        )
+
+    # Build course descriptions from Golf API
+    course_descs = []
+    for ext in extracted:
+        course_descs.append(
+            f"- {ext['name']}: {len(ext['pars'])} holes, pars={ext['pars']}"
+        )
+
+    # Fetch satellite image
+    img_content = []
+    bounds_text = ""
+    if facility_lat and facility_lon:
+        img_bytes = _fetch_satellite_image(facility_lat, facility_lon)
+        if img_bytes:
+            bounds = _image_bounds(facility_lat, facility_lon)
+            bounds_text = (
+                f"\nI've included a satellite image of the facility.\n"
+                f"Image bounds: top-left=({bounds['top_left_lat']:.4f}, "
+                f"{bounds['top_left_lon']:.4f}), bottom-right="
+                f"({bounds['bottom_right_lat']:.4f}, {bounds['bottom_right_lon']:.4f})\n"
+                f"Use this to locate any holes that aren't in the OSM data.\n"
+            )
+            img_content = [{"image": {"format": "jpeg",
+                                      "source": {"bytes": base64.b64encode(img_bytes).decode()}}}]
+
+    prompt = f"""You are a golf course data expert. I have OSM data for "{course_json.get('name', '')}" that needs to be split into individual courses.
+
+## Golf Course API Data (ground truth for course names and pars)
+{chr(10).join(course_descs)}
+Note: Exclude any par-3 course holes (if present) from the output.
+
+## Rules
+1. Each course has exactly the number of holes shown above.
+2. Use the OSM ref tags, par values, AND coordinates to determine which course each hole belongs to.
+3. Refs like "west9-1" mean hole 1 of a course with "west" in its name.
+4. Refs like "Par3-*" are a par-3 course — exclude them entirely.
+5. Standard numeric refs (1-18) may represent paired 18-hole combinations. Use par values and spatial clustering to disambiguate.
+6. When there are DUPLICATE refs, each duplicate belongs to a DIFFERENT course.
+7. If par is 4 (the default) and no other signal exists, use coordinates to cluster the hole with its course neighbors.
+8. Deduplicate — if the same physical hole appears multiple times (same coordinates), include it only once.
+{bounds_text}
+## OSM Holes ({len(holes)} total)
+{chr(10).join(hole_lines)}
+
+## Output Format
+Return ONLY a JSON object with this structure:
+{{
+  "courses": [
+    {{
+      "name": "CourseName",
+      "holes": [
+        {{"osm_index": 0, "hole_number": 1, "par": 5}},
+        ...
+      ]
+    }},
+    ...
+  ],
+  "missing_holes": [
+    {{"course": "CourseName", "hole_number": N, "par": N, "tee_lat": N, "tee_lon": N, "green_lat": N, "green_lon": N}},
+    ...
+  ]
+}}
+
+osm_index is the 0-based index into the OSM holes list above.
+missing_holes are holes that exist in the Golf API but have no matching OSM data — locate them from the satellite image if possible."""
+
+    try:
+        bedrock = boto3.client("bedrock-runtime",
+                               region_name=os.environ.get("AWS_REGION", "us-east-2"))
+
+        content = img_content + [{"text": prompt}]
+        resp = bedrock.invoke_model(
+            modelId="us.amazon.nova-pro-v1:0",
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps({
+                "messages": [{"role": "user", "content": content}],
+                "inferenceConfig": {"maxTokens": 4000},
+            }),
+        )
+        result = json.loads(resp["body"].read())
+        text = result["output"]["message"]["content"][0]["text"]
+
+        # Parse JSON from response
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        llm_output = json.loads(text)
+
+    except Exception as e:
+        print(f"LLM_ASSIGN: Bedrock call failed: {e}")
+        return None
+
+    # Build sub-courses from LLM output
+    llm_courses = llm_output.get("courses", [])
+    missing_holes = llm_output.get("missing_holes", [])
+    print(f"LLM_ASSIGN: {len(llm_courses)} courses, {len(missing_holes)} missing holes located")
+
+    sub_courses = []
+    for lc in llm_courses:
+        course_holes = []
+        for lh in lc.get("holes", []):
+            osm_idx = lh.get("osm_index", -1)
+            hole_num = lh.get("hole_number", 0)
+            par = lh.get("par", 0)
+            if 0 <= osm_idx < len(holes):
+                h = dict(holes[osm_idx])
+                h["number"] = hole_num
+                if par > 0:
+                    h["par"] = par
+                course_holes.append(h)
+
+        # Add any missing holes located via satellite
+        for mh in missing_holes:
+            if mh.get("course") == lc.get("name"):
+                tee_lat = mh.get("tee_lat")
+                tee_lon = mh.get("tee_lon")
+                green_lat = mh.get("green_lat")
+                green_lon = mh.get("green_lon")
+                if all([tee_lat, tee_lon, green_lat, green_lon]):
+                    course_holes.append({
+                        "number": mh.get("hole_number", 0),
+                        "par": mh.get("par", 0),
+                        "strokeIndex": None,
+                        "yardages": {},
+                        "lineOfPlay": {"coordinates": [[tee_lon, tee_lat], [green_lon, green_lat]]},
+                        "green": None,
+                        "pin": {"latitude": green_lat, "longitude": green_lon},
+                        "teeAreas": [], "bunkers": [], "water": [],
+                        "_synthesized": True,
+                    })
+
+        course_holes.sort(key=lambda h: h.get("number", 0))
+
+        # Compute centroid
+        lats, lons = [], []
+        for h in course_holes:
+            pin = h.get("pin")
+            if isinstance(pin, dict) and "latitude" in pin:
+                lats.append(pin["latitude"])
+                lons.append(pin["longitude"])
+            lop = h.get("lineOfPlay")
+            if isinstance(lop, dict):
+                for coord in (lop.get("coordinates") or []):
+                    if isinstance(coord, list) and len(coord) >= 2:
+                        lons.append(coord[0])
+                        lats.append(coord[1])
+
+        sub_courses.append({
+            "id": f"{course_json.get('id', '')}_{len(sub_courses)}",
+            "name": course_json.get("name", ""),
+            "city": course_json.get("city", ""),
+            "state": course_json.get("state", ""),
+            "centroid": {
+                "latitude": sum(lats) / len(lats) if lats else 0,
+                "longitude": sum(lons) / len(lons) if lons else 0,
+            },
+            "holes": course_holes,
+            "teeNames": [],
+            "teeYardageTotals": {},
+        })
+
+        print(f"LLM_ASSIGN: {lc.get('name')} → {len(course_holes)} holes")
+
+    return sub_courses if sub_courses else None
+
+
 # ---------------------------------------------------------------------------
 # Async ingestion handler
 # ---------------------------------------------------------------------------
@@ -1179,18 +1379,44 @@ def handle_async_ingest(event: dict):
         if len(extracted) < 2:
             raise RuntimeError(f"Only {len(extracted)} courses extracted, need ≥2")
 
-        # 4. Split holes by par sequence
+        # 4. Split holes by par sequence (fast algorithmic path)
         par_sequences = [e["pars"] for e in extracted]
         sub_courses = split_by_par_sequence(course_json, par_sequences)
-        print(f"ASYNC_INGEST: split into {len(sub_courses)} sub-courses")
+        print(f"ASYNC_INGEST: algorithmic split → {len(sub_courses)} sub-courses: "
+              f"{[len(s.get('holes',[])) for s in sub_courses]}")
 
-        # 4b. Fill missing holes using satellite imagery + vision LLM
+        # 4a. Quality check — did the algorithmic split produce clean results?
+        # Clean = each sub-course has the expected hole count (±1) from the API.
+        clean_split = True
+        for i, sub in enumerate(sub_courses):
+            expected = len(extracted[i]["pars"]) if i < len(extracted) else 0
+            actual = len(sub.get("holes", []))
+            if expected > 0 and (actual < expected - 1 or actual > expected + 1):
+                clean_split = False
+                print(f"ASYNC_INGEST: split quality FAIL — course {i} "
+                      f"expected {expected} holes, got {actual}")
+                break
+
         facility_lat = course_json.get("centroid", {}).get("latitude", 0)
         facility_lon = course_json.get("centroid", {}).get("longitude", 0)
-        if facility_lat and facility_lon:
-            sub_courses = fill_missing_holes_with_vision(
-                sub_courses, extracted, facility_lat, facility_lon,
+
+        if clean_split:
+            print("ASYNC_INGEST: algorithmic split is clean, skipping LLM")
+            # Still fill any single missing holes via satellite vision
+            if facility_lat and facility_lon:
+                sub_courses = fill_missing_holes_with_vision(
+                    sub_courses, extracted, facility_lat, facility_lon,
+                )
+        else:
+            # 4b. Algorithmic split failed — use LLM for full assignment
+            print("ASYNC_INGEST: falling back to LLM for hole assignment")
+            llm_result = _llm_assign_holes(
+                course_json, extracted, facility_lat, facility_lon,
             )
+            if llm_result:
+                sub_courses = llm_result
+            else:
+                print("ASYNC_INGEST: LLM assignment also failed, using algorithmic result")
 
         # 5. Name, enrich, and save each sub-course
         for i, sub in enumerate(sub_courses):
