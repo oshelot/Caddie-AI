@@ -49,6 +49,7 @@ _PLACES_CACHE_MAX = 256
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "caddieai-course-cache")
 PROXY_API_KEY_ENV = os.environ.get("PROXY_API_KEY", "")
 GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+MAPBOX_TOKEN = os.environ.get("MAPBOX_TOKEN", "")
 MAX_BODY_BYTES = 1_048_576  # 1 MB
 MANIFEST_KEY = "courses/manifest.json"
 
@@ -935,6 +936,200 @@ def enrich_with_tee_data(course_json: dict, api_detail: dict,
 
 
 # ---------------------------------------------------------------------------
+# Satellite vision gap-filler (fills missing holes via Bedrock + Mapbox)
+# ---------------------------------------------------------------------------
+
+def _find_missing_holes(sub_courses: list[dict], extracted: list[dict]) -> list[dict]:
+    """Identify holes that exist in the Golf API data but are missing
+    from the split OSM courses. Returns a list of gap descriptors."""
+    gaps = []
+    for i, sub in enumerate(sub_courses):
+        ext = extracted[i] if i < len(extracted) else None
+        if not ext:
+            continue
+        assigned_numbers = {h.get("number", 0) for h in sub.get("holes", [])}
+        expected_count = len(ext["pars"])
+        for hole_num in range(1, expected_count + 1):
+            if hole_num not in assigned_numbers:
+                par = ext["pars"][hole_num - 1] if hole_num - 1 < len(ext["pars"]) else 0
+                gaps.append({
+                    "course_name": ext["name"],
+                    "course_index": i,
+                    "hole_number": hole_num,
+                    "par": par,
+                })
+    return gaps
+
+
+def _fetch_satellite_image(lat: float, lon: float) -> bytes | None:
+    """Fetch a satellite image from Mapbox centered on the given coords."""
+    if not MAPBOX_TOKEN:
+        print("VISION: no MAPBOX_TOKEN configured")
+        return None
+    url = (f"https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/"
+           f"{lon},{lat},15.5,0/1280x1280@2x?access_token={MAPBOX_TOKEN}")
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.read()
+    except Exception as e:
+        print(f"VISION: satellite fetch failed: {e}")
+        return None
+
+
+def _image_bounds(lat: float, lon: float) -> dict:
+    """Approximate lat/lon bounds for a 1280x1280@2x Mapbox static
+    image at zoom 15.5 centered on (lat, lon)."""
+    # At zoom 15.5, the tile covers roughly 0.018 degrees lat/lon
+    # for a 1280px image at 2x.
+    span_lat = 0.0091
+    span_lon = 0.012
+    return {
+        "top_left_lat": lat + span_lat,
+        "top_left_lon": lon - span_lon,
+        "bottom_right_lat": lat - span_lat,
+        "bottom_right_lon": lon + span_lon,
+    }
+
+
+def fill_missing_holes_with_vision(
+    sub_courses: list[dict],
+    extracted: list[dict],
+    facility_lat: float,
+    facility_lon: float,
+) -> list[dict]:
+    """Use satellite imagery + Bedrock Nova Pro to locate missing
+    holes and synthesize basic geometry (tee + green coordinates)."""
+    gaps = _find_missing_holes(sub_courses, extracted)
+    if not gaps:
+        print("VISION: no missing holes to fill")
+        return sub_courses
+
+    print(f"VISION: {len(gaps)} missing holes to locate: "
+          f"{[(g['course_name'], g['hole_number']) for g in gaps]}")
+
+    # Fetch satellite image
+    img_bytes = _fetch_satellite_image(facility_lat, facility_lon)
+    if not img_bytes:
+        return sub_courses
+
+    bounds = _image_bounds(facility_lat, facility_lon)
+
+    # Build the gap description for the prompt
+    gap_descriptions = []
+    for g in gaps:
+        # Find nearby assigned holes for spatial context
+        sub = sub_courses[g["course_index"]]
+        nearby = []
+        for h in sub.get("holes", []):
+            pin = h.get("pin")
+            lop = h.get("lineOfPlay")
+            if pin and "latitude" in pin:
+                nearby.append(f"hole {h['number']} at lat={pin['latitude']:.5f}, lon={pin['longitude']:.5f}")
+            elif lop and lop.get("coordinates"):
+                coords = lop["coordinates"]
+                mid = coords[len(coords)//2]
+                nearby.append(f"hole {h['number']} near lon={mid[0]:.5f}, lat={mid[1]:.5f}")
+
+        context = f" Nearby mapped holes: {', '.join(nearby[:3])}." if nearby else ""
+        gap_descriptions.append(
+            f"- {g['course_name']} Hole {g['hole_number']}: par {g['par']}.{context}"
+        )
+
+    prompt = f"""This satellite image shows a golf course facility.
+Image bounds:
+- Top-left: lat={bounds['top_left_lat']:.4f}, lon={bounds['top_left_lon']:.4f}
+- Bottom-right: lat={bounds['bottom_right_lat']:.4f}, lon={bounds['bottom_right_lon']:.4f}
+
+I have mapped most holes from OSM data, but these specific holes are MISSING and I need you to find them in the satellite image:
+
+{chr(10).join(gap_descriptions)}
+
+Look for unmapped fairway corridors and greens visible in the satellite image. Use the image bounds to estimate coordinates. For each missing hole, return the approximate tee and green locations.
+
+Return ONLY a JSON array:
+[{{"course": "...", "hole": N, "par": N, "tee_lat": N, "tee_lon": N, "green_lat": N, "green_lon": N}}]
+
+If you cannot confidently locate a hole, omit it from the array."""
+
+    try:
+        bedrock = boto3.client("bedrock-runtime",
+                               region_name=os.environ.get("AWS_REGION", "us-east-2"))
+        resp = bedrock.invoke_model(
+            modelId="us.amazon.nova-pro-v1:0",
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps({
+                "messages": [{"role": "user", "content": [
+                    {"image": {"format": "jpeg",
+                               "source": {"bytes": base64.b64encode(img_bytes).decode()}}},
+                    {"text": prompt},
+                ]}],
+                "inferenceConfig": {"maxTokens": 2000},
+            }),
+        )
+        result = json.loads(resp["body"].read())
+        text = result["output"]["message"]["content"][0]["text"]
+
+        # Parse JSON from response (may be wrapped in ```json blocks)
+        text = text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        found_holes = json.loads(text)
+        print(f"VISION: LLM located {len(found_holes)} of {len(gaps)} missing holes")
+
+    except Exception as e:
+        print(f"VISION: Bedrock call failed: {e}")
+        return sub_courses
+
+    # Merge found holes into the sub-courses
+    for fh in found_holes:
+        course_name = fh.get("course", "")
+        hole_num = fh.get("hole", 0)
+        tee_lat = fh.get("tee_lat")
+        tee_lon = fh.get("tee_lon")
+        green_lat = fh.get("green_lat")
+        green_lon = fh.get("green_lon")
+        par = fh.get("par", 0)
+
+        if not all([tee_lat, tee_lon, green_lat, green_lon]):
+            continue
+
+        # Find the matching sub-course
+        target_idx = None
+        for g in gaps:
+            if g["course_name"] == course_name and g["hole_number"] == hole_num:
+                target_idx = g["course_index"]
+                break
+        if target_idx is None:
+            continue
+
+        # Build a minimal hole with line-of-play from tee to green
+        new_hole = {
+            "number": hole_num,
+            "par": par,
+            "strokeIndex": None,
+            "yardages": {},
+            "lineOfPlay": {
+                "coordinates": [[tee_lon, tee_lat], [green_lon, green_lat]]
+            },
+            "green": None,
+            "pin": {"latitude": green_lat, "longitude": green_lon},
+            "teeAreas": [],
+            "bunkers": [],
+            "water": [],
+            "_synthesized": True,  # Flag so the app can style differently
+        }
+
+        sub_courses[target_idx].setdefault("holes", []).append(new_hole)
+        sub_courses[target_idx]["holes"].sort(key=lambda h: h.get("number", 0))
+        print(f"VISION: added {course_name} hole {hole_num} "
+              f"(tee={tee_lat:.5f},{tee_lon:.5f} green={green_lat:.5f},{green_lon:.5f})")
+
+    return sub_courses
+
+
+# ---------------------------------------------------------------------------
 # Async ingestion handler
 # ---------------------------------------------------------------------------
 
@@ -988,6 +1183,14 @@ def handle_async_ingest(event: dict):
         par_sequences = [e["pars"] for e in extracted]
         sub_courses = split_by_par_sequence(course_json, par_sequences)
         print(f"ASYNC_INGEST: split into {len(sub_courses)} sub-courses")
+
+        # 4b. Fill missing holes using satellite imagery + vision LLM
+        facility_lat = course_json.get("centroid", {}).get("latitude", 0)
+        facility_lon = course_json.get("centroid", {}).get("longitude", 0)
+        if facility_lat and facility_lon:
+            sub_courses = fill_missing_holes_with_vision(
+                sub_courses, extracted, facility_lat, facility_lon,
+            )
 
         # 5. Name, enrich, and save each sub-course
         for i, sub in enumerate(sub_courses):
