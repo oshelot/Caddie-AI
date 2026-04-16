@@ -223,6 +223,8 @@ class CourseNormalizer {
           number: hl.number ?? 0,
           par: hl.par ?? 4,
           lineOfPlay: hl.lineString,
+          refPrefix: hl.refPrefix,
+          isPar3Course: hl.isPar3Course,
         );
       }).toList();
     }
@@ -387,16 +389,97 @@ class CourseNormalizer {
   // -------------------------------------------------------------------------
 
   List<List<_RawHole>> _detectMultiCourse(List<_RawHole> holes) {
-    // Check for duplicate hole numbers.
+    // First, exclude par-3 course holes — they're a separate
+    // facility feature that should never be mixed with regulation
+    // course clusters (e.g., Kennedy's 9-hole par-3 course).
+    final regulationHoles = holes.where((h) => !h.isPar3Course).toList();
+    if (regulationHoles.isEmpty) return [holes];
+
+    // Check for duplicate hole numbers among regulation holes.
     final numberCounts = <int, int>{};
-    for (final h in holes) {
+    for (final h in regulationHoles) {
       if (h.number > 0) {
         numberCounts[h.number] = (numberCounts[h.number] ?? 0) + 1;
       }
     }
     final hasDuplicates = numberCounts.values.any((c) => c > 1);
-    if (!hasDuplicates) return [holes];
+    if (!hasDuplicates) return [regulationHoles];
 
+    // STEP 1: Pre-group by ref prefix. Holes with non-empty prefixes
+    // (e.g., "west9-1", "west9-2") are known-same-course and must
+    // not be mixed with other prefixes or numeric-only refs. This
+    // prevents spatial clustering from chaining unrelated courses
+    // together when their bounding boxes overlap.
+    final prefixGroups = <String, List<_RawHole>>{};
+    for (final h in regulationHoles) {
+      prefixGroups.putIfAbsent(h.refPrefix, () => []).add(h);
+    }
+
+    // If ref prefixes cleanly separate the courses (multiple
+    // non-empty prefixes, or a non-empty prefix alongside numerics),
+    // use those groups directly. Each group is treated as its own
+    // course — no further spatial clustering within a group.
+    final nonEmptyPrefixes = prefixGroups.keys.where((k) => k.isNotEmpty).length;
+    if (nonEmptyPrefixes >= 1) {
+      final result = <List<_RawHole>>[];
+      for (final group in prefixGroups.values) {
+        if (group.length < 3) continue;
+        final isNumericGroup = group.first.refPrefix.isEmpty;
+        if (isNumericGroup && _hasDuplicateNumbers(group)) {
+          // Numeric-only with duplicate numbers → spatial clustering
+          // (e.g., Terra Lago North+South interleaved).
+          final subClusters = _spatialCluster(group);
+          for (final sc in subClusters) {
+            if (sc.length >= 3) result.add(sc);
+          }
+        } else if (isNumericGroup &&
+            group.length >= 18 &&
+            _hasSequentialRefs(group, 1, 18)) {
+          // Numeric refs 1-18 with no duplicates + another prefix
+          // group present = "combined 18" at a multi-9 facility
+          // (e.g., Kennedy Lind+Creek scorecard combines to 1-18).
+          // Split at hole 9 into front-9 and back-9.
+          final sorted = [...group]
+            ..sort((a, b) => a.number.compareTo(b.number));
+          final front = sorted.where((h) => h.number <= 9).toList();
+          final back = sorted.where((h) => h.number > 9).toList();
+          // Renumber back nine to 1-9 so later matching works per-9
+          for (final h in back) {
+            h.number -= 9;
+          }
+          if (front.length >= 3) result.add(front);
+          if (back.length >= 3) result.add(back);
+        } else {
+          result.add(group);
+        }
+      }
+      if (result.length >= 2) return result;
+    }
+
+    // STEP 2 (fallback): Pure numeric refs with duplicates —
+    // Terra Lago style. Use spatial clustering.
+    return _spatialCluster(regulationHoles);
+  }
+
+  bool _hasDuplicateNumbers(List<_RawHole> holes) {
+    final seen = <int>{};
+    for (final h in holes) {
+      if (h.number > 0 && !seen.add(h.number)) return true;
+    }
+    return false;
+  }
+
+  /// True when [holes] contains at least one hole for every number
+  /// in [start..end] (inclusive), with no duplicates in that range.
+  bool _hasSequentialRefs(List<_RawHole> holes, int start, int end) {
+    final numbers = holes.map((h) => h.number).toSet();
+    for (var n = start; n <= end; n++) {
+      if (!numbers.contains(n)) return false;
+    }
+    return true;
+  }
+
+  List<List<_RawHole>> _spatialCluster(List<_RawHole> holes) {
     // Union-Find clustering with 400m threshold.
     final parent = List<int>.generate(holes.length, (i) => i);
 
@@ -515,11 +598,17 @@ class _RawHole {
   List<Polygon> tees = [];
   List<Polygon> bunkers = [];
   List<Polygon> water = [];
+  /// From ParsedHoleLine.refPrefix. Non-empty prefix = "this hole
+  /// belongs to a named sub-course" (e.g., "west" for Kennedy West).
+  String refPrefix = '';
+  bool isPar3Course = false;
 
   _RawHole({
     required this.number,
     required this.par,
     this.lineOfPlay,
     this.green,
+    this.refPrefix = '',
+    this.isPar3Course = false,
   });
 }

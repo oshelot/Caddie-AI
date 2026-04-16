@@ -16,11 +16,22 @@ class ParsedHoleLine {
   final int? number;
   final int? par;
   final LineString lineString;
+  /// Normalized ref prefix (e.g., "west9" from "west9-1",
+  /// "par3" from "Par3-7", "" for numeric-only refs like "1").
+  /// Used by the normalizer to separate physical courses at a
+  /// multi-course facility — two holes with the same prefix are
+  /// on the same course, even if spatial clustering can't tell.
+  final String refPrefix;
+  /// True when ref matches /^par3/i — the facility's par-3 course,
+  /// typically excluded from regulation course splitting.
+  final bool isPar3Course;
   const ParsedHoleLine({
     required this.osmId,
     this.number,
     this.par,
     required this.lineString,
+    this.refPrefix = '',
+    this.isPar3Course = false,
   });
 }
 
@@ -113,11 +124,14 @@ class OsmParser {
       if (golf == 'hole' && el.type == 'way') {
         final ls = _extractLineString(el);
         if (ls != null) {
+          final (prefix, isPar3) = _parseRefPrefix(tags);
           holeLines.add(ParsedHoleLine(
             osmId: el.id,
             number: _parseHoleNumber(tags),
             par: _parsePar(tags),
             lineString: ls,
+            refPrefix: prefix,
+            isPar3Course: isPar3,
           ));
         }
       } else if (golf == 'green' && el.type == 'way') {
@@ -256,6 +270,23 @@ class OsmParser {
       }
     }
     return null;
+  }
+
+  /// Extracts a normalized course-name prefix from a hyphenated ref.
+  /// Returns a (prefix, isPar3) tuple where prefix is lowercased and
+  /// stripped of trailing digits. Examples:
+  ///   "west9-1"  → ("west", false)
+  ///   "Par3-7"   → ("par", true)   // matches /^par/i
+  ///   "back-3"   → ("back", false)
+  ///   "1"        → ("", false)
+  static (String, bool) _parseRefPrefix(Map<String, String> tags) {
+    final raw = tags['ref'] ?? '';
+    if (!raw.contains('-')) return ('', false);
+    final beforeDash = raw.substring(0, raw.lastIndexOf('-')).toLowerCase();
+    // Strip trailing digits (e.g., "west9" → "west")
+    final prefix = beforeDash.replaceAll(RegExp(r'\d+$'), '');
+    final isPar3 = prefix == 'par' || prefix.startsWith('par3');
+    return (prefix, isPar3);
   }
 
   static int? _parsePar(Map<String, String> tags) {
