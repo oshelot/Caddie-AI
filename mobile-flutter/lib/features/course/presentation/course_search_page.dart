@@ -611,49 +611,94 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 print('MULTI: Overpass failed (geometry will be missing): $e');
               }
 
-              // Normalize all OSM holes into a flat pool for
-              // geometry overlay. Each OSM hole can be claimed by
-              // at most one sub-course hole.
-              List<NormalizedHole>? osmPool;
+              // Normalize OSM holes into spatial clusters. Each
+              // cluster is a group of holes that are near each
+              // other — likely belonging to the same course.
+              // Then match each cluster to a sub-course by
+              // comparing par sequences.
+              List<NormalizedCourse>? osmClusters;
               if (osmFeatures != null) {
                 final normalizer = CourseNormalizer();
-                final allOsm = normalizer.normalizeAll(
+                osmClusters = normalizer.normalizeAll(
                   features: osmFeatures,
                   courseName: entry.name,
                   osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
                   city: entry.city.isNotEmpty ? entry.city : null,
                   state: entry.state.isNotEmpty ? entry.state : null,
                 );
-                osmPool = allOsm.expand((c) => c.holes).toList();
                 // ignore: avoid_print
-                print('MULTI: ${osmPool.length} OSM holes available for geometry overlay');
+                print('MULTI: ${osmClusters.length} OSM clusters, '
+                    '${osmClusters.map((c) => c.holes.length).toList()} holes each');
               }
-              final usedOsmIndices = <int>{};
+
+              // Match each OSM cluster to a sub-course by par
+              // sequence similarity (count of matching pars at
+              // each hole position).
+              final clusterAssignment = <int, int>{}; // clusterIdx → extractedIdx
+              if (osmClusters != null) {
+                final usedExt = <int>{};
+                for (var ci = 0; ci < osmClusters.length; ci++) {
+                  final cluster = osmClusters[ci];
+                  final clusterPars = cluster.holes
+                      .map((h) => h.par)
+                      .toList(growable: false);
+                  int bestExt = -1;
+                  int bestScore = 0;
+                  for (var ei = 0; ei < extracted.length; ei++) {
+                    if (usedExt.contains(ei)) continue;
+                    final extPars = extracted[ei].pars;
+                    int score = 0;
+                    final len = clusterPars.length < extPars.length
+                        ? clusterPars.length
+                        : extPars.length;
+                    for (var h = 0; h < len; h++) {
+                      if (clusterPars[h] == extPars[h]) score++;
+                    }
+                    if (score > bestScore) {
+                      bestScore = score;
+                      bestExt = ei;
+                    }
+                  }
+                  if (bestExt >= 0 && bestScore >= 3) {
+                    clusterAssignment[ci] = bestExt;
+                    usedExt.add(bestExt);
+                    // ignore: avoid_print
+                    print('MULTI: OSM cluster $ci → '
+                        '${extracted[bestExt].name} (score $bestScore)');
+                  }
+                }
+              }
 
               // Build and cache each individual sub-course.
-              for (final ext in extracted) {
+              for (var extIdx = 0; extIdx < extracted.length; extIdx++) {
+                final ext = extracted[extIdx];
                 final subName = '${entry.name} - ${ext.name}';
                 final subKey = NormalizedCourse.serverCacheKey(subName);
+
+                // Find the OSM cluster assigned to this sub-course.
+                NormalizedCourse? matchedCluster;
+                for (final e in clusterAssignment.entries) {
+                  if (e.value == extIdx && osmClusters != null) {
+                    matchedCluster = osmClusters[e.key];
+                    break;
+                  }
+                }
+
                 final subHoles = <NormalizedHole>[];
                 for (var i = 0; i < ext.pars.length; i++) {
                   final holeNum = i + 1;
                   final par = ext.pars[i];
 
-                  // Try to find an OSM hole with matching par.
+                  // Find matching OSM hole from the assigned cluster
+                  // by hole number.
                   NormalizedHole? osmMatch;
-                  if (osmPool != null) {
-                    int bestIdx = -1;
-                    for (var oi = 0; oi < osmPool.length; oi++) {
-                      if (usedOsmIndices.contains(oi)) continue;
-                      final oh = osmPool[oi];
-                      if (oh.par == par && oh.lineOfPlay != null) {
-                        bestIdx = oi;
+                  if (matchedCluster != null) {
+                    for (final oh in matchedCluster.holes) {
+                      if (oh.number == holeNum &&
+                          (oh.lineOfPlay != null || oh.green != null)) {
+                        osmMatch = oh;
                         break;
                       }
-                    }
-                    if (bestIdx >= 0) {
-                      osmMatch = osmPool[bestIdx];
-                      usedOsmIndices.add(bestIdx);
                     }
                   }
 
