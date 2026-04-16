@@ -52,37 +52,43 @@ class CourseNormalizer {
     String? state,
     /// If provided alongside a non-empty
     /// [ParsedFeatures.golfCourseBoundaries], filter holes to those
-    /// inside the boundary polygon containing this point. Removes
-    /// holes from neighboring facilities (disc golf, adjacent
-    /// courses) that share the `golf=hole` tag.
+    /// inside polygons that share this facility name, or (fallback)
+    /// the single polygon containing this point. Removes holes from
+    /// neighboring facilities (disc golf, adjacent courses) that
+    /// share the `golf=hole` tag.
     LngLat? facilityPoint,
   }) {
     // 1. Build raw holes from holeLines (or greens as fallback).
     var rawHoles = _buildRawHoles(features);
     if (rawHoles.isEmpty) return [];
 
-    // 1b. Filter by facility boundary if available. Find the
-    // `leisure=golf_course` polygon containing facilityPoint, then
-    // keep only holes whose midpoint is inside that polygon.
+    // 1b. Filter by facility boundary. Many facilities (e.g.,
+    // Kennedy) have MULTIPLE `leisure=golf_course` polygons —
+    // one per sub-course ("Kennedy 9-Hole Regulation Course",
+    // "Kennedy 18-Hole Course", "Kennedy 9-Hole Par-3 Course").
+    // Match polygons by name prefix against the searched facility,
+    // and include holes inside ANY matching polygon. Fall back to
+    // "polygon containing facilityPoint" if no name match.
     if (facilityPoint != null && features.golfCourseBoundaries.isNotEmpty) {
-      Polygon? targetBoundary;
-      for (final b in features.golfCourseBoundaries) {
-        if (b.polygon.contains(facilityPoint)) {
-          targetBoundary = b.polygon;
-          break;
-        }
-      }
-      if (targetBoundary != null) {
+      final targetPolygons = _selectFacilityPolygons(
+        features.golfCourseBoundaries,
+        courseName,
+        facilityPoint,
+      );
+      if (targetPolygons.isNotEmpty) {
         final before = rawHoles.length;
         rawHoles = rawHoles.where((h) {
           final lop = h.lineOfPlay;
           if (lop == null || lop.points.isEmpty) return true;
           final mid = lop.points[lop.points.length ~/ 2];
-          return targetBoundary!.contains(mid);
+          for (final p in targetPolygons) {
+            if (p.contains(mid)) return true;
+          }
+          return false;
         }).toList();
         // ignore: avoid_print
         print('NORMALIZER: filtered $before → ${rawHoles.length} holes '
-            'using facility boundary');
+            'using ${targetPolygons.length} facility boundary polygon(s)');
       }
     }
 
@@ -128,6 +134,58 @@ class CourseNormalizer {
     }
 
     return courses;
+  }
+
+  /// Picks the set of `leisure=golf_course` polygons that represent
+  /// the searched facility. Uses name-based matching first (handles
+  /// facilities with multiple sub-course polygons like Kennedy).
+  /// Falls back to the single polygon containing [facilityPoint].
+  List<Polygon> _selectFacilityPolygons(
+    List<ParsedGolfCourseBoundary> boundaries,
+    String courseName,
+    LngLat facilityPoint,
+  ) {
+    final facilityTokens = _nameTokens(courseName);
+    if (facilityTokens.isNotEmpty) {
+      // Collect polygons whose name shares at least one
+      // non-generic token with the searched facility name.
+      final matches = <Polygon>[];
+      for (final b in boundaries) {
+        final bName = b.name;
+        if (bName == null) continue;
+        final bTokens = _nameTokens(bName);
+        for (final t in bTokens) {
+          if (facilityTokens.contains(t)) {
+            matches.add(b.polygon);
+            break;
+          }
+        }
+      }
+      if (matches.isNotEmpty) return matches;
+    }
+    // Fallback: polygon containing the facility point.
+    for (final b in boundaries) {
+      if (b.polygon.contains(facilityPoint)) return [b.polygon];
+    }
+    return const [];
+  }
+
+  /// Tokens for name matching. Lowercases and strips common golf
+  /// suffix words so "Kennedy Golf Course" matches "Kennedy 18-Hole
+  /// Course" on the "kennedy" token.
+  static const _nameStopWords = {
+    'golf', 'course', 'club', 'country', 'the', 'and', '&', 'at',
+    'of', 'a', 'an', 'regulation', 'hole', 'holes', '18-hole',
+    '9-hole', 'par', 'par-3', 'links',
+  };
+
+  Set<String> _nameTokens(String name) {
+    return name
+        .toLowerCase()
+        .replaceAll(RegExp('[\'"\\-]'), ' ')
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty && !_nameStopWords.contains(t))
+        .toSet();
   }
 
   /// Returns true if [course] has duplicate hole numbers (i.e., it
