@@ -236,10 +236,19 @@ class OsmParser {
   // -------------------------------------------------------------------------
 
   /// Try ref, then hole, then extract digits from name. Validate 1-18.
+  /// For hyphenated refs like "west9-1" or "Par3-7", prefer the
+  /// number after the last hyphen (the hole number within a course).
   static int? _parseHoleNumber(Map<String, String> tags) {
     final candidates = [tags['ref'], tags['hole'], tags['name']];
     for (final raw in candidates) {
       if (raw == null) continue;
+      // If the ref contains a hyphen, try the part after the last
+      // hyphen first (e.g., "west9-1" → "1", "Par3-7" → "7").
+      if (raw.contains('-')) {
+        final afterDash = raw.substring(raw.lastIndexOf('-') + 1);
+        final n = int.tryParse(afterDash);
+        if (n != null && n >= 1 && n <= 18) return n;
+      }
       final digits = RegExp(r'\d+').firstMatch(raw);
       if (digits != null) {
         final n = int.tryParse(digits.group(0)!);
