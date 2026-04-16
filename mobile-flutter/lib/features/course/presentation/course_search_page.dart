@@ -277,6 +277,112 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
     return GolfCourseApiClient(apiKey: _golfApiKey, transport: _transport);
   }
 
+  /// Sanity-check each hole's lineOfPlay against its expected
+  /// yardage (from Golf Course API). If the OSM line is obviously
+  /// too short (< 50% of expected, or fewer than 2 points), replace
+  /// it with a straight line from the tee polygon's centroid to
+  /// the green polygon's centroid.
+  ///
+  /// Straight tee→green isn't perfect for dogleg holes, but it's
+  /// always in the correct general direction, and vastly better
+  /// than a bogus fragment of OSM geometry that doesn't reach the
+  /// green.
+  NormalizedCourse _repairShortLinesOfPlay(NormalizedCourse course) {
+    final repairedHoles = <NormalizedHole>[];
+    var repairs = 0;
+    for (final hole in course.holes) {
+      final tees = hole.teeAreas;
+      final green = hole.green;
+      final lop = hole.lineOfPlay;
+
+      // We can only synthesize a line if we have both a tee and
+      // a green. Without those, leave the hole alone.
+      if (tees.isEmpty || green == null) {
+        repairedHoles.add(hole);
+        continue;
+      }
+
+      // Longest yardage across tees is our expected hole length.
+      int expectedYards = 0;
+      for (final y in hole.yardages.values) {
+        if (y > expectedYards) expectedYards = y;
+      }
+      if (expectedYards == 0) {
+        repairedHoles.add(hole);
+        continue;
+      }
+
+      // Measure the OSM line's length (haversine segment sum → yards).
+      double measuredMeters = 0;
+      if (lop != null && lop.points.length >= 2) {
+        for (var i = 1; i < lop.points.length; i++) {
+          measuredMeters += haversineMeters(lop.points[i - 1], lop.points[i]);
+        }
+      }
+      final measuredYards = metersToYards(measuredMeters);
+
+      // Flag as bad if no line, too few points, or < 50% expected
+      // length.
+      final tooShort = measuredYards < expectedYards * 0.5;
+      final tooFewPoints = lop == null || lop.points.length < 2;
+      if (!tooShort && !tooFewPoints) {
+        repairedHoles.add(hole);
+        continue;
+      }
+
+      // Synthesize: longest-yardage tee → green centroid.
+      final greenCentroid = green.centroid;
+      // Pick the tee closest to the opposite end of the hole from
+      // the green (i.e., maximize tee-to-green distance). That's
+      // the back tee — most representative for the full-length line.
+      LngLat? bestTee;
+      double bestDist = 0;
+      for (final tee in tees) {
+        final c = tee.centroid;
+        if (c == null || greenCentroid == null) continue;
+        final d = haversineMeters(c, greenCentroid);
+        if (d > bestDist) {
+          bestDist = d;
+          bestTee = c;
+        }
+      }
+      if (bestTee == null || greenCentroid == null) {
+        repairedHoles.add(hole);
+        continue;
+      }
+
+      repairedHoles.add(NormalizedHole(
+        number: hole.number,
+        par: hole.par,
+        strokeIndex: hole.strokeIndex,
+        yardages: hole.yardages,
+        teeAreas: hole.teeAreas,
+        lineOfPlay: LineString([bestTee, greenCentroid]),
+        green: hole.green,
+        pin: hole.pin,
+        bunkers: hole.bunkers,
+        water: hole.water,
+      ));
+      repairs++;
+    }
+
+    if (repairs > 0) {
+      _debugLog('MULTI: repaired $repairs short line(s)-of-play '
+          'in ${course.name}');
+    }
+
+    return NormalizedCourse(
+      id: course.id,
+      name: course.name,
+      city: course.city,
+      state: course.state,
+      centroid: course.centroid,
+      holes: repairedHoles,
+      teeNames: course.teeNames,
+      teeYardageTotals: course.teeYardageTotals,
+    );
+  }
+
   /// Enriches a course with tee/yardage data from the Golf Course
   /// API. Mirrors iOS enrichWithScorecardData(). Returns the
   /// enriched course, or the original if enrichment fails.
@@ -759,7 +865,15 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   );
                 }
 
-                final holesWithGeom = subHoles
+                // Sanity check each hole's line-of-play against
+                // expected yardage. If the OSM line is obviously
+                // too short (< 50% of expected), it's bogus — replace
+                // with a synthesized tee-centroid → green-centroid
+                // line so the map at least points in the right
+                // general direction.
+                subCourse = _repairShortLinesOfPlay(subCourse);
+
+                final holesWithGeom = subCourse.holes
                     .where((h) => h.lineOfPlay != null || h.green != null)
                     .length;
 
@@ -772,11 +886,11 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 _cacheClient.putCourse(subKey, subCourse).ignore();
 
                 cachedSubCourses[ext.name] = subCourse;
-                final holeDetail = subHoles.map((h) {
+                final holeDetail = subCourse.holes.map((h) {
                   final hasGeom = h.lineOfPlay != null ? 'G' : 'X';
                   return 'H${h.number}p${h.par}$hasGeom';
                 }).join(', ');
-                _debugLog('MULTI: ${ext.name}: $holesWithGeom/${subHoles.length} with geometry [$holeDetail]');
+                _debugLog('MULTI: ${ext.name}: $holesWithGeom/${subCourse.holes.length} with geometry [$holeDetail]');
               }
             }
 

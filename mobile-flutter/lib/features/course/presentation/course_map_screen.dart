@@ -629,22 +629,26 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     }
 
     final matches = course.holes.where((h) => h.number == holeNumber);
-    if (matches.isEmpty) {
-      // ignore: avoid_print
-      print('ZOOM: hole $holeNumber not found in course, skipping camera');
-      return;
-    }
+    if (matches.isEmpty) return;
     final hole = matches.first;
-    final coords = hole.allGeometryPoints();
-    // ignore: avoid_print
-    print('ZOOM: hole $holeNumber has ${coords.length} geometry points '
-        '(lop=${hole.lineOfPlay != null}, green=${hole.green != null}, '
-        'pin=${hole.pin != null}, tees=${hole.teeAreas.length})');
+
+    // Only use the play corridor (tees → fairway → green → pin) for
+    // camera fitting. Bunkers and water are decorative — including
+    // them in the bounding box makes the camera zoom out to fit
+    // large pond polygons attached to adjacent holes.
+    final coords = <LngLat>[];
+    final lop = hole.lineOfPlay;
+    if (lop != null) coords.addAll(lop.points);
+    for (final t in hole.teeAreas) {
+      coords.addAll(t.outerRing);
+    }
+    final g = hole.green;
+    if (g != null) coords.addAll(g.outerRing);
+    final p = hole.pin;
+    if (p != null) coords.add(p);
+
     if (coords.length < 2) {
-      // Hole has no geometry. Keep camera where it is — don't let
-      // the map zoom to course overview or to the wrong hole.
-      // ignore: avoid_print
-      print('ZOOM: skipping camera change for no-geometry hole $holeNumber');
+      // Hole has no play corridor geometry. Keep camera where it is.
       return;
     }
 
