@@ -611,23 +611,63 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 print('MULTI: Overpass failed (geometry will be missing): $e');
               }
 
+              // Normalize all OSM holes into a flat pool for
+              // geometry overlay. Each OSM hole can be claimed by
+              // at most one sub-course hole.
+              List<NormalizedHole>? osmPool;
+              if (osmFeatures != null) {
+                final normalizer = CourseNormalizer();
+                final allOsm = normalizer.normalizeAll(
+                  features: osmFeatures,
+                  courseName: entry.name,
+                  osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
+                  city: entry.city.isNotEmpty ? entry.city : null,
+                  state: entry.state.isNotEmpty ? entry.state : null,
+                );
+                osmPool = allOsm.expand((c) => c.holes).toList();
+                // ignore: avoid_print
+                print('MULTI: ${osmPool.length} OSM holes available for geometry overlay');
+              }
+              final usedOsmIndices = <int>{};
+
               // Build and cache each individual sub-course.
               for (final ext in extracted) {
                 final subName = '${entry.name} - ${ext.name}';
                 final subKey = NormalizedCourse.serverCacheKey(subName);
                 final subHoles = <NormalizedHole>[];
                 for (var i = 0; i < ext.pars.length; i++) {
+                  final holeNum = i + 1;
+                  final par = ext.pars[i];
+
+                  // Try to find an OSM hole with matching par.
+                  NormalizedHole? osmMatch;
+                  if (osmPool != null) {
+                    int bestIdx = -1;
+                    for (var oi = 0; oi < osmPool.length; oi++) {
+                      if (usedOsmIndices.contains(oi)) continue;
+                      final oh = osmPool[oi];
+                      if (oh.par == par && oh.lineOfPlay != null) {
+                        bestIdx = oi;
+                        break;
+                      }
+                    }
+                    if (bestIdx >= 0) {
+                      osmMatch = osmPool[bestIdx];
+                      usedOsmIndices.add(bestIdx);
+                    }
+                  }
+
                   subHoles.add(NormalizedHole(
-                    number: i + 1,
-                    par: ext.pars[i],
-                    strokeIndex: null,
-                    yardages: const {},
-                    teeAreas: const [],
-                    lineOfPlay: null,
-                    green: null,
-                    pin: null,
-                    bunkers: const [],
-                    water: const [],
+                    number: holeNum,
+                    par: par,
+                    strokeIndex: osmMatch?.strokeIndex,
+                    yardages: osmMatch?.yardages ?? const {},
+                    teeAreas: osmMatch?.teeAreas ?? const [],
+                    lineOfPlay: osmMatch?.lineOfPlay,
+                    green: osmMatch?.green,
+                    pin: osmMatch?.pin,
+                    bunkers: osmMatch?.bunkers ?? const [],
+                    water: osmMatch?.water ?? const [],
                   ));
                 }
                 var subCourse = NormalizedCourse(
@@ -646,8 +686,10 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                     preMatchedDetail: ext.apiDetail,
                   );
                 }
-                // TODO: overlay OSM geometry onto matching holes
-                // using osmFeatures + par matching.
+
+                final holesWithGeom = subHoles
+                    .where((h) => h.lineOfPlay != null || h.green != null)
+                    .length;
 
                 // Cache locally + server.
                 if (repo != null) {
@@ -656,7 +698,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 _cacheClient.putCourse(subKey, subCourse).ignore();
                 cachedSubCourses[ext.name] = subCourse;
                 // ignore: avoid_print
-                print('MULTI: cached "${ext.name}" — ${subHoles.length} holes');
+                print('MULTI: cached "${ext.name}" — ${subHoles.length} holes, $holesWithGeom with geometry');
               }
             }
 
