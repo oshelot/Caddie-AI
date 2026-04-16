@@ -67,8 +67,20 @@ class CourseNormalizer {
     // one per sub-course ("Kennedy 9-Hole Regulation Course",
     // "Kennedy 18-Hole Course", "Kennedy 9-Hole Par-3 Course").
     // Match polygons by name prefix against the searched facility,
-    // and include holes inside ANY matching polygon. Fall back to
-    // "polygon containing facilityPoint" if no name match.
+    // and include holes/features inside ANY matching polygon.
+    // Fall back to "polygon containing facilityPoint" if no name match.
+    //
+    // IMPORTANT: the filter must also apply to tees, greens, bunkers,
+    // pins, and water — otherwise the association step will attach
+    // features from neighboring facilities (disc golf, adjacent
+    // courses) to our holes by proximity, and the map will zoom out
+    // to fit all those stray points.
+    var greens = features.greens;
+    var tees = features.tees;
+    var pins = features.pins;
+    var bunkers = features.bunkers;
+    var waterFeatures = features.waterFeatures;
+
     if (facilityPoint != null && features.golfCourseBoundaries.isNotEmpty) {
       final targetPolygons = _selectFacilityPolygons(
         features.golfCourseBoundaries,
@@ -76,28 +88,54 @@ class CourseNormalizer {
         facilityPoint,
       );
       if (targetPolygons.isNotEmpty) {
-        final before = rawHoles.length;
+        bool inBoundary(LngLat? p) {
+          if (p == null) return true; // no centroid? keep
+          for (final poly in targetPolygons) {
+            if (poly.contains(p)) return true;
+          }
+          return false;
+        }
+
+        final beforeHoles = rawHoles.length;
         rawHoles = rawHoles.where((h) {
           final lop = h.lineOfPlay;
           if (lop == null || lop.points.isEmpty) return true;
-          final mid = lop.points[lop.points.length ~/ 2];
-          for (final p in targetPolygons) {
-            if (p.contains(mid)) return true;
-          }
-          return false;
+          return inBoundary(lop.points[lop.points.length ~/ 2]);
         }).toList();
+
+        final beforeGreens = greens.length;
+        greens = greens.where((g) => inBoundary(g.polygon.centroid)).toList();
+
+        final beforeTees = tees.length;
+        tees = tees.where((t) => inBoundary(t.polygon.centroid)).toList();
+
+        final beforePins = pins.length;
+        pins = pins.where((p) => inBoundary(p.point)).toList();
+
+        final beforeBunkers = bunkers.length;
+        bunkers = bunkers.where((b) => inBoundary(b.polygon.centroid)).toList();
+
+        final beforeWater = waterFeatures.length;
+        waterFeatures =
+            waterFeatures.where((w) => inBoundary(w.polygon.centroid)).toList();
+
         // ignore: avoid_print
-        print('NORMALIZER: filtered $before → ${rawHoles.length} holes '
-            'using ${targetPolygons.length} facility boundary polygon(s)');
+        print('NORMALIZER: boundary filter kept '
+            'holes=$beforeHoles→${rawHoles.length}, '
+            'greens=$beforeGreens→${greens.length}, '
+            'tees=$beforeTees→${tees.length}, '
+            'pins=$beforePins→${pins.length}, '
+            'bunkers=$beforeBunkers→${bunkers.length}, '
+            'water=$beforeWater→${waterFeatures.length}');
       }
     }
 
     // 2. Associate features to holes.
-    _associateGreens(rawHoles, features.greens);
-    _associateTees(rawHoles, features.tees);
-    _associatePins(rawHoles, features.pins);
-    _associateBunkers(rawHoles, features.bunkers);
-    _associateWater(rawHoles, features.waterFeatures);
+    _associateGreens(rawHoles, greens);
+    _associateTees(rawHoles, tees);
+    _associatePins(rawHoles, pins);
+    _associateBunkers(rawHoles, bunkers);
+    _associateWater(rawHoles, waterFeatures);
 
     // 3. Multi-course detection.
     final clusters = _detectMultiCourse(rawHoles);
