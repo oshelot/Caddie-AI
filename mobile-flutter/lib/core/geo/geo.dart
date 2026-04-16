@@ -57,6 +57,23 @@ class Polygon {
     }
     return LngLat(sumLon / outerRing.length, sumLat / outerRing.length);
   }
+
+  /// True when [point] lies inside this polygon's outer ring (ray
+  /// casting). Treats lat/lon as planar — sufficient for course-
+  /// scale polygons where spherical distortion is negligible.
+  bool contains(LngLat point) {
+    if (outerRing.length < 3) return false;
+    var inside = false;
+    for (var i = 0, j = outerRing.length - 1; i < outerRing.length; j = i++) {
+      final a = outerRing[i];
+      final b = outerRing[j];
+      final intersects = ((a.lat > point.lat) != (b.lat > point.lat)) &&
+          (point.lon <
+              (b.lon - a.lon) * (point.lat - a.lat) / (b.lat - a.lat) + a.lon);
+      if (intersects) inside = !inside;
+    }
+    return inside;
+  }
 }
 
 class LineString {

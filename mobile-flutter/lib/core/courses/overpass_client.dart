@@ -161,6 +161,8 @@ class OverpassClient {
         '  way["natural"="water"]($s,$w,$n,$e);\n'
         '  relation["natural"="water"]($s,$w,$n,$e);\n'
         '  way["golf"="fairway"]($s,$w,$n,$e);\n'
+        '  way["leisure"="golf_course"]($s,$w,$n,$e);\n'
+        '  relation["leisure"="golf_course"]($s,$w,$n,$e);\n'
         ');\n'
         'out geom;';
 

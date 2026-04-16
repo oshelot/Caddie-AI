@@ -640,6 +640,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
                   city: entry.city.isNotEmpty ? entry.city : null,
                   state: entry.state.isNotEmpty ? entry.state : null,
+                  facilityPoint: LngLat(entry.longitude, entry.latitude),
                 );
                 _debugLog('MULTI: ${osmClusters.length} OSM clusters, '
                     '${osmClusters.map((c) => c.holes.length).toList()} holes each');
@@ -878,6 +879,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
               city: entry.city.isNotEmpty ? entry.city : null,
               state: entry.state.isNotEmpty ? entry.state : null,
+              facilityPoint: LngLat(entry.longitude, entry.latitude),
             );
             if (course != null && course.holes.isNotEmpty) {
               // ignore: avoid_print

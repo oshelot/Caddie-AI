@@ -80,6 +80,17 @@ class ParsedWater {
   const ParsedWater({required this.osmId, required this.polygon});
 }
 
+class ParsedGolfCourseBoundary {
+  final int osmId;
+  final String? name;
+  final Polygon polygon;
+  const ParsedGolfCourseBoundary({
+    required this.osmId,
+    this.name,
+    required this.polygon,
+  });
+}
+
 class ParsedFeatures {
   final List<ParsedHoleLine> holeLines;
   final List<ParsedGreen> greens;
@@ -87,6 +98,11 @@ class ParsedFeatures {
   final List<ParsedPin> pins;
   final List<ParsedBunker> bunkers;
   final List<ParsedWater> waterFeatures;
+  /// `leisure=golf_course` polygons in the bounding box. Used by
+  /// the normalizer to filter out holes belonging to neighboring
+  /// golf facilities (disc golf, adjacent courses) that share the
+  /// `golf=hole` tag but aren't part of the searched facility.
+  final List<ParsedGolfCourseBoundary> golfCourseBoundaries;
 
   const ParsedFeatures({
     required this.holeLines,
@@ -95,6 +111,7 @@ class ParsedFeatures {
     required this.pins,
     required this.bunkers,
     required this.waterFeatures,
+    this.golfCourseBoundaries = const [],
   });
 }
 
@@ -113,6 +130,7 @@ class OsmParser {
     final pins = <ParsedPin>[];
     final bunkers = <ParsedBunker>[];
     final waterFeatures = <ParsedWater>[];
+    final golfCourseBoundaries = <ParsedGolfCourseBoundary>[];
 
     for (final el in response.elements) {
       final tags = el.tags;
@@ -120,6 +138,39 @@ class OsmParser {
 
       final golf = tags['golf'];
       final natural = tags['natural'];
+      final leisure = tags['leisure'];
+
+      // Capture leisure=golf_course boundaries (ways + relations).
+      // Used later to filter out holes from neighboring facilities.
+      if (leisure == 'golf_course') {
+        if (el.type == 'way') {
+          final poly = _extractPolygon(el);
+          if (poly != null) {
+            golfCourseBoundaries.add(ParsedGolfCourseBoundary(
+              osmId: el.id,
+              name: tags['name'],
+              polygon: poly,
+            ));
+          }
+        } else if (el.type == 'relation') {
+          final members = el.members;
+          if (members != null) {
+            for (final member in members) {
+              if (member.role == 'outer' && member.geometry != null) {
+                final poly = _polygonFromNodes(member.geometry!);
+                if (poly != null) {
+                  golfCourseBoundaries.add(ParsedGolfCourseBoundary(
+                    osmId: el.id,
+                    name: tags['name'],
+                    polygon: poly,
+                  ));
+                }
+              }
+            }
+          }
+        }
+        continue;
+      }
 
       if (golf == 'hole' && el.type == 'way') {
         final ls = _extractLineString(el);
@@ -197,6 +248,7 @@ class OsmParser {
       pins: pins,
       bunkers: bunkers,
       waterFeatures: waterFeatures,
+      golfCourseBoundaries: golfCourseBoundaries,
     );
   }
 

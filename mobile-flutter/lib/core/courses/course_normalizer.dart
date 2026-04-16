@@ -18,6 +18,7 @@ class CourseNormalizer {
     required String osmCourseId,
     String? city,
     String? state,
+    LngLat? facilityPoint,
   }) {
     final all = normalizeAll(
       features: features,
@@ -25,6 +26,7 @@ class CourseNormalizer {
       osmCourseId: osmCourseId,
       city: city,
       state: state,
+      facilityPoint: facilityPoint,
     );
     if (all.isEmpty) {
       return NormalizedCourse(
@@ -48,10 +50,41 @@ class CourseNormalizer {
     required String osmCourseId,
     String? city,
     String? state,
+    /// If provided alongside a non-empty
+    /// [ParsedFeatures.golfCourseBoundaries], filter holes to those
+    /// inside the boundary polygon containing this point. Removes
+    /// holes from neighboring facilities (disc golf, adjacent
+    /// courses) that share the `golf=hole` tag.
+    LngLat? facilityPoint,
   }) {
     // 1. Build raw holes from holeLines (or greens as fallback).
     var rawHoles = _buildRawHoles(features);
     if (rawHoles.isEmpty) return [];
+
+    // 1b. Filter by facility boundary if available. Find the
+    // `leisure=golf_course` polygon containing facilityPoint, then
+    // keep only holes whose midpoint is inside that polygon.
+    if (facilityPoint != null && features.golfCourseBoundaries.isNotEmpty) {
+      Polygon? targetBoundary;
+      for (final b in features.golfCourseBoundaries) {
+        if (b.polygon.contains(facilityPoint)) {
+          targetBoundary = b.polygon;
+          break;
+        }
+      }
+      if (targetBoundary != null) {
+        final before = rawHoles.length;
+        rawHoles = rawHoles.where((h) {
+          final lop = h.lineOfPlay;
+          if (lop == null || lop.points.isEmpty) return true;
+          final mid = lop.points[lop.points.length ~/ 2];
+          return targetBoundary!.contains(mid);
+        }).toList();
+        // ignore: avoid_print
+        print('NORMALIZER: filtered $before → ${rawHoles.length} holes '
+            'using facility boundary');
+      }
+    }
 
     // 2. Associate features to holes.
     _associateGreens(rawHoles, features.greens);
