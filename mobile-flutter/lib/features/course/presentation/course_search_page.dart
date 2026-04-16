@@ -767,28 +767,9 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 if (repo != null) {
                   try { await repo.save(subKey, subCourse); } catch (_) {}
                 }
-                // Upload to server. Only request vision refinement
-                // when we have SOME OSM geometry to anchor against —
-                // refining from zero produces inaccurate LLM guesses.
-                final missingHoles =
-                    subHoles.length - holesWithGeom;
-                final shouldRefine =
-                    missingHoles > 0 && holesWithGeom > 0;
-                () async {
-                  await _cacheClient.putCourse(subKey, subCourse);
-                  if (shouldRefine) {
-                    final accepted = await _cacheClient.refineCourse(
-                      subKey, entry.name,
-                    );
-                    _debugLog('MULTI: refine for ${ext.name}: '
-                        '${accepted ? "accepted" : "failed"} '
-                        '($missingHoles missing holes, '
-                        '$holesWithGeom anchors)');
-                  } else if (missingHoles > 0) {
-                    _debugLog('MULTI: skipping refine for ${ext.name} '
-                        '— no OSM anchors (all $missingHoles holes missing)');
-                  }
-                }().ignore();
+                // Upload to server. No LLM refinement — we'd rather
+                // show "not mapped yet" than risk inaccurate coords.
+                _cacheClient.putCourse(subKey, subCourse).ignore();
 
                 cachedSubCourses[ext.name] = subCourse;
                 final holeDetail = subHoles.map((h) {

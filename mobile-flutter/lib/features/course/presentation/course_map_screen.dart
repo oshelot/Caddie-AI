@@ -628,12 +628,15 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
       return;
     }
 
-    final hole = course.holes.firstWhere(
-      (h) => h.number == holeNumber,
-      orElse: () => course.holes.first,
-    );
+    final matches = course.holes.where((h) => h.number == holeNumber);
+    if (matches.isEmpty) return;
+    final hole = matches.first;
     final coords = hole.allGeometryPoints();
-    if (coords.length < 2) return;
+    if (coords.length < 2) {
+      // Hole has no geometry. Keep camera where it is — don't let
+      // the map zoom to course overview or to the wrong hole.
+      return;
+    }
 
     final bearing = hole.teeToGreenBearing();
     final points = coords
@@ -1133,6 +1136,36 @@ class _BottomPanel extends StatelessWidget {
     }
     if (hole.strokeIndex != null) {
       parts.add('SI ${hole.strokeIndex}');
+    }
+    final hasGeometry = hole.lineOfPlay != null ||
+        hole.green != null ||
+        hole.pin != null;
+    if (!hasGeometry) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            parts.join('  '),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Icon(Icons.info_outline,
+                  size: 14, color: theme.colorScheme.error),
+              const SizedBox(width: 4),
+              Text(
+                "This hole isn't mapped yet — we're working on it",
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
     }
     return Text(
       parts.join('  '),
