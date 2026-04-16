@@ -554,30 +554,36 @@ class CourseNormalizer {
       for (final group in prefixGroups.values) {
         if (group.length < 3) continue;
         final isNumericGroup = group.first.refPrefix.isEmpty;
-        if (isNumericGroup && _hasDuplicateNumbers(group)) {
-          // Numeric-only with duplicate numbers → spatial clustering
-          // (e.g., Terra Lago North+South interleaved).
-          final subClusters = _spatialCluster(group);
-          for (final sc in subClusters) {
-            if (sc.length >= 3) result.add(sc);
-          }
-        } else if (isNumericGroup &&
-            group.length >= 18 &&
-            _hasSequentialRefs(group, 1, 18)) {
-          // Numeric refs 1-18 with no duplicates + another prefix
-          // group present = "combined 18" at a multi-9 facility
-          // (e.g., Kennedy Lind+Creek scorecard combines to 1-18).
-          // Split at hole 9 into front-9 and back-9.
-          final sorted = [...group]
-            ..sort((a, b) => a.number.compareTo(b.number));
-          final front = sorted.where((h) => h.number <= 9).toList();
-          final back = sorted.where((h) => h.number > 9).toList();
-          // Renumber back nine to 1-9 so later matching works per-9
+        final hasLate = group.any((h) => h.number > 9);
+        final hasEarly = group.any((h) => h.number >= 1 && h.number <= 9);
+
+        if (isNumericGroup && hasLate && hasEarly) {
+          // Numeric refs spanning 1-18 alongside another prefix
+          // group = "combined scorecard 18" at a multi-9 facility
+          // (e.g., Kennedy Lind+Creek → 1-18). Dedupe by hole
+          // number (multiple OSM ways with the same ref are
+          // typical data-quality duplicates — green + fairway +
+          // line all tagged with ref=2), keeping the entry with
+          // the longest line-of-play (most complete geometry),
+          // then split at 9 into front/back.
+          final deduped = _dedupeByHoleNumber(group);
+          final front = deduped.where((h) => h.number <= 9).toList();
+          final back = deduped.where((h) => h.number > 9).toList();
+          // Renumber back nine to 1-9 so downstream matching works
+          // per-9.
           for (final h in back) {
             h.number -= 9;
           }
           if (front.length >= 3) result.add(front);
           if (back.length >= 3) result.add(back);
+        } else if (isNumericGroup && _hasDuplicateNumbers(group)) {
+          // Terra Lago style: duplicates within 1-9 means two full
+          // courses share numbering → spatial clustering separates
+          // them.
+          final subClusters = _spatialCluster(group);
+          for (final sc in subClusters) {
+            if (sc.length >= 3) result.add(sc);
+          }
         } else {
           result.add(group);
         }
@@ -598,14 +604,25 @@ class CourseNormalizer {
     return false;
   }
 
-  /// True when [holes] contains at least one hole for every number
-  /// in [start..end] (inclusive), with no duplicates in that range.
-  bool _hasSequentialRefs(List<_RawHole> holes, int start, int end) {
-    final numbers = holes.map((h) => h.number).toSet();
-    for (var n = start; n <= end; n++) {
-      if (!numbers.contains(n)) return false;
+  /// For each distinct hole number, keeps the single entry with the
+  /// longest line-of-play (most complete geometry). OSM commonly
+  /// has duplicate ways tagged with the same `ref` — e.g., a
+  /// fairway way + a line-of-play way both tagged ref="2" — which
+  /// are really the same physical hole and shouldn't be treated
+  /// as separate courses.
+  List<_RawHole> _dedupeByHoleNumber(List<_RawHole> holes) {
+    final bestByNumber = <int, _RawHole>{};
+    for (final h in holes) {
+      final existing = bestByNumber[h.number];
+      if (existing == null) {
+        bestByNumber[h.number] = h;
+        continue;
+      }
+      final existingPts = existing.lineOfPlay?.points.length ?? 0;
+      final candidatePts = h.lineOfPlay?.points.length ?? 0;
+      if (candidatePts > existingPts) bestByNumber[h.number] = h;
     }
-    return true;
+    return bestByNumber.values.toList();
   }
 
   List<List<_RawHole>> _spatialCluster(List<_RawHole> holes) {
