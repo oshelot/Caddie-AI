@@ -629,12 +629,22 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     }
 
     final matches = course.holes.where((h) => h.number == holeNumber);
-    if (matches.isEmpty) return;
+    if (matches.isEmpty) {
+      // ignore: avoid_print
+      print('ZOOM: hole $holeNumber not found in course, skipping camera');
+      return;
+    }
     final hole = matches.first;
     final coords = hole.allGeometryPoints();
+    // ignore: avoid_print
+    print('ZOOM: hole $holeNumber has ${coords.length} geometry points '
+        '(lop=${hole.lineOfPlay != null}, green=${hole.green != null}, '
+        'pin=${hole.pin != null}, tees=${hole.teeAreas.length})');
     if (coords.length < 2) {
       // Hole has no geometry. Keep camera where it is — don't let
       // the map zoom to course overview or to the wrong hole.
+      // ignore: avoid_print
+      print('ZOOM: skipping camera change for no-geometry hole $holeNumber');
       return;
     }
 
