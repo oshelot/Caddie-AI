@@ -219,6 +219,29 @@ class CourseCacheClient {
     }
   }
 
+  /// Fire-and-forget request to refine a cached course's geometry
+  /// using satellite vision on the backend. The backend fetches the
+  /// course from S3, identifies holes with no geometry, uses Nova Pro
+  /// on satellite imagery to locate them, and saves the refined
+  /// version back. Subsequent downloads get the refined data.
+  Future<bool> refineCourse(String cacheKey, String facilityName) async {
+    final url = Uri.parse('$baseUrl/courses/refine');
+    try {
+      final response = await _send(
+        'POST',
+        url,
+        body: jsonEncode({
+          'cacheKey': cacheKey,
+          'facilityName': facilityName,
+        }),
+        contentType: 'application/json',
+      );
+      return response.statusCode == 202;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── url builders ─────────────────────────────────────────────────
 
   Uri _buildSearchUrl({

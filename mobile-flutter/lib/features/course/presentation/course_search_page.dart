@@ -766,9 +766,24 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 if (repo != null) {
                   try { await repo.save(subKey, subCourse); } catch (_) {}
                 }
-                _cacheClient.putCourse(subKey, subCourse).ignore();
+                // Upload to server, then (if any holes are missing)
+                // fire-and-forget a vision refinement request so the
+                // next user gets filled-in geometry.
+                final missingHoles =
+                    subHoles.length - holesWithGeom;
+                () async {
+                  await _cacheClient.putCourse(subKey, subCourse);
+                  if (missingHoles > 0) {
+                    final accepted = await _cacheClient.refineCourse(
+                      subKey, entry.name,
+                    );
+                    _debugLog('MULTI: refine request for ${ext.name}: '
+                        '${accepted ? "accepted" : "failed"} '
+                        '($missingHoles missing holes)');
+                  }
+                }().ignore();
+
                 cachedSubCourses[ext.name] = subCourse;
-                // Log per-hole assignment details
                 final holeDetail = subHoles.map((h) {
                   final hasGeom = h.lineOfPlay != null ? 'G' : 'X';
                   return 'H${h.number}p${h.par}$hasGeom';

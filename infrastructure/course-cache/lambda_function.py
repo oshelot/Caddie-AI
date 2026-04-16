@@ -1330,6 +1330,247 @@ missing_holes are holes that exist in the Golf API but have no matching OSM data
 
 
 # ---------------------------------------------------------------------------
+# Single-course vision refinement (fills missing holes in a cached course)
+# ---------------------------------------------------------------------------
+
+def refine_course_with_vision(course: dict, facility_name: str) -> dict:
+    """Use satellite imagery + Bedrock Nova Pro to locate missing
+    holes and synthesize basic geometry for a single course.
+
+    Identifies holes without lineOfPlay or green geometry, fetches
+    a satellite image of the course, and asks Nova Pro to find each
+    missing hole's tee and green coordinates. Mutates and returns
+    the course dict with synthesized geometry added.
+    """
+    holes = course.get("holes", [])
+    missing = [h for h in holes if not h.get("lineOfPlay") and not h.get("green")]
+    if not missing:
+        print(f"REFINE: '{course.get('name')}' has no missing holes")
+        return course
+
+    print(f"REFINE: '{course.get('name')}' — {len(missing)} missing holes: "
+          f"{[h.get('number') for h in missing]}")
+
+    lat = course.get("centroid", {}).get("latitude", 0)
+    lon = course.get("centroid", {}).get("longitude", 0)
+    if not lat or not lon:
+        # Fall back to an averaged centroid from assigned holes
+        lats, lons = [], []
+        for h in holes:
+            pin = h.get("pin")
+            if isinstance(pin, dict):
+                lats.append(pin.get("latitude", 0))
+                lons.append(pin.get("longitude", 0))
+        if lats:
+            lat = sum(lats) / len(lats)
+            lon = sum(lons) / len(lons)
+
+    if not lat or not lon:
+        print("REFINE: no valid facility centroid, skipping")
+        return course
+
+    img_bytes = _fetch_satellite_image(lat, lon)
+    if not img_bytes:
+        return course
+
+    bounds = _image_bounds(lat, lon)
+
+    # Build context about assigned holes for spatial grounding
+    assigned_context = []
+    for h in holes:
+        if h.get("lineOfPlay") or h.get("green"):
+            pin = h.get("pin")
+            lop = h.get("lineOfPlay")
+            if pin and "latitude" in pin:
+                assigned_context.append(
+                    f"- Hole {h.get('number')}: par {h.get('par')}, "
+                    f"green near lat={pin['latitude']:.5f}, "
+                    f"lon={pin['longitude']:.5f}"
+                )
+            elif lop and lop.get("coordinates"):
+                coords = lop["coordinates"]
+                mid = coords[len(coords) // 2]
+                assigned_context.append(
+                    f"- Hole {h.get('number')}: par {h.get('par')}, "
+                    f"midpoint near lat={mid[1]:.5f}, lon={mid[0]:.5f}"
+                )
+
+    missing_descriptions = [
+        f"- Hole {h.get('number')}: par {h.get('par')}"
+        for h in missing
+    ]
+
+    prompt = f"""This satellite image shows "{course.get('name')}" — a nine or eighteen hole golf course within the {facility_name} facility.
+
+Image bounds:
+- Top-left: lat={bounds['top_left_lat']:.4f}, lon={bounds['top_left_lon']:.4f}
+- Bottom-right: lat={bounds['bottom_right_lat']:.4f}, lon={bounds['bottom_right_lon']:.4f}
+
+These holes ARE mapped (for spatial reference — find the missing ones near these):
+{chr(10).join(assigned_context) if assigned_context else "- (none)"}
+
+These holes are MISSING from OSM data — locate them in the satellite image:
+{chr(10).join(missing_descriptions)}
+
+Look for fairways (long green corridors), greens (circular manicured areas), and tee boxes. Course holes typically flow in sequence, so hole 4 is near hole 3's green and hole 5's tee.
+
+Return ONLY a JSON array:
+[{{"hole": N, "par": N, "tee_lat": N, "tee_lon": N, "green_lat": N, "green_lon": N}}]
+
+If you cannot confidently locate a hole, omit it. Use ~5 decimal precision for coordinates."""
+
+    try:
+        bedrock = boto3.client("bedrock-runtime",
+                               region_name=os.environ.get("AWS_REGION", "us-east-2"))
+        resp = bedrock.invoke_model(
+            modelId="us.amazon.nova-pro-v1:0",
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps({
+                "messages": [{"role": "user", "content": [
+                    {"image": {"format": "jpeg",
+                               "source": {"bytes": base64.b64encode(img_bytes).decode()}}},
+                    {"text": prompt},
+                ]}],
+                "inferenceConfig": {"maxTokens": 2000},
+            }),
+        )
+        result = json.loads(resp["body"].read())
+        text = result["output"]["message"]["content"][0]["text"].strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        found = json.loads(text)
+        print(f"REFINE: Nova Pro located {len(found)} of {len(missing)} missing holes")
+    except Exception as e:
+        print(f"REFINE: Bedrock call failed: {e}")
+        return course
+
+    # Merge found coordinates into the course holes
+    by_number = {h.get("number"): h for h in holes}
+    for fh in found:
+        hole_num = fh.get("hole")
+        tee_lat = fh.get("tee_lat")
+        tee_lon = fh.get("tee_lon")
+        green_lat = fh.get("green_lat")
+        green_lon = fh.get("green_lon")
+        if not all([hole_num, tee_lat, tee_lon, green_lat, green_lon]):
+            continue
+        target = by_number.get(hole_num)
+        if target is None:
+            continue
+        target["lineOfPlay"] = {
+            "coordinates": [[tee_lon, tee_lat], [green_lon, green_lat]]
+        }
+        target["pin"] = {"latitude": green_lat, "longitude": green_lon}
+        target["_synthesized"] = True
+        print(f"REFINE: synthesized hole {hole_num} "
+              f"tee=({tee_lat:.5f},{tee_lon:.5f}) green=({green_lat:.5f},{green_lon:.5f})")
+
+    return course
+
+
+def handle_refine(event: dict, context) -> dict:
+    """POST /courses/refine — refine a single cached course using
+    satellite vision to fill missing hole geometry. Fire-and-forget."""
+    body_str = event.get("body", "")
+    if event.get("isBase64Encoded"):
+        body_str = base64.b64decode(body_str).decode("utf-8")
+    if not body_str:
+        return error_response(400, "Empty request body.")
+
+    try:
+        payload = json.loads(body_str)
+    except json.JSONDecodeError:
+        return error_response(400, "Invalid JSON.")
+
+    cache_key = payload.get("cacheKey", "")
+    facility_name = payload.get("facilityName", "")
+    if not cache_key:
+        return error_response(400, "Missing 'cacheKey'.")
+
+    # Self-invoke asynchronously
+    async_payload = {
+        "_asyncRefine": True,
+        "cacheKey": cache_key,
+        "facilityName": facility_name,
+        "schema": "1.0",
+    }
+
+    lambda_client = boto3.client("lambda",
+                                  region_name=os.environ.get("AWS_REGION", "us-east-2"))
+    lambda_client.invoke(
+        FunctionName=context.function_name,
+        InvocationType="Event",
+        Payload=json.dumps(async_payload).encode(),
+    )
+
+    print(f"REFINE: accepted '{cache_key}'")
+    return {
+        "statusCode": 202,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+        },
+        "body": json.dumps({"status": "refining", "cacheKey": cache_key}),
+    }
+
+
+def handle_async_refine(event: dict):
+    """Fetch a cached course, fill missing holes via vision, save back."""
+    cache_key = event.get("cacheKey", "")
+    facility_name = event.get("facilityName", "")
+    schema = event.get("schema", "1.0")
+
+    print(f"ASYNC_REFINE: starting for '{cache_key}'")
+
+    s3 = get_s3_client()
+    s3_object_key = s3_key(schema, cache_key)
+
+    try:
+        obj = s3.get_object(Bucket=BUCKET_NAME, Key=s3_object_key)
+        compressed_body = obj["Body"].read()
+        course = json.loads(gzip.decompress(compressed_body).decode("utf-8"))
+    except Exception as e:
+        print(f"ASYNC_REFINE: failed to fetch course: {e}")
+        return
+
+    before_missing = sum(
+        1 for h in course.get("holes", [])
+        if not h.get("lineOfPlay") and not h.get("green")
+    )
+    if before_missing == 0:
+        print(f"ASYNC_REFINE: '{cache_key}' already complete, skipping")
+        return
+
+    refined = refine_course_with_vision(course, facility_name)
+
+    after_missing = sum(
+        1 for h in refined.get("holes", [])
+        if not h.get("lineOfPlay") and not h.get("green")
+    )
+    filled = before_missing - after_missing
+    if filled == 0:
+        print(f"ASYNC_REFINE: no holes filled for '{cache_key}'")
+        return
+
+    # Save refined version back to S3
+    try:
+        compressed = gzip.compress(
+            json.dumps(refined, separators=(",", ":")).encode("utf-8")
+        )
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=s3_object_key,
+            Body=compressed,
+            ContentType="application/json",
+            ContentEncoding="gzip",
+        )
+        print(f"ASYNC_REFINE: saved '{cache_key}' — filled {filled}/{before_missing} holes")
+    except Exception as e:
+        print(f"ASYNC_REFINE: failed to save: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Async ingestion handler
 # ---------------------------------------------------------------------------
 
@@ -1556,6 +1797,11 @@ def lambda_handler(event, context):
         handle_async_ingest(event)
         return {"statusCode": 200, "body": "ok"}
 
+    # Async self-invocation for single-course vision refinement
+    if event.get("_asyncRefine"):
+        handle_async_refine(event)
+        return {"statusCode": 200, "body": "ok"}
+
     # Handle CORS preflight
     http_method = (
         event.get("requestContext", {}).get("http", {}).get("method", "")
@@ -1587,6 +1833,11 @@ def lambda_handler(event, context):
     if http_method == "POST" and (raw_path == "/courses/ingest"
                                   or raw_path.endswith("/courses/ingest")):
         return handle_ingest(event, context)
+
+    # POST /courses/refine — single-course vision refinement
+    if http_method == "POST" and (raw_path == "/courses/refine"
+                                  or raw_path.endswith("/courses/refine")):
+        return handle_refine(event, context)
 
     # KAN-296: Google Places proxy routes
     if http_method == "GET":
