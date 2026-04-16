@@ -293,7 +293,10 @@ class CourseCacheRepository {
           grouped.putIfAbsent(
             facility,
             () => CourseSearchEntry(
-              cacheKey: e.cacheKey,
+              // Use a facility-level cache key that won't match any
+              // individual sub-course, so tapping from Saved falls
+              // through to the Golf API multi-course check.
+              cacheKey: 'multi:${e.cacheKey}',
               name: facility,
               city: e.city,
               state: e.state,
