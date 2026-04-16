@@ -421,16 +421,130 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
             'courseName': entry.name,
           });
           if (serverHit) {
-            source = 'server';
-            // ignore: avoid_print
-            print('DOWNLOAD: server cache HIT — ${course.holes.length} holes');
+            // If the server returned a sub-course (name contains " - "),
+            // don't use it directly — let Step 2b handle multi-course.
+            if (course!.name.contains(' - ') &&
+                course.name.startsWith(entry.name)) {
+              // ignore: avoid_print
+              print('DOWNLOAD: server returned sub-course "${course.name}" — deferring to Step 2b');
+              course = null;
+            } else {
+              source = 'server';
+              // ignore: avoid_print
+              print('DOWNLOAD: server cache HIT — ${course.holes.length} holes');
+            }
           } else {
             // ignore: avoid_print
             print('DOWNLOAD: server cache MISS');
           }
         }
 
+        // Step 2b: Check if server manifest has multiple sub-courses
+        // for this facility (e.g., "Kennedy Golf Course - West",
+        // "- Lind", "- Creek"). If so, load them all from the server
+        // cache and show the picker — no Golf API call needed.
+        if (course == null) {
+          final manifest = await _cacheClient.searchManifest(
+            query: entry.name,
+          );
+          // Find entries that look like sub-courses of this facility
+          // (name starts with facility name + " - ").
+          final facilityPrefix = '${entry.name} - ';
+          final subEntries = manifest
+              .where((e) => e.name.startsWith(facilityPrefix))
+              .toList();
+          if (subEntries.length >= 2) {
+            // ignore: avoid_print
+            print('MULTI: found ${subEntries.length} sub-courses in server cache');
+
+            // Load each sub-course from server cache.
+            final repo = _cacheRepository;
+            final cachedSubCourses = <String, NormalizedCourse>{};
+            final extractedCourses = <ExtractedCourse>[];
+            for (final sub in subEntries) {
+              final subName = sub.name.substring(facilityPrefix.length);
+              // Try local cache first, then server.
+              NormalizedCourse? subCourse;
+              final subKey = NormalizedCourse.serverCacheKey(sub.name);
+              if (repo != null) {
+                final cached = repo.load(subKey);
+                if (cached != null) subCourse = cached.course;
+              }
+              if (subCourse == null) {
+                subCourse = await _cacheClient.fetchCourse(sub.cacheKey);
+                // Save to local cache for next time.
+                if (subCourse != null && repo != null) {
+                  try { await repo.save(subKey, subCourse); } catch (_) {}
+                }
+              }
+              if (subCourse != null) {
+                cachedSubCourses[subName] = subCourse;
+                extractedCourses.add(ExtractedCourse(
+                  name: subName,
+                  pars: subCourse.holes
+                      .map((h) => h.par)
+                      .toList(growable: false),
+                ));
+              }
+            }
+
+            if (extractedCourses.length >= 2) {
+              // Show picker.
+              if (!mounted) return;
+              final picks = await showCoursePickerDialog(
+                context: context,
+                courses: extractedCourses,
+              );
+              if (picks == null || picks.isEmpty || !mounted) {
+                setState(() {
+                  _navigatingToMap = false;
+                  _downloadComplete = false;
+                });
+                return;
+              }
+
+              // Combine selected sub-courses.
+              final combinedHoles = <NormalizedHole>[];
+              for (final pick in picks) {
+                final sub = cachedSubCourses[pick.name];
+                if (sub != null) {
+                  for (final h in sub.holes) {
+                    combinedHoles.add(NormalizedHole(
+                      number: combinedHoles.length + 1,
+                      par: h.par,
+                      strokeIndex: h.strokeIndex,
+                      yardages: h.yardages,
+                      teeAreas: h.teeAreas,
+                      lineOfPlay: h.lineOfPlay,
+                      green: h.green,
+                      pin: h.pin,
+                      bunkers: h.bunkers,
+                      water: h.water,
+                    ));
+                  }
+                }
+              }
+              final combinedName = picks.length == 1
+                  ? '${entry.name} - ${picks.first.name}'
+                  : '${entry.name} - ${picks.map((p) => p.name).join(" + ")}';
+              course = NormalizedCourse(
+                id: 'multi_cached',
+                name: combinedName,
+                city: entry.city.isNotEmpty ? entry.city : null,
+                state: entry.state.isNotEmpty ? entry.state : null,
+                centroid: LngLat(entry.longitude, entry.latitude),
+                holes: combinedHoles,
+              );
+              source = 'server';
+              cacheKeyForSave = null;
+              // ignore: avoid_print
+              print('MULTI: combined from cache — ${combinedHoles.length} holes');
+            }
+          }
+        }
+
         // Step 3: Check Golf API for multi-course facility.
+        // Only runs if server cache didn't have sub-courses.
         // If 2+ courses, download ALL individually (with geometry
         // attempt), cache each, then show picker. The user's combo
         // selection is NOT cached — picker always re-prompts.
