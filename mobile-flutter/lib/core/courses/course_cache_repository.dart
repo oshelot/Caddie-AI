@@ -275,8 +275,43 @@ class CourseCacheRepository {
         // means a hand-edited box, which we don't want to crash on.
       }
     }
-    out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    return out;
+    // Group multi-course sub-entries under the facility name.
+    // e.g., "Kennedy Golf Course - West", "... - Lind", "... - Creek"
+    // become a single "Kennedy Golf Course" entry in Saved.
+    final grouped = <String, CourseSearchEntry>{};
+    final singles = <CourseSearchEntry>[];
+    for (final e in out) {
+      final dashIdx = e.name.lastIndexOf(' - ');
+      if (dashIdx > 0) {
+        final facility = e.name.substring(0, dashIdx);
+        // Check if there are other sub-courses with the same prefix.
+        final hasSiblings = out.any((o) =>
+            o != e &&
+            o.name.startsWith(facility) &&
+            o.name.contains(' - '));
+        if (hasSiblings) {
+          grouped.putIfAbsent(
+            facility,
+            () => CourseSearchEntry(
+              cacheKey: e.cacheKey,
+              name: facility,
+              city: e.city,
+              state: e.state,
+              latitude: e.latitude,
+              longitude: e.longitude,
+              source: e.source,
+              isFavorite: e.isFavorite,
+              cachedAtMs: e.cachedAtMs,
+            ),
+          );
+          continue;
+        }
+      }
+      singles.add(e);
+    }
+    final result = [...singles, ...grouped.values];
+    result.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return result;
   }
 
   // ── internals ────────────────────────────────────────────────────

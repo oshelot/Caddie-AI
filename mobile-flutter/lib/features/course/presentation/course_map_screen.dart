@@ -1091,10 +1091,15 @@ class _BottomPanel extends StatelessWidget {
                     );
                   }
                   final num = i;
+                  final hole = course.holes[i - 1];
+                  final hasGeometry = hole.lineOfPlay != null ||
+                      hole.green != null ||
+                      hole.pin != null;
                   return _chip(
                     label: '$num',
                     active: selectedHole == num,
                     onTap: () => onHoleSelected(num),
+                    noGeometry: !hasGeometry,
                   );
                 },
               ),
@@ -1141,6 +1146,7 @@ class _BottomPanel extends StatelessWidget {
     required String label,
     required bool active,
     required VoidCallback onTap,
+    bool noGeometry = false,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -1148,13 +1154,18 @@ class _BottomPanel extends StatelessWidget {
         label: Text(label),
         selected: active,
         onSelected: (_) => onTap(),
-        selectedColor: Colors.blue,
+        selectedColor: noGeometry ? Colors.red.shade300 : Colors.blue,
         labelStyle: TextStyle(
-          color: active ? Colors.white : null,
+          color: active
+              ? Colors.white
+              : noGeometry
+                  ? Colors.red
+                  : null,
           fontWeight: FontWeight.bold,
           fontSize: 13,
         ),
-        backgroundColor: Colors.grey.shade200,
+        backgroundColor:
+            noGeometry ? Colors.red.shade50 : Colors.grey.shade200,
         visualDensity: VisualDensity.compact,
       ),
     );

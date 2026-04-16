@@ -430,100 +430,172 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
           }
         }
 
-        // Step 3: Check Golf API for multi-course facility FIRST.
-        // If the Golf API returns 2+ courses for this facility,
-        // show a picker and build the course from API data. OSM
-        // geometry is overlaid as best-effort.
+        // Step 3: Check Golf API for multi-course facility.
+        // If 2+ courses, download ALL individually (with geometry
+        // attempt), cache each, then show picker. The user's combo
+        // selection is NOT cached — picker always re-prompts.
         if (course == null) {
           final golfApi = _buildGolfApi();
+          List<ExtractedCourse>? extracted;
           if (golfApi != null) {
             final apiResults = await golfApi.searchCourses(entry.name);
             if (apiResults.length >= 2) {
-              // Fetch details for each
               final details = await Future.wait(
                 apiResults.take(6).map((r) => golfApi.getCourse(r.id)),
               );
               final apiDetails = details
                   .whereType<GolfCourseApiResult>()
                   .toList(growable: false);
-
               if (apiDetails.length >= 2) {
-                final extracted =
-                    CourseMatcher.extractCourses(apiDetails);
+                extracted = CourseMatcher.extractCourses(apiDetails);
+                if (extracted.length < 2) extracted = null;
+              }
+            }
+          }
 
-                if (extracted.length >= 2) {
-                  // ignore: avoid_print
-                  print('MULTI: ${extracted.length} courses found: '
-                      '${extracted.map((e) => e.name).toList()}');
+          if (extracted != null) {
+            // ignore: avoid_print
+            print('MULTI: ${extracted.length} courses: '
+                '${extracted.map((e) => e.name).toList()}');
 
-                  // Show picker — user picks 1 or 2 nines
-                  if (!mounted) return;
-                  final picks = await showCoursePickerDialog(
-                    context: context,
-                    courses: extracted,
-                  );
-                  if (picks == null || picks.isEmpty || !mounted) {
-                    setState(() {
-                      _navigatingToMap = false;
-                      _downloadComplete = false;
-                    });
-                    return;
-                  }
-
-                  // Build course from Golf API data (skeleton with
-                  // pars/yardages but no geometry yet).
-                  final combinedName = picks.length == 1
-                      ? '${entry.name} - ${picks.first.name}'
-                      : '${entry.name} - ${picks.map((p) => p.name).join(" + ")}';
-                  final skeletonHoles = <NormalizedHole>[];
-                  for (final pick in picks) {
-                    for (var i = 0; i < pick.pars.length; i++) {
-                      skeletonHoles.add(NormalizedHole(
-                        number: skeletonHoles.length + 1,
-                        par: pick.pars[i],
-                        strokeIndex: null,
-                        yardages: const {},
-                        teeAreas: const [],
-                        lineOfPlay: null,
-                        green: null,
-                        pin: null,
-                        bunkers: const [],
-                        water: const [],
-                      ));
-                    }
-                  }
-
-                  course = NormalizedCourse(
-                    id: 'golf_api_${entry.latitude}_${entry.longitude}',
-                    name: combinedName,
-                    city: entry.city.isNotEmpty ? entry.city : null,
-                    state: entry.state.isNotEmpty ? entry.state : null,
-                    centroid: LngLat(entry.longitude, entry.latitude),
-                    holes: skeletonHoles,
-                  );
-
-                  // Enrich with tee/yardage data from each pick.
-                  for (final pick in picks) {
-                    if (pick.apiDetail != null) {
-                      course = await _enrichWithScorecardData(
-                        course!,
-                        entry.name,
-                        preMatchedDetail: pick.apiDetail,
-                      );
-                    }
-                  }
-
-                  source = 'golf_api';
-                  // Don't cache multi-course selections — the user
-                  // may play different nines on different days. The
-                  // picker should always re-prompt.
-                  cacheKeyForSave = null;
-                  // ignore: avoid_print
-                  print('MULTI: built ${combinedName} — '
-                      '${skeletonHoles.length} holes from Golf API');
+            // Check if all sub-courses are already cached locally.
+            final repo = _cacheRepository;
+            final cachedSubCourses = <String, NormalizedCourse>{};
+            if (repo != null) {
+              for (final ext in extracted) {
+                final subKey = NormalizedCourse.serverCacheKey(
+                    '${entry.name} - ${ext.name}');
+                final cached = repo.load(subKey);
+                if (cached != null) {
+                  cachedSubCourses[ext.name] = cached.course;
                 }
               }
             }
+
+            final allCached =
+                cachedSubCourses.length == extracted.length;
+            // ignore: avoid_print
+            print('MULTI: ${cachedSubCourses.length}/${extracted.length} cached locally');
+
+            if (!allCached) {
+              // Download ALL sub-courses. Try Overpass for geometry.
+              ParsedFeatures? osmFeatures;
+              try {
+                final overpass = OverpassClient(_transport);
+                const buffer = 0.015;
+                final resp = await overpass.fetchCourseFeatures(
+                  entry.latitude - buffer,
+                  entry.longitude - buffer,
+                  entry.latitude + buffer,
+                  entry.longitude + buffer,
+                );
+                osmFeatures = OsmParser.parse(resp);
+                // ignore: avoid_print
+                print('MULTI: Overpass returned ${resp.elements.length} elements');
+              } catch (e) {
+                // ignore: avoid_print
+                print('MULTI: Overpass failed (geometry will be missing): $e');
+              }
+
+              // Build and cache each individual sub-course.
+              for (final ext in extracted) {
+                final subName = '${entry.name} - ${ext.name}';
+                final subKey = NormalizedCourse.serverCacheKey(subName);
+                final subHoles = <NormalizedHole>[];
+                for (var i = 0; i < ext.pars.length; i++) {
+                  subHoles.add(NormalizedHole(
+                    number: i + 1,
+                    par: ext.pars[i],
+                    strokeIndex: null,
+                    yardages: const {},
+                    teeAreas: const [],
+                    lineOfPlay: null,
+                    green: null,
+                    pin: null,
+                    bunkers: const [],
+                    water: const [],
+                  ));
+                }
+                var subCourse = NormalizedCourse(
+                  id: 'multi_${entry.latitude}_${entry.longitude}_${ext.name}',
+                  name: subName,
+                  city: entry.city.isNotEmpty ? entry.city : null,
+                  state: entry.state.isNotEmpty ? entry.state : null,
+                  centroid: LngLat(entry.longitude, entry.latitude),
+                  holes: subHoles,
+                );
+                // Enrich with tee/yardage data.
+                if (ext.apiDetail != null) {
+                  subCourse = await _enrichWithScorecardData(
+                    subCourse,
+                    entry.name,
+                    preMatchedDetail: ext.apiDetail,
+                  );
+                }
+                // TODO: overlay OSM geometry onto matching holes
+                // using osmFeatures + par matching.
+
+                // Cache locally + server.
+                if (repo != null) {
+                  try { await repo.save(subKey, subCourse); } catch (_) {}
+                }
+                _cacheClient.putCourse(subKey, subCourse).ignore();
+                cachedSubCourses[ext.name] = subCourse;
+                // ignore: avoid_print
+                print('MULTI: cached "${ext.name}" — ${subHoles.length} holes');
+              }
+            }
+
+            // Show picker — user picks 1 or 2.
+            if (!mounted) return;
+            final picks = await showCoursePickerDialog(
+              context: context,
+              courses: extracted,
+            );
+            if (picks == null || picks.isEmpty || !mounted) {
+              setState(() {
+                _navigatingToMap = false;
+                _downloadComplete = false;
+              });
+              return;
+            }
+
+            // Combine selected sub-courses into one for the map.
+            final combinedHoles = <NormalizedHole>[];
+            for (final pick in picks) {
+              final sub = cachedSubCourses[pick.name];
+              if (sub != null) {
+                for (final h in sub.holes) {
+                  combinedHoles.add(NormalizedHole(
+                    number: combinedHoles.length + 1,
+                    par: h.par,
+                    strokeIndex: h.strokeIndex,
+                    yardages: h.yardages,
+                    teeAreas: h.teeAreas,
+                    lineOfPlay: h.lineOfPlay,
+                    green: h.green,
+                    pin: h.pin,
+                    bunkers: h.bunkers,
+                    water: h.water,
+                  ));
+                }
+              }
+            }
+            final combinedName = picks.length == 1
+                ? '${entry.name} - ${picks.first.name}'
+                : '${entry.name} - ${picks.map((p) => p.name).join(" + ")}';
+            course = NormalizedCourse(
+              id: 'multi_${entry.latitude}_${entry.longitude}',
+              name: combinedName,
+              city: entry.city.isNotEmpty ? entry.city : null,
+              state: entry.state.isNotEmpty ? entry.state : null,
+              centroid: LngLat(entry.longitude, entry.latitude),
+              holes: combinedHoles,
+            );
+            source = 'golf_api';
+            cacheKeyForSave = null; // don't cache the combo
+            // ignore: avoid_print
+            print('MULTI: combined "${combinedName}" — ${combinedHoles.length} holes');
           }
         }
 
