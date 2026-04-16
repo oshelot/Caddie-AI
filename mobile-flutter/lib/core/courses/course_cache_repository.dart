@@ -189,9 +189,50 @@ class CourseCacheRepository {
     );
   }
 
-  /// Removes a single course from both layers. Used by the
-  /// (currently future) "refresh course" UI affordance.
+  /// Removes a course from both layers. For grouped multi-course
+  /// entries (cache key starts with "multi:"), deletes all
+  /// sub-course entries that share the facility name prefix.
   Future<void> evict(String cacheKey) async {
+    if (cacheKey.startsWith('multi:')) {
+      // Find the facility name from the first sub-course.
+      final subKey = cacheKey.substring('multi:'.length);
+      final box = AppStorage.courseCacheBox;
+      // Find the facility name by loading the sub-course.
+      String? facilityPrefix;
+      final raw = box.get(subKey);
+      if (raw != null) {
+        try {
+          final envelope = CachedCourseEnvelope.fromJson(
+            jsonDecode(raw) as Map<String, dynamic>,
+          );
+          final dashIdx = envelope.course.name.lastIndexOf(' - ');
+          if (dashIdx > 0) {
+            facilityPrefix = envelope.course.name.substring(0, dashIdx);
+          }
+        } catch (_) {}
+      }
+      if (facilityPrefix != null) {
+        // Delete all sub-courses with this facility prefix.
+        final keysToDelete = <String>[];
+        for (final key in box.keys) {
+          final r = box.get(key);
+          if (r == null) continue;
+          try {
+            final env = CachedCourseEnvelope.fromJson(
+              jsonDecode(r) as Map<String, dynamic>,
+            );
+            if (env.course.name.startsWith('$facilityPrefix - ')) {
+              keysToDelete.add(key as String);
+            }
+          } catch (_) {}
+        }
+        for (final key in keysToDelete) {
+          _hot.remove(key);
+          await box.delete(key);
+        }
+        return;
+      }
+    }
     _hot.remove(cacheKey);
     await AppStorage.courseCacheBox.delete(cacheKey);
   }
