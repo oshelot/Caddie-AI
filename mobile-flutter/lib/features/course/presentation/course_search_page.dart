@@ -35,6 +35,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:go_router/go_router.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/courses/course_cache_client.dart';
 import '../../../core/courses/course_cache_repository.dart';
@@ -76,6 +77,26 @@ const CourseSearchEntry kSharpParkDemoEntry = CourseSearchEntry(
   latitude: 37.6244,
   longitude: -122.4885,
 );
+
+/// Debug log file for multi-course diagnostics. Written to the
+/// app's documents directory so it can be pulled from the device
+/// via `adb pull /data/data/com.caddieai.mobile/app_flutter/multi_course_debug.log`.
+File? _debugLogFile;
+
+Future<void> _debugLog(String message) async {
+  // ignore: avoid_print
+  print(message);
+  try {
+    _debugLogFile ??= File(
+      '${(await getApplicationDocumentsDirectory()).path}/multi_course_debug.log',
+    );
+    final timestamp = DateTime.now().toIso8601String().substring(11, 23);
+    await _debugLogFile!.writeAsString(
+      '[$timestamp] $message\n',
+      mode: FileMode.append,
+    );
+  } catch (_) {}
+}
 
 class CourseSearchPage extends StatefulWidget {
   const CourseSearchPage({
@@ -454,8 +475,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               .where((e) => e.name.startsWith(facilityPrefix))
               .toList();
           if (subEntries.length >= 2) {
-            // ignore: avoid_print
-            print('MULTI: found ${subEntries.length} sub-courses in server cache');
+            _debugLog('MULTI: found ${subEntries.length} sub-courses in server cache');
 
             // Load each sub-course from server cache.
             final repo = _cacheRepository;
@@ -537,8 +557,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               );
               source = 'server';
               cacheKeyForSave = null;
-              // ignore: avoid_print
-              print('MULTI: combined from cache — ${combinedHoles.length} holes');
+              _debugLog('MULTI: combined from cache — ${combinedHoles.length} holes');
             }
           }
         }
@@ -568,8 +587,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
           }
 
           if (extracted != null) {
-            // ignore: avoid_print
-            print('MULTI: ${extracted.length} courses: '
+            _debugLog('MULTI: ${extracted.length} courses: '
                 '${extracted.map((e) => e.name).toList()}');
 
             // Check if all sub-courses are already cached locally.
@@ -588,8 +606,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
 
             final allCached =
                 cachedSubCourses.length == extracted.length;
-            // ignore: avoid_print
-            print('MULTI: ${cachedSubCourses.length}/${extracted.length} cached locally');
+            _debugLog('MULTI: ${cachedSubCourses.length}/${extracted.length} cached locally');
 
             if (!allCached) {
               // Download ALL sub-courses. Try Overpass for geometry.
@@ -604,11 +621,9 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   entry.longitude + buffer,
                 );
                 osmFeatures = OsmParser.parse(resp);
-                // ignore: avoid_print
-                print('MULTI: Overpass returned ${resp.elements.length} elements');
+                _debugLog('MULTI: Overpass returned ${resp.elements.length} elements');
               } catch (e) {
-                // ignore: avoid_print
-                print('MULTI: Overpass failed (geometry will be missing): $e');
+                _debugLog('MULTI: Overpass failed (geometry will be missing): $e');
               }
 
               // Normalize OSM holes into spatial clusters. Each
@@ -626,9 +641,21 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   city: entry.city.isNotEmpty ? entry.city : null,
                   state: entry.state.isNotEmpty ? entry.state : null,
                 );
-                // ignore: avoid_print
-                print('MULTI: ${osmClusters.length} OSM clusters, '
+                _debugLog('MULTI: ${osmClusters.length} OSM clusters, '
                     '${osmClusters.map((c) => c.holes.length).toList()} holes each');
+                // Log each cluster's hole details
+                for (var ci = 0; ci < osmClusters.length; ci++) {
+                  final c = osmClusters[ci];
+                  final holeSummary = c.holes.map((h) {
+                    final hasGeom = h.lineOfPlay != null ? 'G' : '-';
+                    return 'H${h.number}p${h.par}$hasGeom';
+                  }).join(', ');
+                  _debugLog('MULTI: cluster $ci: [$holeSummary]');
+                }
+                // Log expected pars for each sub-course
+                for (final ext in extracted) {
+                  _debugLog('MULTI: expected ${ext.name}: pars=${ext.pars}');
+                }
               }
 
               // Match each OSM cluster to a sub-course by par
@@ -662,8 +689,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   if (bestExt >= 0 && bestScore >= 3) {
                     clusterAssignment[ci] = bestExt;
                     usedExt.add(bestExt);
-                    // ignore: avoid_print
-                    print('MULTI: OSM cluster $ci → '
+                    _debugLog('MULTI: OSM cluster $ci → '
                         '${extracted[bestExt].name} (score $bestScore)');
                   }
                 }
@@ -742,8 +768,12 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 }
                 _cacheClient.putCourse(subKey, subCourse).ignore();
                 cachedSubCourses[ext.name] = subCourse;
-                // ignore: avoid_print
-                print('MULTI: cached "${ext.name}" — ${subHoles.length} holes, $holesWithGeom with geometry');
+                // Log per-hole assignment details
+                final holeDetail = subHoles.map((h) {
+                  final hasGeom = h.lineOfPlay != null ? 'G' : 'X';
+                  return 'H${h.number}p${h.par}$hasGeom';
+                }).join(', ');
+                _debugLog('MULTI: ${ext.name}: $holesWithGeom/${subHoles.length} with geometry [$holeDetail]');
               }
             }
 
@@ -795,8 +825,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
             );
             source = 'golf_api';
             cacheKeyForSave = null; // don't cache the combo
-            // ignore: avoid_print
-            print('MULTI: combined "${combinedName}" — ${combinedHoles.length} holes');
+            _debugLog('MULTI: combined "${combinedName}" — ${combinedHoles.length} holes');
           }
         }
 
