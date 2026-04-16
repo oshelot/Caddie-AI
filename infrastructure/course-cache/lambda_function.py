@@ -1402,22 +1402,28 @@ def refine_course_with_vision(course: dict, facility_name: str) -> dict:
 
     prompt = f"""This satellite image shows "{course.get('name')}" — a nine or eighteen hole golf course within the {facility_name} facility.
 
-Image bounds:
-- Top-left: lat={bounds['top_left_lat']:.4f}, lon={bounds['top_left_lon']:.4f}
-- Bottom-right: lat={bounds['bottom_right_lat']:.4f}, lon={bounds['bottom_right_lon']:.4f}
+Image bounds (use for pixel→coordinate conversion):
+- Top-left corner: lat={bounds['top_left_lat']:.5f}, lon={bounds['top_left_lon']:.5f}
+- Bottom-right corner: lat={bounds['bottom_right_lat']:.5f}, lon={bounds['bottom_right_lon']:.5f}
 
-These holes ARE mapped (for spatial reference — find the missing ones near these):
-{chr(10).join(assigned_context) if assigned_context else "- (none)"}
+## Reference coordinates (holes already mapped — use these as anchor points for precision)
+{chr(10).join(assigned_context) if assigned_context else "- (none available — estimate from image bounds only)"}
 
-These holes are MISSING from OSM data — locate them in the satellite image:
+## Missing holes to locate
 {chr(10).join(missing_descriptions)}
 
-Look for fairways (long green corridors), greens (circular manicured areas), and tee boxes. Course holes typically flow in sequence, so hole 4 is near hole 3's green and hole 5's tee.
+## Instructions
+1. The reference coordinates above are known-accurate. Interpolate the missing hole positions RELATIVE to these anchors — don't estimate from image bounds alone.
+2. Course holes flow in sequence — hole N's tee is typically <200m from hole (N-1)'s green.
+3. Only return a hole if you can clearly identify its fairway (linear corridor of lighter green) and green (circular manicured area) in the image.
+4. Do NOT place holes in water, residential neighborhoods, parking lots, or outside the course boundary (visible as the grass/fairway region).
+5. If a hole is ambiguous or you cannot confidently locate it, OMIT IT from the response. Partial data beats wrong data.
 
+## Output Format
 Return ONLY a JSON array:
 [{{"hole": N, "par": N, "tee_lat": N, "tee_lon": N, "green_lat": N, "green_lon": N}}]
 
-If you cannot confidently locate a hole, omit it. Use ~5 decimal precision for coordinates."""
+Coordinates: 5 decimal places (e.g., 39.65173)."""
 
     try:
         bedrock = boto3.client("bedrock-runtime",
@@ -2137,6 +2143,49 @@ def handle_put(s3, key: str, course_id: str, event: dict, schema: str) -> dict:
         print(f"Google Places validated '{name}': city={city}, state={state}")
     else:
         print(f"Google Places validation unavailable for '{name}', using client-provided metadata")
+
+    # Merge with existing course data — preserve any holes that
+    # already have real (non-synthesized) geometry if the incoming
+    # upload is missing them. This prevents a "blind" upload with
+    # 0 geometry from overwriting good cached data.
+    try:
+        existing_obj = s3.get_object(Bucket=BUCKET_NAME, Key=key)
+        existing_data = json.loads(
+            gzip.decompress(existing_obj["Body"].read()).decode("utf-8")
+        )
+        existing_holes = {h.get("number"): h for h in existing_data.get("holes", [])}
+        merged_holes = []
+        merges = 0
+        for h in course_data.get("holes", []):
+            num = h.get("number")
+            incoming_has_geom = h.get("lineOfPlay") or h.get("green")
+            existing = existing_holes.get(num)
+            if not incoming_has_geom and existing and (
+                existing.get("lineOfPlay") or existing.get("green")
+            ):
+                # Keep the existing geometry (may be real OSM or
+                # previously synthesized — either way it's better
+                # than nothing).
+                h = {**h, **{
+                    "lineOfPlay": existing.get("lineOfPlay"),
+                    "green": existing.get("green"),
+                    "pin": existing.get("pin"),
+                    "teeAreas": existing.get("teeAreas", []),
+                    "bunkers": existing.get("bunkers", []),
+                    "water": existing.get("water", []),
+                }}
+                if existing.get("_synthesized"):
+                    h["_synthesized"] = True
+                merges += 1
+            merged_holes.append(h)
+        course_data["holes"] = merged_holes
+        if merges > 0:
+            print(f"MERGE: preserved geometry on {merges} holes from existing cache")
+    except ClientError as e:
+        if e.response["Error"]["Code"] != "NoSuchKey":
+            print(f"MERGE: failed to fetch existing: {e}")
+    except Exception as e:
+        print(f"MERGE: error merging: {e}")
 
     # Gzip compress and store (with Google-corrected fields)
     corrected_body = json.dumps(course_data).encode("utf-8")

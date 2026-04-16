@@ -766,20 +766,26 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 if (repo != null) {
                   try { await repo.save(subKey, subCourse); } catch (_) {}
                 }
-                // Upload to server, then (if any holes are missing)
-                // fire-and-forget a vision refinement request so the
-                // next user gets filled-in geometry.
+                // Upload to server. Only request vision refinement
+                // when we have SOME OSM geometry to anchor against —
+                // refining from zero produces inaccurate LLM guesses.
                 final missingHoles =
                     subHoles.length - holesWithGeom;
+                final shouldRefine =
+                    missingHoles > 0 && holesWithGeom > 0;
                 () async {
                   await _cacheClient.putCourse(subKey, subCourse);
-                  if (missingHoles > 0) {
+                  if (shouldRefine) {
                     final accepted = await _cacheClient.refineCourse(
                       subKey, entry.name,
                     );
-                    _debugLog('MULTI: refine request for ${ext.name}: '
+                    _debugLog('MULTI: refine for ${ext.name}: '
                         '${accepted ? "accepted" : "failed"} '
-                        '($missingHoles missing holes)');
+                        '($missingHoles missing holes, '
+                        '$holesWithGeom anchors)');
+                  } else if (missingHoles > 0) {
+                    _debugLog('MULTI: skipping refine for ${ext.name} '
+                        '— no OSM anchors (all $missingHoles holes missing)');
                   }
                 }().ignore();
 
