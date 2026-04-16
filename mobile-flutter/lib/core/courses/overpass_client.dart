@@ -115,13 +115,28 @@ class OverpassClient {
 
   final HttpTransport _transport;
 
-  static const _primaryEndpoint =
-      'https://overpass.private.coffee/api/interpreter';
-  static const _fallbackEndpoint =
-      'https://overpass-api.de/api/interpreter';
+  /// Ordered list of Overpass mirrors to cycle through on failure.
+  /// Each mirror has its own rate limiter and server pool, so when
+  /// one is rate-limited (typically returning 429 or 504), the others
+  /// are likely still healthy. Order is rough reliability rank; the
+  /// next request to this client starts from a randomized offset so
+  /// load is spread across mirrors over time.
+  static const _mirrors = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.osm.jp/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  ];
+
   static const _bboxBuffer = 0.002;
-  static const _maxAttempts = 2;
+  static const _maxAttemptsPerMirror = 2;
   static const _timeout = Duration(seconds: 45);
+
+  /// Randomized starting offset so consecutive client instances don't
+  /// all hammer the same mirror first.
+  static int _mirrorOffset =
+      DateTime.now().millisecondsSinceEpoch % _mirrors.length;
 
   /// Fetches all golf-related OSM features within [south, west, north, east],
   /// with a small buffer added to the bounding box.
@@ -151,12 +166,27 @@ class OverpassClient {
 
     final body = 'data=${Uri.encodeComponent(query)}';
 
-    // Try primary endpoint, fall back on any error.
-    try {
-      return await _fetchWithRetry(_primaryEndpoint, body);
-    } catch (_) {
-      return _fetchWithRetry(_fallbackEndpoint, body);
+    // Try each mirror in order, starting from a rotating offset.
+    // Fast-fail on 429/504 and move to the next mirror immediately.
+    Object? lastError;
+    final startOffset = _mirrorOffset;
+    _mirrorOffset = (_mirrorOffset + 1) % _mirrors.length;
+
+    for (var i = 0; i < _mirrors.length; i++) {
+      final endpoint = _mirrors[(startOffset + i) % _mirrors.length];
+      try {
+        // ignore: avoid_print
+        print('OVERPASS: trying $endpoint');
+        return await _fetchWithRetry(endpoint, body);
+      } catch (e) {
+        // ignore: avoid_print
+        print('OVERPASS: $endpoint failed: $e');
+        lastError = e;
+        // Fall through to next mirror.
+      }
     }
+    throw lastError ??
+        Exception('All ${_mirrors.length} Overpass mirrors failed');
   }
 
   Future<OverpassResponse> _fetchWithRetry(
@@ -164,7 +194,7 @@ class OverpassClient {
     String body,
   ) async {
     Object? lastError;
-    for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
+    for (var attempt = 1; attempt <= _maxAttemptsPerMirror; attempt++) {
       try {
         final response = await _transport.send(HttpRequestLike(
           method: 'POST',
@@ -176,14 +206,20 @@ class OverpassClient {
           timeout: _timeout,
         ));
 
-        if (response.statusCode == 429 || response.statusCode == 504) {
-          lastError = Exception(
-              'Overpass returned ${response.statusCode} on attempt $attempt');
-          if (attempt < _maxAttempts) {
-            await Future<void>.delayed(Duration(seconds: attempt * 2));
+        // 429/504 → fast-fail this mirror so the caller can try another.
+        // Only retry on 504 once within the same mirror (might be a
+        // transient queue spike).
+        if (response.statusCode == 429) {
+          throw Exception('Overpass returned 429 (rate-limited)');
+        }
+        if (response.statusCode == 504) {
+          if (attempt < _maxAttemptsPerMirror) {
+            lastError = Exception(
+                'Overpass returned 504 on attempt $attempt');
+            await Future<void>.delayed(const Duration(seconds: 1));
             continue;
           }
-          throw lastError;
+          throw Exception('Overpass returned 504');
         }
 
         if (!response.isSuccess) {
@@ -195,8 +231,8 @@ class OverpassClient {
         return OverpassResponse.fromJson(json);
       } catch (e) {
         lastError = e;
-        if (attempt < _maxAttempts) {
-          await Future<void>.delayed(Duration(seconds: attempt * 2));
+        if (attempt < _maxAttemptsPerMirror) {
+          await Future<void>.delayed(const Duration(seconds: 1));
           continue;
         }
       }
