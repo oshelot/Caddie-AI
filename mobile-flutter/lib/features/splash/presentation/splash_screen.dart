@@ -272,7 +272,7 @@ class _RypplBrandBand extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Image.asset(
-          'assets/branding/ryppl_golf.jpg',
+          'assets/branding/ryppl_golf.png',
           key: const Key('splash-ryppl-golf-wordmark'),
           height: 60,
           fit: BoxFit.contain,
