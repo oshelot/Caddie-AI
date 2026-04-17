@@ -39,10 +39,16 @@ class ParsedGreen {
   final int osmId;
   final int? holeNumber;
   final Polygon polygon;
+  /// Normalized ref prefix (e.g., "west" from "west9-5"). Empty for
+  /// numeric-only refs. Used to keep features from different sub-
+  /// courses from being associated to the wrong hole during the
+  /// spatial-association step.
+  final String refPrefix;
   const ParsedGreen({
     required this.osmId,
     this.holeNumber,
     required this.polygon,
+    this.refPrefix = '',
   });
 }
 
@@ -50,10 +56,12 @@ class ParsedTee {
   final int osmId;
   final int? holeNumber;
   final Polygon polygon;
+  final String refPrefix;
   const ParsedTee({
     required this.osmId,
     this.holeNumber,
     required this.polygon,
+    this.refPrefix = '',
   });
 }
 
@@ -61,10 +69,12 @@ class ParsedPin {
   final int osmId;
   final int? holeNumber;
   final LngLat point;
+  final String refPrefix;
   const ParsedPin({
     required this.osmId,
     this.holeNumber,
     required this.point,
+    this.refPrefix = '',
   });
 }
 
@@ -188,28 +198,34 @@ class OsmParser {
       } else if (golf == 'green' && el.type == 'way') {
         final poly = _extractPolygon(el);
         if (poly != null) {
+          final (prefix, _) = _parseRefPrefix(tags);
           greens.add(ParsedGreen(
             osmId: el.id,
             holeNumber: _parseHoleNumber(tags),
             polygon: poly,
+            refPrefix: prefix,
           ));
         }
       } else if (golf == 'tee' && el.type == 'way') {
         final poly = _extractPolygon(el);
         if (poly != null) {
+          final (prefix, _) = _parseRefPrefix(tags);
           tees.add(ParsedTee(
             osmId: el.id,
             holeNumber: _parseHoleNumber(tags),
             polygon: poly,
+            refPrefix: prefix,
           ));
         }
       } else if (golf == 'pin' && el.type == 'node') {
         final pt = _extractPoint(el);
         if (pt != null) {
+          final (prefix, _) = _parseRefPrefix(tags);
           pins.add(ParsedPin(
             osmId: el.id,
             holeNumber: _parseHoleNumber(tags),
             point: pt,
+            refPrefix: prefix,
           ));
         }
       } else if (golf == 'bunker' && el.type == 'way') {

@@ -374,6 +374,23 @@ class CourseNormalizer {
   // Spatial association
   // -------------------------------------------------------------------------
 
+  /// True when [feature]'s ref prefix is compatible with [hole]'s.
+  /// A feature can be attached to a hole if:
+  ///   - Both have the same non-empty prefix (e.g., both "west"), OR
+  ///   - The hole has no prefix (numeric refs) and the feature has
+  ///     no prefix either. A feature with a non-empty prefix is NOT
+  ///     attached to a numeric-ref hole (prevents West tees ending
+  ///     up on Lind/Creek holes).
+  bool _prefixCompatible(String holePrefix, String featurePrefix) {
+    if (holePrefix == featurePrefix) return true;
+    // Allow fallback: if feature has no prefix and hole has one, still
+    // match. (Some OSM tees are just numeric refs even within a named
+    // sub-course.) But NOT the other way around — a prefixed feature
+    // must belong to a prefixed hole of the same family.
+    if (featurePrefix.isEmpty && holePrefix.isNotEmpty) return true;
+    return false;
+  }
+
   void _associateGreens(List<_RawHole> holes, List<ParsedGreen> greens) {
     for (final green in greens) {
       final greenCenter = green.polygon.centroid;
@@ -382,6 +399,7 @@ class CourseNormalizer {
       _RawHole? best;
       double bestDist = 500;
       for (final hole in holes) {
+        if (!_prefixCompatible(hole.refPrefix, green.refPrefix)) continue;
         // Match by hole number first.
         if (green.holeNumber != null &&
             green.holeNumber == hole.number &&
@@ -413,6 +431,7 @@ class CourseNormalizer {
       _RawHole? best;
       double bestDist = 300;
       for (final hole in holes) {
+        if (!_prefixCompatible(hole.refPrefix, tee.refPrefix)) continue;
         if (tee.holeNumber != null &&
             tee.holeNumber == hole.number &&
             hole.number > 0) {
@@ -439,6 +458,7 @@ class CourseNormalizer {
       _RawHole? best;
       double bestDist = 100;
       for (final hole in holes) {
+        if (!_prefixCompatible(hole.refPrefix, pin.refPrefix)) continue;
         if (pin.holeNumber != null &&
             pin.holeNumber == hole.number &&
             hole.number > 0) {

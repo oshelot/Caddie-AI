@@ -47,6 +47,7 @@
 //    S4 — "first-run prompt fires BEFORE the map renders").
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -632,40 +633,95 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     if (matches.isEmpty) return;
     final hole = matches.first;
 
-    // Only use the play corridor (tees → fairway → green → pin) for
-    // camera fitting. Bunkers and water are decorative — including
-    // them in the bounding box makes the camera zoom out to fit
-    // large pond polygons attached to adjacent holes.
-    final coords = <LngLat>[];
+    // Must have something to zoom to.
     final lop = hole.lineOfPlay;
-    if (lop != null) coords.addAll(lop.points);
-    for (final t in hole.teeAreas) {
-      coords.addAll(t.outerRing);
-    }
     final g = hole.green;
-    if (g != null) coords.addAll(g.outerRing);
-    final p = hole.pin;
-    if (p != null) coords.add(p);
+    if (lop == null && g == null && hole.pin == null) return;
 
-    if (coords.length < 2) {
-      // Hole has no play corridor geometry. Keep camera where it is.
-      return;
+    // Zoom strategy (Option D):
+    //   1. Compute zoom primarily from expected hole length (Golf
+    //      Course API yardage, the source of truth). A par 3 always
+    //      zooms like a par 3; a par 5 always zooms like a par 5.
+    //   2. Use only tee + green centroids (not full polygons or
+    //      bunkers/water) as a bbox safety net. If the actual
+    //      end-to-end distance exceeds the yardage-derived zoom,
+    //      zoom out enough to fit.
+    //   3. Fall back to lineOfPlay-derived length if yardage missing.
+    int expectedYards = 0;
+    for (final y in hole.yardages.values) {
+      if (y > expectedYards) expectedYards = y;
     }
+
+    // Pick the tee polygon centroid that's farthest from the green
+    // as the "back tee" anchor.
+    LngLat? backTee;
+    final greenCentroid = g?.centroid;
+    if (hole.teeAreas.isNotEmpty && greenCentroid != null) {
+      double bestDist = 0;
+      for (final t in hole.teeAreas) {
+        final c = t.centroid;
+        if (c == null) continue;
+        final d = haversineMeters(c, greenCentroid);
+        if (d > bestDist) {
+          bestDist = d;
+          backTee = c;
+        }
+      }
+    }
+    // Fall back to line-of-play endpoints if no tees/green.
+    backTee ??= lop?.startPoint;
+    final greenPoint = greenCentroid ?? lop?.endPoint ?? hole.pin;
+
+    if (backTee == null || greenPoint == null) return;
+
+    // Bbox span in meters (safety net).
+    final measuredMeters = haversineMeters(backTee, greenPoint);
+    final effectiveYards = expectedYards > 0
+        ? expectedYards
+        : metersToYards(measuredMeters).round();
+
+    // Yardage-to-zoom formula. Calibrated so:
+    //   150y → ~18, 350y → ~17.2, 500y → ~16.5, 600y → ~16
+    double zoom;
+    if (effectiveYards <= 0) {
+      zoom = 17;
+    } else {
+      // zoom = 19 - 1.16 * ln(yards/100). Gives 19 at 100y, 17.3 at
+      // 300y, 16.2 at 500y, 15.5 at 700y.
+      final y = effectiveYards.toDouble();
+      zoom = 19.0 - 1.16 * (y / 100.0 > 0 ? math.log(y / 100.0) : 0);
+    }
+
+    // Safety net: if the measured end-to-end distance is larger
+    // than the yardage-based zoom can fit (e.g., bad OSM data with
+    // a 1km line for a 400y hole), zoom out to fit. Cap the zoom-
+    // out at 1.0 stop to prevent huge regressions.
+    final measuredYards = metersToYards(measuredMeters);
+    if (effectiveYards > 0 && measuredYards > effectiveYards * 1.5) {
+      // Extra zoom-out based on overshoot factor.
+      final overshoot = measuredYards / effectiveYards;
+      final safetyZoomOut = math.min(1.0, math.log(overshoot) / math.log(2));
+      zoom -= safetyZoomOut;
+    }
+
+    // Clamp to sane range.
+    zoom = zoom.clamp(15.0, 19.0);
+
+    // Center on midpoint between back tee and green.
+    final centerLat = (backTee.lat + greenPoint.lat) / 2.0;
+    final centerLon = (backTee.lon + greenPoint.lon) / 2.0;
 
     final bearing = hole.teeToGreenBearing();
-    final points = coords
-        .map((p) => mbx.Point(coordinates: mbx.Position(p.lon, p.lat)))
-        .toList(growable: false);
-
-    final fitted = await map.cameraForCoordinatesPadding(
-      points,
-      mbx.CameraOptions(bearing: bearing),
-      _holePadding,
-      null,
-      null,
+    await map.flyTo(
+      mbx.CameraOptions(
+        center: mbx.Point(
+          coordinates: mbx.Position(centerLon, centerLat),
+        ),
+        zoom: zoom,
+        bearing: bearing,
+      ),
+      mbx.MapAnimationOptions(duration: 900),
     );
-
-    await map.flyTo(fitted, mbx.MapAnimationOptions(duration: 900));
   }
 
   Future<void> _highlightHole(int? holeNumber) async {
