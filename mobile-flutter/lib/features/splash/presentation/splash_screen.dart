@@ -39,7 +39,7 @@ const Color _backgroundColor = Color(0xFFE8E9EB);
 // native; 26 pt (2×) for "Ryppl Golf" per the post-cutover
 // rebrand request.
 const double _broughtToYouSize = 13;
-const double _rypplGolfSize = 26;
+// _rypplGolfSize removed — replaced by the ryppl_golf.jpg wordmark image.
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({
@@ -271,15 +271,11 @@ class _RypplBrandBand extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        const Text(
-          'Ryppl Golf',
-          key: Key('splash-ryppl-golf-wordmark'),
-          style: TextStyle(
-            fontSize: _rypplGolfSize,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-            letterSpacing: 0.3,
-          ),
+        Image.asset(
+          'assets/branding/ryppl_golf.jpg',
+          key: const Key('splash-ryppl-golf-wordmark'),
+          height: 60,
+          fit: BoxFit.contain,
         ),
       ],
     );
