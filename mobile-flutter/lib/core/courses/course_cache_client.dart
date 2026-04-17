@@ -242,6 +242,24 @@ class CourseCacheClient {
     }
   }
 
+  // ── corrections queue ────────────────────────────────────────────
+
+  /// Submit a geometry correction for human review. Fire-and-forget.
+  Future<bool> submitCorrection(Map<String, dynamic> correction) async {
+    final url = Uri.parse('$baseUrl/corrections');
+    try {
+      final response = await _send(
+        'POST',
+        url,
+        body: jsonEncode(correction),
+        contentType: 'application/json',
+      );
+      return response.statusCode == 201;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── url builders ─────────────────────────────────────────────────
 
   Uri _buildSearchUrl({

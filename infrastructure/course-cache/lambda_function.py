@@ -1797,6 +1797,150 @@ def handle_ingest(event: dict, context) -> dict:
 # Route handlers
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# OSM correction queue (human-in-the-loop geometry review)
+# ---------------------------------------------------------------------------
+
+CORRECTIONS_PREFIX = "corrections/"
+
+
+def handle_submit_correction(event: dict) -> dict:
+    """POST /corrections — queue a geometry correction for human review."""
+    body_str = event.get("body", "")
+    if event.get("isBase64Encoded"):
+        body_str = base64.b64decode(body_str).decode("utf-8")
+    if not body_str:
+        return error_response(400, "Empty body.")
+
+    try:
+        correction = json.loads(body_str)
+    except json.JSONDecodeError:
+        return error_response(400, "Invalid JSON.")
+
+    required = ["facilityName", "courseName", "holeNumber"]
+    for field in required:
+        if field not in correction:
+            return error_response(400, f"Missing '{field}'.")
+
+    # Generate a stable id from facility + course + hole.
+    facility = correction["facilityName"]
+    course = correction["courseName"]
+    hole_num = correction["holeNumber"]
+    correction_id = normalize_name(
+        f"{facility}-{course}-h{hole_num}"
+    ).replace(" ", "-")
+
+    correction["id"] = correction_id
+    correction["status"] = "pending"
+    correction["submittedAt"] = __import__("time").strftime(
+        "%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()
+    )
+
+    s3 = get_s3_client()
+    s3_object_key = f"{CORRECTIONS_PREFIX}{correction_id}.json"
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=s3_object_key,
+        Body=json.dumps(correction, separators=(",", ":")).encode("utf-8"),
+        ContentType="application/json",
+    )
+
+    print(f"CORRECTION: queued {correction_id}")
+    return {
+        "statusCode": 201,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+        },
+        "body": json.dumps({"id": correction_id, "status": "pending"}),
+    }
+
+
+def handle_get_corrections(event: dict) -> dict:
+    """GET /corrections — list pending corrections for review."""
+    s3 = get_s3_client()
+    query_params = event.get("queryStringParameters") or {}
+    status_filter = query_params.get("status", "pending")
+
+    try:
+        response = s3.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=CORRECTIONS_PREFIX,
+        )
+        items = []
+        for obj in response.get("Contents", []):
+            key = obj["Key"]
+            if not key.endswith(".json"):
+                continue
+            data = s3.get_object(Bucket=BUCKET_NAME, Key=key)
+            correction = json.loads(data["Body"].read().decode("utf-8"))
+            if correction.get("status") == status_filter:
+                items.append(correction)
+        items.sort(key=lambda c: c.get("submittedAt", ""), reverse=True)
+    except Exception as e:
+        print(f"CORRECTION: list failed: {e}")
+        items = []
+
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-cache",
+        },
+        "body": json.dumps({"corrections": items}),
+    }
+
+
+def handle_review_correction(event: dict) -> dict:
+    """POST /corrections/review — approve or deny a correction."""
+    body_str = event.get("body", "")
+    if event.get("isBase64Encoded"):
+        body_str = base64.b64decode(body_str).decode("utf-8")
+    if not body_str:
+        return error_response(400, "Empty body.")
+
+    try:
+        payload = json.loads(body_str)
+    except json.JSONDecodeError:
+        return error_response(400, "Invalid JSON.")
+
+    correction_id = payload.get("id", "")
+    decision = payload.get("decision", "")  # "approved" or "denied"
+    if not correction_id or decision not in ("approved", "denied"):
+        return error_response(400, "Need 'id' and 'decision' (approved|denied).")
+
+    s3 = get_s3_client()
+    s3_key_path = f"{CORRECTIONS_PREFIX}{correction_id}.json"
+
+    try:
+        data = s3.get_object(Bucket=BUCKET_NAME, Key=s3_key_path)
+        correction = json.loads(data["Body"].read().decode("utf-8"))
+    except Exception:
+        return error_response(404, f"Correction {correction_id} not found.")
+
+    correction["status"] = decision
+    correction["reviewedAt"] = __import__("time").strftime(
+        "%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()
+    )
+
+    s3.put_object(
+        Bucket=BUCKET_NAME,
+        Key=s3_key_path,
+        Body=json.dumps(correction, separators=(",", ":")).encode("utf-8"),
+        ContentType="application/json",
+    )
+
+    print(f"CORRECTION: {correction_id} → {decision}")
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+        },
+        "body": json.dumps({"id": correction_id, "status": decision}),
+    }
+
+
 def lambda_handler(event, context):
     # Async self-invocation for multi-course ingestion
     if event.get("_asyncIngest"):
@@ -1818,7 +1962,7 @@ def lambda_handler(event, context):
             "statusCode": 200,
             "headers": {
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
+                "Access-Control-Allow-Methods": "GET, PUT, POST, DELETE, OPTIONS",
                 "Access-Control-Allow-Headers": "Content-Type, x-api-key",
             },
             "body": "",
@@ -1844,6 +1988,16 @@ def lambda_handler(event, context):
     if http_method == "POST" and (raw_path == "/courses/refine"
                                   or raw_path.endswith("/courses/refine")):
         return handle_refine(event, context)
+
+    # Corrections queue — human-in-the-loop geometry review
+    if raw_path == "/corrections" or raw_path.endswith("/corrections"):
+        if http_method == "POST":
+            return handle_submit_correction(event)
+        if http_method == "GET":
+            return handle_get_corrections(event)
+    if http_method == "POST" and (raw_path == "/corrections/review"
+                                  or raw_path.endswith("/corrections/review")):
+        return handle_review_correction(event)
 
     # KAN-296: Google Places proxy routes
     if http_method == "GET":

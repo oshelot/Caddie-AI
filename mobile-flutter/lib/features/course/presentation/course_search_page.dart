@@ -364,6 +364,31 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         water: hole.water,
       ));
       repairs++;
+
+      // Queue for human review → eventual OSM contribution.
+      _cacheClient.submitCorrection({
+        'facilityName': course.name.split(' - ').first,
+        'courseName': course.name.contains(' - ')
+            ? course.name.split(' - ').last
+            : course.name,
+        'holeNumber': hole.number,
+        'par': hole.par,
+        'expectedYards': expectedYards,
+        'measuredYards': measuredYards.round(),
+        'original': {
+          'lineOfPlay': lop?.points
+              .map((p) => [p.lon, p.lat])
+              .toList(growable: false),
+        },
+        'corrected': {
+          'lineOfPlay': [
+            [bestTee.lon, bestTee.lat],
+            [greenCentroid.lon, greenCentroid.lat],
+          ],
+        },
+        'greenCentroid': [greenCentroid.lon, greenCentroid.lat],
+        'teeCentroid': [bestTee.lon, bestTee.lat],
+      }).ignore();
     }
 
     if (repairs > 0) {
