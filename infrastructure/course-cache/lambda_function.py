@@ -2571,7 +2571,14 @@ def handle_async_rag_ingest(event: dict):
 
         trace["steps"].append({"step": "images", "count": len(web_images), "pdf": scorecard_pdf_url})
 
-        # 4. GPT-4o max-effort prompt
+        # 4. Two-pass GPT-4o assignment
+        # Pass 1: Identify spatial boundaries per course from the map
+        # Pass 2: Assign OSM holes to courses by coordinates
+
+        api_key = _get_openai_key()
+        if not api_key:
+            raise RuntimeError("No OpenAI API key")
+
         osm_lines = []
         for h in osm_holes:
             osm_lines.append(
@@ -2583,71 +2590,91 @@ def handle_async_rag_ingest(event: dict):
         api_lines = [f'  {e["name"]}: pars={e["pars"]}' for e in extracted]
         nl = "\n"
 
-        prompt = (
-            f"You are a golf course data expert doing a MISSION-CRITICAL hole "
-            f"assignment for {name}. Accuracy is paramount.\n\n"
-            f"## DATA SOURCES (cross-check EVERY assignment)\n\n"
-            f"### Source 1: Scorecard (ATTACHED images - source of truth)\n"
-            f"Read the scorecard carefully. Note pars and hole names.\n\n"
-            f"### Source 2: Golf Course API\n{nl.join(api_lines)}\n\n"
-            f"### Source 3: Satellite image (ATTACHED)\n"
-            f"Bounds: TL ({facility_lat+0.009:.4f},{facility_lon-0.012:.4f}), "
+        # Build image content (shared between passes)
+        img_content = []
+        for img in web_images:
+            mime = f"image/{img['format']}"
+            b64 = base64.b64encode(img["bytes"]).decode()
+            img_content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}", "detail": "high"}})
+
+        def call_gpt4o(prompt_text, max_tokens=4000):
+            content = img_content + [{"type": "text", "text": prompt_text}]
+            body = json.dumps({
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": content}],
+                "max_tokens": max_tokens,
+                "temperature": 0.0,
+            }).encode()
+            req = urllib.request.Request(
+                "https://api.openai.com/v1/chat/completions",
+                data=body,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                result = json.loads(resp.read())
+            text = result["choices"][0]["message"]["content"].strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+            return json.loads(text), result["choices"][0]["message"]["content"]
+
+        # ── PASS 1: Identify spatial boundaries ───────────────
+        pass1_prompt = (
+            f"Look at the attached course map/scorecard for {name}.\n\n"
+            f"This facility has these courses:\n{nl.join(api_lines)}\n\n"
+            f"The satellite image bounds are: "
+            f"TL ({facility_lat+0.009:.4f},{facility_lon-0.012:.4f}), "
             f"BR ({facility_lat-0.009:.4f},{facility_lon+0.012:.4f})\n\n"
-            f"### Source 4: OSM data ({len(osm_holes)} elements)\n{nl.join(osm_lines)}\n\n"
-            f"## CRITICAL RULE\n"
-            f"Each osm_id can ONLY be assigned to ONE course. "
-            f"Two courses cannot share the same OSM hole. "
-            f"If two courses need the same hole number, they must use "
-            f"DIFFERENT osm_ids with different coordinates.\n\n"
-            f"## EXCLUSION RULES\n"
-            f'- "Par3-*" refs = par-3 course, EXCLUDE\n'
-            f"- Holes at lat < {facility_lat-0.01:.3f} = likely disc golf, EXCLUDE\n"
-            f"- Holes with par=0 = likely disc golf, EXCLUDE\n\n"
-            f"## PROCESS\n"
-            f"1. Read scorecard: exact pars per course\n"
-            f"2. Exclude non-regulation holes\n"
-            f"3. Assign using par + coords + refs\n"
-            f"4. VERIFY pars match scorecard\n"
-            f"5. VERIFY spatial sequence (hole N end near hole N+1 start)\n\n"
+            f"Using the course map AND the satellite image, identify the "
+            f"GEOGRAPHIC AREA of each course. For each course, provide an "
+            f"approximate bounding box (min/max lat/lon) that contains "
+            f"all its holes. Also note which direction each course's "
+            f"holes generally flow.\n\n"
+            f"EXCLUDE any par-3 course and disc golf areas.\n\n"
+            f"Return ONLY JSON:\n"
+            f'{{"course_areas": {{"CourseName": {{"min_lat": N, "max_lat": N, '
+            f'"min_lon": N, "max_lon": N, "description": "brief spatial description"}}'
+            f', ...}}}}'
+        )
+
+        print("RAG_INGEST: Pass 1 — identifying spatial boundaries...")
+        pass1_result, pass1_raw = call_gpt4o(pass1_prompt, max_tokens=2000)
+        course_areas = pass1_result.get("course_areas", {})
+        for cname, area in course_areas.items():
+            print(f"RAG_INGEST: {cname}: lat {area.get('min_lat',0):.4f}-{area.get('max_lat',0):.4f}, "
+                  f"lon {area.get('min_lon',0):.5f}-{area.get('max_lon',0):.5f} "
+                  f"({area.get('description','')})")
+        trace["steps"].append({"step": "pass1_areas", "areas": course_areas, "raw": pass1_raw[:1000]})
+
+        # ── PASS 2: Assign holes using spatial boundaries ─────
+        areas_desc = []
+        for cname, area in course_areas.items():
+            areas_desc.append(
+                f"  {cname}: lat {area.get('min_lat',0):.5f}-{area.get('max_lat',0):.5f}, "
+                f"lon {area.get('min_lon',0):.5f}-{area.get('max_lon',0):.5f} "
+                f"— {area.get('description','')}")
+
+        pass2_prompt = (
+            f"Assign each OSM hole to the correct course at {name}.\n\n"
+            f"## Course spatial areas (from map analysis)\n{nl.join(areas_desc)}\n\n"
+            f"## Course pars (from scorecard)\n{nl.join(api_lines)}\n\n"
+            f"## OSM data ({len(osm_holes)} elements)\n{nl.join(osm_lines)}\n\n"
+            f"## RULES\n"
+            f"1. EACH osm_id can ONLY be assigned to ONE course — NO SHARING\n"
+            f"2. Use COORDINATES FIRST to determine which course area a hole is in\n"
+            f"3. Then verify the par matches the scorecard for that course\n"
+            f"4. Exclude disc golf (lat < {facility_lat-0.01:.3f}), par-3 (Par3-* refs), "
+            f"and any holes outside all course areas\n"
+            f'5. "west9-*" refs belong to West course\n'
+            f"6. Each course should have 9 holes\n\n"
             f"## OUTPUT (JSON only)\n"
             f'{{"courses": {{"CourseName": [{{"osm_id": "osm_N", "hole_number": 1, '
             f'"par": 5, "confidence": "high"}}, ...], ...}}, "reasoning": "..."}}'
         )
 
-        api_key = _get_openai_key()
-        if not api_key:
-            raise RuntimeError("No OpenAI API key")
-
-        gpt_content = []
-        for img in web_images:
-            mime = f"image/{img['format']}"
-            b64 = base64.b64encode(img["bytes"]).decode()
-            gpt_content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}", "detail": "high"}})
-        gpt_content.append({"type": "text", "text": prompt})
-
-        gpt_body = json.dumps({
-            "model": "gpt-4o",
-            "messages": [{"role": "user", "content": gpt_content}],
-            "max_tokens": 6000,
-            "temperature": 0.0,
-        }).encode()
-
-        gpt_req = urllib.request.Request(
-            "https://api.openai.com/v1/chat/completions",
-            data=gpt_body,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
-        with urllib.request.urlopen(gpt_req, timeout=180) as resp:
-            gpt_result = json.loads(resp.read())
-
-        gpt_text = gpt_result["choices"][0]["message"]["content"]
-        clean_text = gpt_text.strip()
-        if clean_text.startswith("```"):
-            clean_text = clean_text.split("\n", 1)[1].rsplit("```", 1)[0]
-        rag_result = json.loads(clean_text)
-
+        print("RAG_INGEST: Pass 2 — assigning holes by coordinates...")
+        rag_result, pass2_raw = call_gpt4o(pass2_prompt, max_tokens=6000)
         print(f"RAG_INGEST: GPT-4o -> {list(rag_result.get('courses', {}).keys())}")
-        trace["steps"].append({"step": "gpt4o", "courses": list(rag_result.get("courses", {}).keys()),
-                               "reasoning": rag_result.get("reasoning", ""), "raw": gpt_text[:2000]})
+        trace["steps"].append({"step": "pass2_assign", "courses": list(rag_result.get("courses", {}).keys()),
+                               "reasoning": rag_result.get("reasoning", ""), "raw": pass2_raw[:2000]})
 
         # 5. Build courses from assignments
         osm_by_idx = {f"osm_{h['idx']}": h for h in osm_holes}
