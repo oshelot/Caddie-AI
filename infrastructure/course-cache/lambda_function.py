@@ -1988,6 +1988,36 @@ def _build_courses_from_rag(
 
         holes.sort(key=lambda h: h.get("number", 0))
 
+        # Pad with skeleton entries for any missing holes so the
+        # course always has the full hole count from the Golf API.
+        # Missing holes show as "not mapped yet" (red) on the map.
+        ext_match = None
+        if extracted_courses:
+            for e in extracted_courses:
+                if e["name"].lower() == course_name.lower():
+                    ext_match = e
+                    break
+        if ext_match:
+            expected_count = len(ext_match["pars"])
+            mapped_numbers = {h.get("number", 0) for h in holes}
+            for hole_num in range(1, expected_count + 1):
+                if hole_num not in mapped_numbers:
+                    par = ext_match["pars"][hole_num - 1] if hole_num - 1 < len(ext_match["pars"]) else 4
+                    holes.append({
+                        "number": hole_num,
+                        "par": par,
+                        "strokeIndex": None,
+                        "yardages": {},
+                        "lineOfPlay": None,
+                        "green": None,
+                        "pin": None,
+                        "teeAreas": [],
+                        "bunkers": [],
+                        "water": [],
+                    })
+                    print(f"RAG_INGEST: padded {course_name} hole {hole_num} (par {par}, no geometry)")
+            holes.sort(key=lambda h: h.get("number", 0))
+
         # Compute centroid
         lats, lons = [], []
         for h in holes:
