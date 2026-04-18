@@ -2343,8 +2343,8 @@ Return ONLY a JSON array:
 
 
 def handle_rag_ingest(event: dict, context) -> dict:
-    """POST /courses/ingest-rag — RAG-based multi-course ingestion
-    using GPT-4o with website images for hole assignment."""
+    """POST /courses/ingest-rag — max-effort multi-course ingestion.
+    App sends just {name, latitude, longitude}. Backend does everything."""
     body_str = event.get("body", "")
     if event.get("isBase64Encoded"):
         body_str = base64.b64decode(body_str).decode("utf-8")
@@ -2357,15 +2357,14 @@ def handle_rag_ingest(event: dict, context) -> dict:
         return error_response(400, "Invalid JSON.")
 
     name = payload.get("name", "")
-    course_json = payload.get("courseJson")
-    if not name or not course_json:
-        return error_response(400, "Missing 'name' or 'courseJson'.")
+    if not name:
+        return error_response(400, "Missing 'name'.")
 
-    # Self-invoke asynchronously
     async_payload = {
         "_asyncRagIngest": True,
         "name": name,
-        "courseJson": course_json,
+        "latitude": payload.get("latitude", 0),
+        "longitude": payload.get("longitude", 0),
         "schema": "1.0",
     }
 
@@ -2389,16 +2388,16 @@ def handle_rag_ingest(event: dict, context) -> dict:
 
 
 def handle_async_rag_ingest(event: dict):
-    """Async RAG ingestion: fetch website + Golf API + call GPT-4o."""
+    """Max-effort RAG ingestion. Backend fetches ALL data sources."""
     import time as _time
     start_time = _time.perf_counter()
 
     name = event.get("name", "")
-    course_json = event.get("courseJson", {})
+    facility_lat = event.get("latitude", 0)
+    facility_lon = event.get("longitude", 0)
     schema = event.get("schema", "1.0")
 
-    print(f"RAG_INGEST: starting for '{name}', "
-          f"{len(course_json.get('holes', []))} holes")
+    print(f"RAG_INGEST: starting for '{name}' at ({facility_lat},{facility_lon})")
 
     s3 = get_s3_client()
     trace = {
@@ -2415,154 +2414,342 @@ def handle_async_rag_ingest(event: dict):
             d = golf_api_detail(r.get("id", 0))
             if d:
                 api_details.append(d)
-
-        # Decompose combo names (e.g., "West-Lind" → individual
-        # West, Lind, Creek) so GPT-4o assigns to individual 9s.
         extracted = extract_courses(api_details)
-        trace["steps"].append({
-            "step": "golf_api",
-            "raw_courses": [d.get("course_name", "") for d in api_details],
-            "extracted_courses": [e["name"] for e in extracted],
-        })
-        print(f"RAG_INGEST: Golf API → {len(api_details)} raw, "
-              f"{len(extracted)} extracted: {[e['name'] for e in extracted]}")
-
+        trace["steps"].append({"step": "golf_api", "extracted": [e["name"] for e in extracted]})
+        print(f"RAG_INGEST: Golf API -> {len(extracted)} courses: {[e['name'] for e in extracted]}")
         if len(extracted) < 2:
-            raise RuntimeError(f"Only {len(extracted)} courses extracted, need ≥2")
+            raise RuntimeError(f"Only {len(extracted)} courses, need >=2")
 
-        # Use extracted courses (individual 9s) for the prompt
-        # instead of the raw Golf API combos.
-        api_details_for_prompt = []
-        for e in extracted:
-            api_details_for_prompt.append({
-                "course_name": e["name"],
-                "tees": {"male": [{"holes": [{"par": p} for p in e["pars"]]}]},
-            })
+        # 2. Overpass OSM data (mirror cycling)
+        overpass_mirrors = [
+            "https://overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://overpass.private.coffee/api/interpreter",
+            "https://overpass.osm.jp/api/interpreter",
+        ]
+        buf = 0.015
+        ov_query = (
+            f'[out:json][timeout:30];'
+            f'way["golf"="hole"]'
+            f'({facility_lat-buf},{facility_lon-buf},'
+            f'{facility_lat+buf},{facility_lon+buf});'
+            f'out geom;'
+        )
+        osm_elements = []
+        for mirror in overpass_mirrors:
+            try:
+                ov_data = urllib.parse.urlencode({"data": ov_query}).encode()
+                ov_req = urllib.request.Request(mirror, data=ov_data)
+                with urllib.request.urlopen(ov_req, timeout=45) as resp:
+                    osm_raw = json.loads(resp.read())
+                osm_elements = osm_raw.get("elements", [])
+                print(f"RAG_INGEST: Overpass -> {len(osm_elements)} from {mirror}")
+                break
+            except Exception as e:
+                print(f"RAG_INGEST: Overpass {mirror}: {e}")
 
-        # 2. Fetch website images
-        web_images = _fetch_course_website_images(name)
-        trace["steps"].append({
-            "step": "web_images",
-            "images_found": len(web_images),
-            "urls": [img.get("url", "") for img in web_images],
-        })
-        print(f"RAG_INGEST: fetched {len(web_images)} website images")
-
-        # 3. Build OSM hole summary for the prompt.
-        # Use sequential index as unique ID (not hole number, which
-        # has duplicates at multi-course facilities).
         osm_holes = []
-        for idx, h in enumerate(course_json.get("holes", [])):
-            lop = h.get("lineOfPlay")
-            lat, lon = 0, 0
-            if lop and lop.get("coordinates"):
-                coords = lop["coordinates"]
-                mid = coords[len(coords) // 2]
-                lon, lat = mid[0], mid[1]
+        for idx, el in enumerate(osm_elements):
+            tags = el.get("tags", {})
+            geom = el.get("geometry", [])
+            if not geom:
+                continue
+            mid_pt = geom[len(geom) // 2]
             osm_holes.append({
-                "id": f"osm_{idx}",
-                "ref": str(h.get("number", 0)),
-                "par": h.get("par", 0),
-                "lat": lat,
-                "lon": lon,
+                "idx": idx,
+                "ref": tags.get("ref", ""),
+                "par": int(tags.get("par", "0") or "0"),
+                "lat": mid_pt["lat"],
+                "lon": mid_pt["lon"],
+                "start_lat": geom[0]["lat"],
+                "start_lon": geom[0]["lon"],
+                "end_lat": geom[-1]["lat"],
+                "end_lon": geom[-1]["lon"],
+                "coords": [[g["lon"], g["lat"]] for g in geom],
             })
+        trace["steps"].append({"step": "overpass", "holes": len(osm_holes)})
 
-        # 4. Call GPT-4o with extracted individual courses
-        rag_result, raw_response = _call_gpt4o_assignment(
-            name, osm_holes, api_details_for_prompt, web_images,
+        # 3. Scorecard PDF + website images
+        web_images = []
+        scorecard_pdf_url = None
+
+        if GOOGLE_PLACES_API_KEY:
+            try:
+                pl_params = {"textQuery": f"{name} golf course", "includedType": "golf_course", "maxResultCount": 1}
+                pl_req = urllib.request.Request(
+                    "https://places.googleapis.com/v1/places:searchText",
+                    data=json.dumps(pl_params).encode(), method="POST")
+                pl_req.add_header("Content-Type", "application/json")
+                pl_req.add_header("X-Goog-Api-Key", GOOGLE_PLACES_API_KEY)
+                pl_req.add_header("X-Goog-FieldMask", "places.websiteUri")
+                with urllib.request.urlopen(pl_req, timeout=5) as resp:
+                    pl_data = json.loads(resp.read().decode())
+                places = pl_data.get("places", [])
+                if places:
+                    website = places[0].get("websiteUri", "")
+                    if website:
+                        print(f"RAG_INGEST: website -> {website}")
+                        # Fetch main page + subpages for PDF links
+                        pages_to_check = [website]
+                        try:
+                            w_req = urllib.request.Request(website, headers={"User-Agent": "CaddieAI/1.0"})
+                            with urllib.request.urlopen(w_req, timeout=10) as resp:
+                                main_html = resp.read().decode("utf-8", errors="ignore")
+                            # Find subpages with course/golf in URL
+                            subpages = re.findall(r'href=["\']([^"\']+(?:course|golf)[^"\']*)["\']', main_html, re.IGNORECASE)
+                            for sp in subpages[:5]:
+                                if not sp.startswith("http"):
+                                    sp = website.rstrip("/") + "/" + sp.lstrip("/")
+                                if sp not in pages_to_check:
+                                    pages_to_check.append(sp)
+                        except Exception:
+                            pass
+
+                        # Search all pages for PDF links
+                        for page_url in pages_to_check:
+                            try:
+                                p_req = urllib.request.Request(page_url, headers={"User-Agent": "CaddieAI/1.0"})
+                                with urllib.request.urlopen(p_req, timeout=10) as resp:
+                                    p_html = resp.read().decode("utf-8", errors="ignore")
+                                pdfs = re.findall(r'href=["\']([^"\' ]+\.pdf)["\']', p_html, re.IGNORECASE)
+                                for p in pdfs:
+                                    if "scorecard" in p.lower() or "course" in p.lower():
+                                        if not p.startswith("http"):
+                                            p = page_url.rstrip("/") + "/" + p.lstrip("/")
+                                        scorecard_pdf_url = p
+                                        break
+                                # Also grab course map images
+                                imgs = re.findall(
+                                    r'(?:src|data-src)=["\']([^"\' ]+(?:scorecard|course|map|layout|CCF|hole)[^"\' ]*\.(?:jpg|jpeg|png|webp))["\']',
+                                    p_html, re.IGNORECASE)
+                                imgs += re.findall(r'(https://images\.squarespace-cdn\.com/[^"\' ]+)', p_html)
+                                seen_urls = set()
+                                for iu in imgs[:5]:
+                                    if iu in seen_urls or " " in iu:
+                                        continue
+                                    seen_urls.add(iu)
+                                    try:
+                                        i_req = urllib.request.Request(iu, headers={"User-Agent": "CaddieAI/1.0"})
+                                        with urllib.request.urlopen(i_req, timeout=10) as resp:
+                                            img_data = resp.read()
+                                        if len(img_data) > 5000:
+                                            web_images.append({"bytes": img_data, "format": _detect_img_format(img_data)})
+                                    except Exception:
+                                        pass
+                                if scorecard_pdf_url:
+                                    break
+                            except Exception:
+                                pass
+            except Exception as e:
+                print(f"RAG_INGEST: Places search: {e}")
+
+        # Render scorecard PDF to images
+        if scorecard_pdf_url:
+            print(f"RAG_INGEST: scorecard PDF -> {scorecard_pdf_url}")
+            try:
+                pdf_req = urllib.request.Request(scorecard_pdf_url, headers={"User-Agent": "CaddieAI/1.0"})
+                with urllib.request.urlopen(pdf_req, timeout=15) as resp:
+                    pdf_bytes = resp.read()
+                import fitz
+                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                for pn in range(min(2, len(doc))):
+                    pix = doc[pn].get_pixmap(dpi=200)
+                    png = pix.tobytes("png")
+                    web_images.append({"bytes": png, "format": "png"})
+                    print(f"RAG_INGEST: PDF page {pn+1}: {len(png)} bytes")
+                doc.close()
+            except ImportError:
+                print("RAG_INGEST: PyMuPDF not available")
+            except Exception as e:
+                print(f"RAG_INGEST: PDF render: {e}")
+
+        # Satellite image
+        sat = _fetch_satellite_image(facility_lat, facility_lon)
+        if sat:
+            web_images.append({"bytes": sat, "format": _detect_img_format(sat)})
+            print(f"RAG_INGEST: satellite: {len(sat)} bytes")
+
+        trace["steps"].append({"step": "images", "count": len(web_images), "pdf": scorecard_pdf_url})
+
+        # 4. GPT-4o max-effort prompt
+        osm_lines = []
+        for h in osm_holes:
+            osm_lines.append(
+                f'  osm_{h["idx"]:>2} ref="{h["ref"]}" par={h["par"]:>2} '
+                f'mid=({h["lat"]:.5f},{h["lon"]:.5f}) '
+                f'start=({h["start_lat"]:.5f},{h["start_lon"]:.5f}) '
+                f'end=({h["end_lat"]:.5f},{h["end_lon"]:.5f})')
+
+        api_lines = [f'  {e["name"]}: pars={e["pars"]}' for e in extracted]
+        nl = "\n"
+
+        prompt = (
+            f"You are a golf course data expert doing a MISSION-CRITICAL hole "
+            f"assignment for {name}. Accuracy is paramount.\n\n"
+            f"## DATA SOURCES (cross-check EVERY assignment)\n\n"
+            f"### Source 1: Scorecard (ATTACHED images - source of truth)\n"
+            f"Read the scorecard carefully. Note pars and hole names.\n\n"
+            f"### Source 2: Golf Course API\n{nl.join(api_lines)}\n\n"
+            f"### Source 3: Satellite image (ATTACHED)\n"
+            f"Bounds: TL ({facility_lat+0.009:.4f},{facility_lon-0.012:.4f}), "
+            f"BR ({facility_lat-0.009:.4f},{facility_lon+0.012:.4f})\n\n"
+            f"### Source 4: OSM data ({len(osm_holes)} elements)\n{nl.join(osm_lines)}\n\n"
+            f"## EXCLUSION RULES\n"
+            f'- "Par3-*" refs = par-3 course, EXCLUDE\n'
+            f"- Holes at lat < {facility_lat-0.01:.3f} = likely disc golf, EXCLUDE\n"
+            f"- Holes with par=0 = likely disc golf, EXCLUDE\n\n"
+            f"## PROCESS\n"
+            f"1. Read scorecard: exact pars per course\n"
+            f"2. Exclude non-regulation holes\n"
+            f"3. Assign using par + coords + refs\n"
+            f"4. VERIFY pars match scorecard\n"
+            f"5. VERIFY spatial sequence (hole N end near hole N+1 start)\n\n"
+            f"## OUTPUT (JSON only)\n"
+            f'{{"courses": {{"CourseName": [{{"osm_id": "osm_N", "hole_number": 1, '
+            f'"par": 5, "confidence": "high"}}, ...], ...}}, "reasoning": "..."}}'
         )
-        trace["steps"].append({
-            "step": "gpt4o_assignment",
-            "success": rag_result is not None,
-            "raw_response": raw_response[:2000] if raw_response else "",
-            "courses_assigned": list(rag_result.get("courses", {}).keys()) if rag_result else [],
-            "reasoning": rag_result.get("reasoning", "") if rag_result else "",
-        })
 
-        if not rag_result:
-            raise RuntimeError("GPT-4o assignment failed")
+        api_key = _get_openai_key()
+        if not api_key:
+            raise RuntimeError("No OpenAI API key")
 
-        print(f"RAG_INGEST: GPT-4o assigned courses: "
-              f"{list(rag_result.get('courses', {}).keys())}")
+        gpt_content = []
+        for img in web_images:
+            mime = f"image/{img['format']}"
+            b64 = base64.b64encode(img["bytes"]).decode()
+            gpt_content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}", "detail": "high"}})
+        gpt_content.append({"type": "text", "text": prompt})
 
-        # 5. Build and save sub-courses
-        sub_courses = _build_courses_from_rag(
-            rag_result, course_json, api_details, name,
-            extracted_courses=extracted,
-        )
+        gpt_body = json.dumps({
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": gpt_content}],
+            "max_tokens": 6000,
+            "temperature": 0.0,
+        }).encode()
 
-        # 5b. Fill missing holes using satellite imagery + GPT-4o.
-        # For each sub-course, if any holes lack geometry AND we
-        # have anchors (other holes with geometry), ask GPT-4o to
-        # locate the missing holes in the satellite image.
-        facility_lat = course_json.get("centroid", {}).get("latitude", 0)
-        facility_lon = course_json.get("centroid", {}).get("longitude", 0)
+        gpt_req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=gpt_body,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        with urllib.request.urlopen(gpt_req, timeout=180) as resp:
+            gpt_result = json.loads(resp.read())
+
+        gpt_text = gpt_result["choices"][0]["message"]["content"]
+        clean_text = gpt_text.strip()
+        if clean_text.startswith("```"):
+            clean_text = clean_text.split("\n", 1)[1].rsplit("```", 1)[0]
+        rag_result = json.loads(clean_text)
+
+        print(f"RAG_INGEST: GPT-4o -> {list(rag_result.get('courses', {}).keys())}")
+        trace["steps"].append({"step": "gpt4o", "courses": list(rag_result.get("courses", {}).keys()),
+                               "reasoning": rag_result.get("reasoning", ""), "raw": gpt_text[:2000]})
+
+        # 5. Build courses from assignments
+        osm_by_idx = {f"osm_{h['idx']}": h for h in osm_holes}
+        sub_courses = []
+
+        for course_name, assignments in rag_result.get("courses", {}).items():
+            holes = []
+            for a in assignments:
+                osm_id = a.get("osm_id", "")
+                hole_num = a.get("hole_number", 0)
+                par = a.get("par", 0)
+                osm_h = osm_by_idx.get(osm_id)
+                h_data = {
+                    "number": hole_num, "par": par,
+                    "strokeIndex": None, "yardages": {},
+                    "green": None, "pin": None,
+                    "teeAreas": [], "bunkers": [], "water": [],
+                }
+                if osm_h and osm_h.get("coords"):
+                    h_data["lineOfPlay"] = {"coordinates": osm_h["coords"]}
+                else:
+                    h_data["lineOfPlay"] = None
+                holes.append(h_data)
+
+            holes.sort(key=lambda h: h.get("number", 0))
+
+            # Pad missing holes
+            ext_match = None
+            for e in extracted:
+                if e["name"].lower() == course_name.lower():
+                    ext_match = e
+                    break
+            if ext_match:
+                mapped = {h["number"] for h in holes}
+                for hn in range(1, len(ext_match["pars"]) + 1):
+                    if hn not in mapped:
+                        holes.append({"number": hn, "par": ext_match["pars"][hn-1],
+                                      "strokeIndex": None, "yardages": {}, "lineOfPlay": None,
+                                      "green": None, "pin": None, "teeAreas": [], "bunkers": [], "water": []})
+                        print(f"RAG_INGEST: padded {course_name} H{hn}")
+                holes.sort(key=lambda h: h.get("number", 0))
+
+            # Centroid
+            assigned_lats = [osm_by_idx[a["osm_id"]]["lat"] for a in assignments if a.get("osm_id") in osm_by_idx]
+            assigned_lons = [osm_by_idx[a["osm_id"]]["lon"] for a in assignments if a.get("osm_id") in osm_by_idx]
+
+            sub_name = f"{name} - {course_name}"
+            sub = {
+                "id": normalize_name(sub_name).replace(" ", "-"),
+                "name": sub_name, "city": "", "state": "",
+                "centroid": {
+                    "latitude": sum(assigned_lats)/len(assigned_lats) if assigned_lats else facility_lat,
+                    "longitude": sum(assigned_lons)/len(assigned_lons) if assigned_lons else facility_lon,
+                },
+                "holes": holes, "teeNames": [], "teeYardageTotals": {},
+            }
+
+            # Enrich
+            if ext_match and ext_match.get("detail"):
+                sub = enrich_with_tee_data(sub, ext_match["detail"], front_or_back=ext_match.get("front_or_back"))
+
+            # Repair short lines
+            _repair_short_lines(sub)
+
+            sub_courses.append(sub)
+
+        # 6. Vision gap-fill
         if facility_lat and facility_lon:
             for sub in sub_courses:
                 _fill_gaps_with_gpt4o_vision(sub, name, facility_lat, facility_lon)
 
+        # 7. Save
         for sub in sub_courses:
-            holes_with_geom = sum(
-                1 for h in sub.get("holes", [])
-                if h.get("lineOfPlay") or h.get("green")
-            )
-            print(f"RAG_INGEST: '{sub['name']}' — "
-                  f"{len(sub.get('holes', []))} holes, "
-                  f"{holes_with_geom} with geometry")
-
-            # Only save if we have geometry
-            if holes_with_geom == 0:
-                print(f"RAG_INGEST: skipping '{sub['name']}' — no geometry")
+            geom_ct = sum(1 for h in sub["holes"] if h.get("lineOfPlay"))
+            print(f"RAG_INGEST: '{sub['name']}' -> {len(sub['holes'])} holes, {geom_ct} geom")
+            if geom_ct == 0:
                 continue
-
-            sub_cache_key = normalize_name(sub["name"]).replace(" ", "-")
-            sub_s3_key = s3_key(schema, sub_cache_key)
-            compressed = gzip.compress(
-                json.dumps(sub, separators=(",", ":")).encode("utf-8")
-            )
-            s3.put_object(
-                Bucket=BUCKET_NAME,
-                Key=sub_s3_key,
-                Body=compressed,
-                ContentType="application/json",
-                ContentEncoding="gzip",
-            )
+            sk = normalize_name(sub["name"]).replace(" ", "-")
+            s3k = s3_key(schema, sk)
+            compressed = gzip.compress(json.dumps(sub, separators=(",", ":")).encode())
+            s3.put_object(Bucket=BUCKET_NAME, Key=s3k, Body=compressed,
+                          ContentType="application/json", ContentEncoding="gzip")
             try:
-                lat = sub.get("centroid", {}).get("latitude", 0)
-                lon = sub.get("centroid", {}).get("longitude", 0)
-                update_manifest(
-                    s3, sub_cache_key, sub["name"], lat, lon, schema,
-                    sub_s3_key,
-                    city=sub.get("city", ""),
-                    state=sub.get("state", ""),
-                )
+                update_manifest(s3, sk, sub["name"],
+                                sub["centroid"]["latitude"], sub["centroid"]["longitude"],
+                                schema, s3k, city="", state="")
             except Exception as e:
-                print(f"RAG_INGEST: manifest update failed for {sub_cache_key}: {e}")
+                print(f"RAG_INGEST: manifest: {e}")
 
         elapsed = _time.perf_counter() - start_time
-        trace["result"] = {
-            "courses_saved": [s["name"] for s in sub_courses],
-            "total_time_s": round(elapsed, 2),
-        }
-        print(f"RAG_INGEST: completed in {elapsed:.1f}s — "
-              f"{len(sub_courses)} courses saved")
+        trace["result"] = {"courses": [s["name"] for s in sub_courses], "time_s": round(elapsed, 2)}
+        print(f"RAG_INGEST: done in {elapsed:.1f}s -> {len(sub_courses)} courses")
 
     except Exception as e:
-        print(f"RAG_INGEST: failed — {e}")
+        print(f"RAG_INGEST: FAILED -> {e}")
+        import traceback
+        traceback.print_exc()
         trace["error"] = str(e)
 
-    # Save trace to S3
-    trace_key = f"{TRACES_PREFIX}{normalize_name(name).replace(' ', '-')}.json"
+    # Save trace
+    tk = f"{TRACES_PREFIX}{normalize_name(name).replace(' ', '-')}.json"
     try:
-        s3.put_object(
-            Bucket=BUCKET_NAME,
-            Key=trace_key,
-            Body=json.dumps(trace, indent=2, default=str).encode("utf-8"),
-            ContentType="application/json",
-        )
-        print(f"RAG_INGEST: trace saved to s3://{BUCKET_NAME}/{trace_key}")
-    except Exception as e:
-        print(f"RAG_INGEST: trace save failed: {e}")
+        s3.put_object(Bucket=BUCKET_NAME, Key=tk,
+                      Body=json.dumps(trace, indent=2, default=str).encode(),
+                      ContentType="application/json")
+    except Exception:
+        pass
 
 
 def handle_ingest(event: dict, context) -> dict:

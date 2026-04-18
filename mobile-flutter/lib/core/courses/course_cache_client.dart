@@ -220,12 +220,13 @@ class CourseCacheClient {
   }
 
   /// Requests RAG-based async backend processing using GPT-4o.
-  /// The backend fetches course website images, combines with OSM
-  /// and Golf API data, and uses GPT-4o to assign holes to the
-  /// correct sub-courses. Returns true if accepted (202).
+  /// The backend handles EVERYTHING: Overpass fetch, Golf API,
+  /// scorecard PDF search, satellite imagery, GPT-4o assignment.
+  /// App just sends the facility name + coordinates.
   Future<bool> requestRagIngestion(
     String name,
-    NormalizedCourse course,
+    double latitude,
+    double longitude,
   ) async {
     final url = Uri.parse('$baseUrl/courses/ingest-rag');
     try {
@@ -234,7 +235,8 @@ class CourseCacheClient {
         url,
         body: jsonEncode({
           'name': name,
-          'courseJson': _serializeCourse(course),
+          'latitude': latitude,
+          'longitude': longitude,
         }),
         contentType: 'application/json',
       );

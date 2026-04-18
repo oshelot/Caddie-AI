@@ -952,66 +952,11 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 _debugLog('MULTI: loaded from cache — ${combinedHoles.length} holes');
               }
             } else {
-              // Not cached. Fire RAG ingestion (GPT-4o) and save
-              // a pending marker. User goes to Saved tab to wait.
+              // Not cached. Fire RAG ingestion (GPT-4o). The
+              // backend handles EVERYTHING: Overpass, Golf API,
+              // scorecard PDF search, satellite imagery, GPT-4o.
+              // App just sends name + coordinates.
               _debugLog('MULTI: not cached — sending to RAG backend');
-
-              // Fetch raw OSM data for the backend. Bypass the
-              // normalizer entirely — send raw parsed holes so
-              // GPT-4o gets unmodified geometry. The normalizer's
-              // clustering/dedup/association was corrupting data.
-              NormalizedCourse? mergedOsm;
-              try {
-                final overpass = OverpassClient(_transport);
-                const buffer = 0.015;
-                final resp = await overpass.fetchCourseFeatures(
-                  entry.latitude - buffer,
-                  entry.longitude - buffer,
-                  entry.latitude + buffer,
-                  entry.longitude + buffer,
-                );
-                final features = OsmParser.parse(resp);
-
-                // Build holes directly from ParsedHoleLines — no
-                // normalizer, no clustering, no dedup, no boundary
-                // filter. GPT-4o handles all filtering by context.
-                // Skip par-3 course holes (isPar3Course flag).
-                final allHoles = features.holeLines
-                    .where((hl) => !hl.isPar3Course)
-                    .where((hl) => hl.number != null && hl.number! >= 1 && hl.number! <= 18)
-                    .map((hl) => NormalizedHole(
-                      number: hl.number!,
-                      par: hl.par ?? 4,
-                      strokeIndex: null,
-                      yardages: const {},
-                      teeAreas: const [],
-                      lineOfPlay: hl.lineString,
-                      green: null,
-                      pin: null,
-                      bunkers: const [],
-                      water: const [],
-                    ))
-                    .toList();
-                mergedOsm = NormalizedCourse(
-                  id: 'rag_${entry.latitude}_${entry.longitude}',
-                  name: entry.name,
-                  city: entry.city.isNotEmpty ? entry.city : null,
-                  state: entry.state.isNotEmpty ? entry.state : null,
-                  centroid: LngLat(entry.longitude, entry.latitude),
-                  holes: allHoles,
-                );
-                _debugLog('MULTI: Overpass → ${allHoles.length} holes for RAG');
-              } catch (e) {
-                _debugLog('MULTI: Overpass failed: $e');
-                mergedOsm = NormalizedCourse(
-                  id: 'rag_${entry.latitude}_${entry.longitude}',
-                  name: entry.name,
-                  city: entry.city.isNotEmpty ? entry.city : null,
-                  state: entry.state.isNotEmpty ? entry.state : null,
-                  centroid: LngLat(entry.longitude, entry.latitude),
-                  holes: const [],
-                );
-              }
 
               // Save pending marker in local cache.
               final repo = _cacheRepository;
@@ -1025,7 +970,11 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
 
               // Fire RAG ingestion (fire-and-forget).
               _cacheClient
-                  .requestRagIngestion(entry.name, mergedOsm)
+                  .requestRagIngestion(
+                    entry.name,
+                    entry.latitude,
+                    entry.longitude,
+                  )
                   .then((ok) => _debugLog(
                       'RAG: ingestion ${ok ? "accepted" : "failed"}'))
                   .ignore();
