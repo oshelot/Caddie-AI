@@ -57,6 +57,15 @@ abstract class AdService {
   /// `SizedBox.shrink()`.
   Widget bannerAd();
 
+  /// Preloads an interstitial ad. Call early (e.g. when search
+  /// results appear) so it's ready when the user taps a course.
+  void loadInterstitial() {}
+
+  /// Shows the preloaded interstitial if conditions are met:
+  /// not subscribed, ad loaded, not already shown this session.
+  /// Returns true if the ad was shown.
+  bool showInterstitialIfReady() => false;
+
   /// Triggers an in-app review prompt if the platform is willing
   /// to show one. The store throttles these per-app per-year so
   /// the request may be a no-op even when called.

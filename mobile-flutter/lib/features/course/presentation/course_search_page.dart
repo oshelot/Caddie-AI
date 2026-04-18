@@ -170,6 +170,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
   bool _checkingLocation = true;
   bool _navigatingToMap = false;
   bool _downloadComplete = false;
+  String? _loadingJoke;
 
   @override
   void initState() {
@@ -227,6 +228,10 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
 
   /// The 3-source fan-out. Mirrors iOS `CourseViewModel.searchCourses`.
   Future<CourseSearchOutcome> _onSearch(String query, String city) async {
+    // KAN-195: preload interstitial ad so it's ready when user taps
+    // a search result.
+    adService.loadInterstitial();
+
     // Dev-mode short-circuit: when the cache client is unconfigured,
     // every source is unreachable. Surface the Sharp Park demo entry
     // so engineers without --dart-define values can still reach the
@@ -271,6 +276,38 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
 
   static const _golfApiKey =
       String.fromEnvironment('GOLF_COURSE_API_KEY', defaultValue: '');
+
+  static const _llmProxyEndpoint =
+      String.fromEnvironment('LLM_PROXY_ENDPOINT', defaultValue: '');
+  static const _llmProxyApiKey =
+      String.fromEnvironment('LLM_PROXY_API_KEY', defaultValue: '');
+
+  Future<void> _fetchJoke(String courseName) async {
+    if (_llmProxyEndpoint.isEmpty) return;
+    try {
+      final response = await _transport.send(HttpRequestLike(
+        method: 'POST',
+        url: Uri.parse('${_llmProxyEndpoint}joke'),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': _llmProxyApiKey,
+        },
+        body: jsonEncode({
+          'courseName': courseName,
+        }),
+        timeout: const Duration(seconds: 5),
+      ));
+      if (response.isSuccess) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final joke = data['joke'] as String? ?? '';
+        if (joke.isNotEmpty && mounted) {
+          setState(() => _loadingJoke = joke);
+        }
+      }
+    } catch (_) {
+      // Joke fetch failed — no big deal, spinner continues.
+    }
+  }
 
   GolfCourseApiClient? _buildGolfApi() {
     if (_golfApiKey.isEmpty) return null;
@@ -519,7 +556,20 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
 
   Future<void> _onSelectCourse(CourseSearchEntry entry) async {
     if (_navigatingToMap) return;
-    setState(() => _navigatingToMap = true);
+    setState(() {
+      _navigatingToMap = true;
+      _loadingJoke = null;
+    });
+
+    // KAN-195: Pro tier gets a joke, Free tier gets an interstitial
+    // ad. Both run in parallel with the course download. The joke
+    // is fetched from the LLM proxy; the ad was preloaded earlier.
+    final isPro = !adService.bannerVisible;
+    if (isPro) {
+      _fetchJoke(entry.name).ignore();
+    } else {
+      adService.showInterstitialIfReady();
+    }
 
     final totalSw = Stopwatch()..start();
     String source = 'overpass';
@@ -1110,25 +1160,47 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         ),
         if (_navigatingToMap)
           Container(
-            color: Colors.black54,
+            color: Colors.black87,
             child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_downloadComplete)
-                    const Icon(Icons.check_circle, color: Colors.green, size: 64)
-                  else
-                    const CircularProgressIndicator(color: Colors.white),
-                  const SizedBox(height: 16),
-                  Text(
-                    _downloadComplete ? 'Ready!' : 'Loading course\u2026',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_downloadComplete)
+                      const Icon(Icons.check_circle, color: Colors.green, size: 64)
+                    else
+                      const CircularProgressIndicator(color: Colors.white),
+                    const SizedBox(height: 16),
+                    Text(
+                      _downloadComplete ? 'Ready!' : 'Loading course\u2026',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                ],
+                    // Pro tier: show a golf joke while loading
+                    if (_loadingJoke != null) ...[
+                      const SizedBox(height: 24),
+                      const Text(
+                        '\u26f3',  // golf flag emoji
+                        style: TextStyle(fontSize: 32),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _loadingJoke!,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                          fontStyle: FontStyle.italic,
+                          height: 1.4,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
           ),

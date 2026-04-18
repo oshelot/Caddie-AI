@@ -348,6 +348,76 @@ async def chat_completions(request: Request):
 # Health check (Lambda Web Adapter readiness probe)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Joke endpoint (KAN-195 / KAN-186)
+# ---------------------------------------------------------------------------
+
+_JOKE_SYSTEM_PROMPT = (
+    "You are a golf comedy writer. Generate ONE short, funny golf joke or "
+    "one-liner (1-3 sentences max). Make it context-aware when details are "
+    "provided (course name, location, weather, player handicap). Keep it "
+    "clean, witty, and relatable to golfers. Do NOT add quotation marks, "
+    "attribution, or commentary — just the joke itself."
+)
+
+
+@app.post("/joke")
+async def get_joke(request: Request):
+    """Generate a context-aware golf joke for the loading screen."""
+    auth_error = _authenticate(request)
+    if auth_error:
+        return JSONResponse(status_code=401, content={"error": auth_error})
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    # Build a context-rich user prompt from optional fields.
+    context_parts = []
+    if body.get("courseName"):
+        context_parts.append(f"Course: {body['courseName']}")
+    if body.get("state"):
+        context_parts.append(f"Location: {body['state']}")
+    if body.get("weatherSummary"):
+        context_parts.append(f"Weather: {body['weatherSummary']}")
+    if body.get("handicap"):
+        context_parts.append(f"Player handicap: {body['handicap']}")
+    if body.get("elevation"):
+        context_parts.append(f"Elevation: {body['elevation']} ft")
+
+    user_msg = "Tell me a golf joke."
+    if context_parts:
+        user_msg += " Context: " + ", ".join(context_parts) + "."
+
+    try:
+        client = get_bedrock_client()
+        response = client.converse(
+            modelId=BEDROCK_MODEL_ID,
+            messages=[{"role": "user", "content": [{"text": user_msg}]}],
+            system=[{"text": _JOKE_SYSTEM_PROMPT}],
+            inferenceConfig={
+                "maxTokens": 150,
+                "temperature": 0.9,  # higher temp for creativity
+            },
+        )
+
+        content_blocks = response.get("output", {}).get("message", {}).get("content", [])
+        joke = ""
+        for block in content_blocks:
+            if "text" in block:
+                joke += block["text"]
+
+        return JSONResponse(content={"joke": joke.strip()})
+
+    except Exception as e:
+        print(f"Joke generation failed: {e}")
+        return JSONResponse(
+            status_code=502,
+            content={"error": "Joke generation failed", "joke": ""},
+        )
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
