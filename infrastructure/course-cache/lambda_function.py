@@ -2709,8 +2709,10 @@ def handle_async_rag_ingest(event: dict):
 
             holes.sort(key=lambda h: h.get("number", 0))
 
-            # QA: Force pars from the Golf API scorecard (source of
-            # truth). OSM pars are often wrong or defaulted to 4.
+            # QA Step 1: Force pars from the Golf API scorecard.
+            # QA Step 2: Remove geometry from holes where the line
+            #   length is obviously wrong (<30% of expected yardage).
+            #   Better to show red "not mapped" than a wrong line.
             ext_match = None
             for e in extracted:
                 if e["name"].lower() == course_name.lower():
@@ -2724,6 +2726,29 @@ def handle_async_rag_ingest(event: dict):
                         if h["par"] != expected:
                             print(f"RAG_QA: {course_name} H{num} par {h['par']} -> {expected} (scorecard)")
                             h["par"] = expected
+
+                # QA: check line lengths against yardage. Remove
+                # geometry that's obviously wrong — better red than
+                # misleading. Threshold: <30% of expected yardage.
+                for h in holes:
+                    lop = h.get("lineOfPlay")
+                    if not lop or not lop.get("coordinates"):
+                        continue
+                    yds = max(h.get("yardages", {}).values(), default=0)
+                    if yds == 0:
+                        continue
+                    coords = lop["coordinates"]
+                    length_m = 0
+                    for i in range(1, len(coords)):
+                        dlat = (coords[i][1] - coords[i-1][1]) * 111000
+                        dlon = (coords[i][0] - coords[i-1][0]) * 85000
+                        length_m += math.sqrt(dlat**2 + dlon**2)
+                    expected_m = yds * 0.9144
+                    if length_m < expected_m * 0.3:
+                        print(f"RAG_QA: {course_name} H{h['number']} line {length_m:.0f}m "
+                              f"vs expected {expected_m:.0f}m ({yds}y) -> removing bad geometry")
+                        h["lineOfPlay"] = None
+
             if ext_match:
                 mapped = {h["number"] for h in holes}
                 for hn in range(1, len(ext_match["pars"]) + 1):
