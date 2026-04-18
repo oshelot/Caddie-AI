@@ -746,6 +746,12 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
 
     // Clamp to sane range.
     zoom = zoom.clamp(15.0, 19.0);
+    // ignore: avoid_print
+    print('ZOOM: hole $holeNumber → ${effectiveYards}y, '
+        'zoom=${zoom.toStringAsFixed(2)}, '
+        'measured=${measuredYards.toStringAsFixed(0)}y, '
+        'backTee=${backTee.lat.toStringAsFixed(5)},${backTee.lon.toStringAsFixed(5)}, '
+        'green=${greenPoint.lat.toStringAsFixed(5)},${greenPoint.lon.toStringAsFixed(5)}');
 
     // Center biased slightly toward the tee (40/60) to compensate
     // for the bottom panel overlay.
