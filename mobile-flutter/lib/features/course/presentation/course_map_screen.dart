@@ -369,7 +369,16 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
             Positioned(
               top: topPadding + (_weather != null ? 100 : 60),
               left: 12,
-              child: _DistanceHud(yards: _tapYards!),
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _tapYards = null;
+                    _lastTap = null;
+                  });
+                  _clearTapLine();
+                },
+                child: _DistanceHud(yards: _tapYards!),
+              ),
             ),
           if (kDebugMode && _missingLayers.isNotEmpty)
             Positioned(
@@ -904,6 +913,22 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     } catch (e) {
       debugPrint('[course-map] drawTapLine ERR $e');
     }
+  }
+
+  Future<void> _clearTapLine() async {
+    final map = _map;
+    if (map == null) return;
+    try {
+      await map.style.setStyleSourceProperty(
+        CourseMapLayers.tapLineSource,
+        'data',
+        jsonEncode({
+          'type': 'Feature',
+          'properties': <String, dynamic>{},
+          'geometry': {'type': 'LineString', 'coordinates': <List<double>>[]},
+        }),
+      );
+    } catch (_) {}
   }
 
   void _logPostAuditDrop(String layerId) {
