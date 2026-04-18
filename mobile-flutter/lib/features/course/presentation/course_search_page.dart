@@ -896,6 +896,63 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   }
                 }
 
+                // Fallback for interleaved courses (e.g., Terra Lago
+                // North/South): if this sub-course got no cluster, check
+                // if any OTHER assigned cluster has duplicate hole numbers
+                // — meaning it contains BOTH courses' holes merged by
+                // spatial clustering. Split that cluster by par to extract
+                // this sub-course's holes.
+                if (matchedCluster == null && osmClusters != null) {
+                  for (final e in clusterAssignment.entries) {
+                    final cluster = osmClusters[e.key];
+                    // Does this cluster have more holes than the sub-
+                    // course it was assigned to?
+                    final assignedExt = extracted[e.value];
+                    if (cluster.holes.length > assignedExt.pars.length * 1.3) {
+                      // Has duplicate hole numbers = interleaved courses.
+                      final normalizer = CourseNormalizer();
+                      if (normalizer.hasMultipleCourses(
+                          NormalizedCourse(
+                            id: '', name: '', city: null, state: null,
+                            centroid: const LngLat(0, 0),
+                            holes: cluster.holes,
+                          ))) {
+                        // Split this cluster by par for our sub-course.
+                        _debugLog('MULTI: splitting interleaved cluster '
+                            '(${cluster.holes.length} holes) for ${ext.name}');
+                        // Find holes matching THIS sub-course's pars.
+                        final usedNumbers = <int>{};
+                        final extractedHoles = <NormalizedHole>[];
+                        for (var i = 0; i < ext.pars.length; i++) {
+                          final holeNum = i + 1;
+                          final expectedPar = ext.pars[i];
+                          for (final h in cluster.holes) {
+                            if (h.number == holeNum &&
+                                h.par == expectedPar &&
+                                !usedNumbers.contains(
+                                    h.hashCode)) {
+                              extractedHoles.add(h);
+                              usedNumbers.add(h.hashCode);
+                              break;
+                            }
+                          }
+                        }
+                        if (extractedHoles.length >= 3) {
+                          matchedCluster = NormalizedCourse(
+                            id: '', name: ext.name,
+                            city: null, state: null,
+                            centroid: const LngLat(0, 0),
+                            holes: extractedHoles,
+                          );
+                          _debugLog('MULTI: extracted ${extractedHoles.length}/'
+                              '${ext.pars.length} holes for ${ext.name}');
+                        }
+                        break;
+                      }
+                    }
+                  }
+                }
+
                 final subHoles = <NormalizedHole>[];
                 for (var i = 0; i < ext.pars.length; i++) {
                   final holeNum = i + 1;
