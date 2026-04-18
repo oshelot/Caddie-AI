@@ -956,7 +956,10 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               // a pending marker. User goes to Saved tab to wait.
               _debugLog('MULTI: not cached — sending to RAG backend');
 
-              // Fetch OSM data to send to the backend.
+              // Fetch raw OSM data to send to the backend. Skip the
+              // boundary filter — GPT-4o can distinguish Kennedy
+              // holes from disc golf by context. Sending all holes
+              // gives GPT-4o more data to work with.
               NormalizedCourse? mergedOsm;
               try {
                 final overpass = OverpassClient(_transport);
@@ -968,6 +971,9 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   entry.longitude + buffer,
                 );
                 final features = OsmParser.parse(resp);
+                // Use normalize (no boundary filter) to get all
+                // holes with basic geometry association. The backend
+                // GPT-4o handles course assignment + filtering.
                 final normalizer = CourseNormalizer();
                 final allCourses = normalizer.normalizeAll(
                   features: features,
@@ -975,7 +981,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
                   city: entry.city.isNotEmpty ? entry.city : null,
                   state: entry.state.isNotEmpty ? entry.state : null,
-                  facilityPoint: LngLat(entry.longitude, entry.latitude),
+                  // No facilityPoint = no boundary filtering.
                 );
                 final allHoles = allCourses
                     .expand((c) => c.holes)
