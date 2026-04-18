@@ -2151,6 +2151,132 @@ def _repair_short_lines(course: dict) -> None:
               f"replaced with tee→green ({best_dist:.0f}m)")
 
 
+def _fill_gaps_with_gpt4o_vision(
+    course: dict,
+    facility_name: str,
+    facility_lat: float,
+    facility_lon: float,
+) -> None:
+    """Use satellite imagery + GPT-4o to locate holes that have
+    no geometry. Modifies the course dict in-place."""
+    holes = course.get("holes", [])
+    missing = [h for h in holes if not h.get("lineOfPlay") and not h.get("green")]
+    anchors = [h for h in holes if h.get("lineOfPlay") or h.get("green")]
+
+    if not missing or not anchors:
+        return
+
+    print(f"VISION: {course.get('name', '?')} — "
+          f"{len(missing)} missing holes, {len(anchors)} anchors")
+
+    img_bytes = _fetch_satellite_image(facility_lat, facility_lon)
+    if not img_bytes:
+        return
+
+    bounds = _image_bounds(facility_lat, facility_lon)
+    fmt = _detect_img_format(img_bytes)
+
+    # Build anchor context
+    anchor_lines = []
+    for h in anchors:
+        lop = h.get("lineOfPlay")
+        if lop and lop.get("coordinates"):
+            coords = lop["coordinates"]
+            start = coords[0]
+            end = coords[-1]
+            anchor_lines.append(
+                f"- Hole {h.get('number')}: par {h.get('par')}, "
+                f"tee ({start[1]:.5f},{start[0]:.5f}) → "
+                f"green ({end[1]:.5f},{end[0]:.5f})")
+
+    missing_lines = [
+        f"- Hole {h.get('number')}: par {h.get('par')}, "
+        f"{max(h.get('yardages', {}).values(), default=0)} yards"
+        for h in missing
+    ]
+
+    prompt = f"""This satellite image shows "{course.get('name', '')}" at {facility_name}.
+
+Image bounds:
+- Top-left: lat={bounds['top_left_lat']:.5f}, lon={bounds['top_left_lon']:.5f}
+- Bottom-right: lat={bounds['bottom_right_lat']:.5f}, lon={bounds['bottom_right_lon']:.5f}
+
+## Mapped holes (reference — use these as spatial anchors)
+{chr(10).join(anchor_lines)}
+
+## Missing holes to locate
+{chr(10).join(missing_lines)}
+
+## Instructions
+1. Use the mapped holes as anchor points for coordinate precision.
+2. Course holes flow in sequence — hole N's tee is near hole (N-1)'s green.
+3. Look for fairways (light green corridors) and greens (small circular manicured areas).
+4. Only return holes you can confidently identify. Omit if unsure.
+5. Do NOT place holes in water, roads, or neighborhoods.
+
+Return ONLY a JSON array:
+[{{"hole": N, "par": N, "tee_lat": N, "tee_lon": N, "green_lat": N, "green_lon": N}}]"""
+
+    api_key = _get_openai_key()
+    if not api_key:
+        return
+
+    try:
+        b64 = base64.b64encode(img_bytes).decode()
+        body = json.dumps({
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {
+                    "url": f"data:image/{fmt};base64,{b64}", "detail": "high"}},
+                {"type": "text", "text": prompt},
+            ]}],
+            "max_tokens": 2000,
+            "temperature": 0.1,
+        }).encode()
+
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            result = json.loads(resp.read())
+        text = result["choices"][0]["message"]["content"].strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+        found = json.loads(text)
+        print(f"VISION: GPT-4o located {len(found)} of {len(missing)} missing holes")
+
+    except Exception as e:
+        print(f"VISION: GPT-4o call failed: {e}")
+        return
+
+    # Merge found coordinates into the course holes
+    for fh in found:
+        hole_num = fh.get("hole")
+        tee_lat = fh.get("tee_lat")
+        tee_lon = fh.get("tee_lon")
+        green_lat = fh.get("green_lat")
+        green_lon = fh.get("green_lon")
+        if not all([hole_num, tee_lat, tee_lon, green_lat, green_lon]):
+            continue
+
+        for h in holes:
+            if h.get("number") == hole_num and not h.get("lineOfPlay"):
+                h["lineOfPlay"] = {
+                    "coordinates": [[tee_lon, tee_lat], [green_lon, green_lat]]
+                }
+                h["pin"] = {"latitude": green_lat, "longitude": green_lon}
+                h["_synthesized"] = True
+                print(f"VISION: synthesized hole {hole_num} "
+                      f"tee=({tee_lat:.5f},{tee_lon:.5f}) "
+                      f"green=({green_lat:.5f},{green_lon:.5f})")
+                break
+
+
 def handle_rag_ingest(event: dict, context) -> dict:
     """POST /courses/ingest-rag — RAG-based multi-course ingestion
     using GPT-4o with website images for hole assignment."""
@@ -2299,6 +2425,16 @@ def handle_async_rag_ingest(event: dict):
             rag_result, course_json, api_details, name,
             extracted_courses=extracted,
         )
+
+        # 5b. Fill missing holes using satellite imagery + GPT-4o.
+        # For each sub-course, if any holes lack geometry AND we
+        # have anchors (other holes with geometry), ask GPT-4o to
+        # locate the missing holes in the satellite image.
+        facility_lat = course_json.get("centroid", {}).get("latitude", 0)
+        facility_lon = course_json.get("centroid", {}).get("longitude", 0)
+        if facility_lat and facility_lon:
+            for sub in sub_courses:
+                _fill_gaps_with_gpt4o_vision(sub, name, facility_lat, facility_lon)
 
         for sub in sub_courses:
             holes_with_geom = sum(
