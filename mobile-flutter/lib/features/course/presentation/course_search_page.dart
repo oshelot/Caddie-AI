@@ -775,27 +775,103 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
             _debugLog('MULTI: ${extracted.length} courses: '
                 '${extracted.map((e) => e.name).toList()}');
 
-            // Check if all sub-courses are already cached locally.
-            final repo = _cacheRepository;
-            final cachedSubCourses = <String, NormalizedCourse>{};
-            if (repo != null) {
-              for (final ext in extracted) {
-                final subKey = NormalizedCourse.serverCacheKey(
-                    '${entry.name} - ${ext.name}');
-                final cached = repo.load(subKey);
-                if (cached != null) {
-                  cachedSubCourses[ext.name] = cached.course;
+            // Check if sub-courses are in the server cache (from
+            // a previous RAG ingestion). If so, show the picker.
+            final manifest = await _cacheClient.searchManifest(
+              query: entry.name,
+            );
+            final facilityPrefix = '${entry.name} - ';
+            final subEntries = manifest
+                .where((e) => e.name.startsWith(facilityPrefix))
+                .toList();
+
+            if (subEntries.length >= extracted.length) {
+              // All sub-courses in server cache — load + picker.
+              _debugLog('MULTI: ${subEntries.length} sub-courses in server cache');
+              final repo = _cacheRepository;
+              final cachedSubCourses = <String, NormalizedCourse>{};
+              final extractedCourses = <ExtractedCourse>[];
+              for (final sub in subEntries) {
+                final subName = sub.name.substring(facilityPrefix.length);
+                NormalizedCourse? subCourse;
+                final subKey = NormalizedCourse.serverCacheKey(sub.name);
+                if (repo != null) {
+                  final cached = repo.load(subKey);
+                  if (cached != null) subCourse = cached.course;
+                }
+                subCourse ??= await _cacheClient.fetchCourse(sub.cacheKey);
+                if (subCourse != null) {
+                  if (repo != null) {
+                    try { await repo.save(subKey, subCourse); } catch (_) {}
+                  }
+                  cachedSubCourses[subName] = subCourse;
+                  extractedCourses.add(ExtractedCourse(
+                    name: subName,
+                    pars: subCourse.holes
+                        .map((h) => h.par)
+                        .toList(growable: false),
+                  ));
                 }
               }
-            }
 
-            final allCached =
-                cachedSubCourses.length == extracted.length;
-            _debugLog('MULTI: ${cachedSubCourses.length}/${extracted.length} cached locally');
+              // Remove pending marker if it exists.
+              repo?.removePending(entry.name);
 
-            if (!allCached) {
-              // Download ALL sub-courses. Try Overpass for geometry.
-              ParsedFeatures? osmFeatures;
+              if (extractedCourses.length >= 2) {
+                if (!mounted) return;
+                final picks = await showCoursePickerDialog(
+                  context: context,
+                  courses: extractedCourses,
+                );
+                if (picks == null || picks.isEmpty || !mounted) {
+                  setState(() {
+                    _navigatingToMap = false;
+                    _downloadComplete = false;
+                  });
+                  return;
+                }
+                final combinedHoles = <NormalizedHole>[];
+                for (final pick in picks) {
+                  final sub = cachedSubCourses[pick.name];
+                  if (sub != null) {
+                    for (final h in sub.holes) {
+                      combinedHoles.add(NormalizedHole(
+                        number: combinedHoles.length + 1,
+                        par: h.par,
+                        strokeIndex: h.strokeIndex,
+                        yardages: h.yardages,
+                        teeAreas: h.teeAreas,
+                        lineOfPlay: h.lineOfPlay,
+                        green: h.green,
+                        pin: h.pin,
+                        bunkers: h.bunkers,
+                        water: h.water,
+                      ));
+                    }
+                  }
+                }
+                final combinedName = picks.length == 1
+                    ? '${entry.name} - ${picks.first.name}'
+                    : '${entry.name} - ${picks.map((p) => p.name).join(" + ")}';
+                course = NormalizedCourse(
+                  id: 'multi_cached',
+                  name: combinedName,
+                  city: entry.city.isNotEmpty ? entry.city : null,
+                  state: entry.state.isNotEmpty ? entry.state : null,
+                  centroid: LngLat(entry.longitude, entry.latitude),
+                  holes: combinedHoles,
+                );
+                source = 'server';
+                cacheKeyForSave = null;
+                _debugLog('MULTI: loaded from cache — ${combinedHoles.length} holes');
+              }
+            } else {
+              // Not cached. Fire RAG ingestion (GPT-4o) and save
+              // a pending marker. User goes to Saved tab to wait.
+              _debugLog('MULTI: not cached — sending to RAG backend');
+
+              // Fetch OSM data to send to the backend.
+              NormalizedCourse? mergedOsm;
               try {
                 final overpass = OverpassClient(_transport);
                 const buffer = 0.015;
@@ -805,307 +881,74 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   entry.latitude + buffer,
                   entry.longitude + buffer,
                 );
-                osmFeatures = OsmParser.parse(resp);
-                _debugLog('MULTI: Overpass returned ${resp.elements.length} elements');
-              } catch (e) {
-                _debugLog('MULTI: Overpass failed (geometry will be missing): $e');
-              }
-
-              // Normalize OSM holes into spatial clusters. Each
-              // cluster is a group of holes that are near each
-              // other — likely belonging to the same course.
-              // Then match each cluster to a sub-course by
-              // comparing par sequences.
-              List<NormalizedCourse>? osmClusters;
-              if (osmFeatures != null) {
+                final features = OsmParser.parse(resp);
                 final normalizer = CourseNormalizer();
-                osmClusters = normalizer.normalizeAll(
-                  features: osmFeatures,
+                final allCourses = normalizer.normalizeAll(
+                  features: features,
                   courseName: entry.name,
                   osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
                   city: entry.city.isNotEmpty ? entry.city : null,
                   state: entry.state.isNotEmpty ? entry.state : null,
                   facilityPoint: LngLat(entry.longitude, entry.latitude),
                 );
-                _debugLog('MULTI: ${osmClusters.length} OSM clusters, '
-                    '${osmClusters.map((c) => c.holes.length).toList()} holes each');
-                // Log each cluster's hole details
-                for (var ci = 0; ci < osmClusters.length; ci++) {
-                  final c = osmClusters[ci];
-                  final holeSummary = c.holes.map((h) {
-                    final hasGeom = h.lineOfPlay != null ? 'G' : '-';
-                    return 'H${h.number}p${h.par}$hasGeom';
-                  }).join(', ');
-                  _debugLog('MULTI: cluster $ci: [$holeSummary]');
-                }
-                // Log expected pars for each sub-course
-                for (final ext in extracted) {
-                  _debugLog('MULTI: expected ${ext.name}: pars=${ext.pars}');
-                }
-              }
-
-              // Match each OSM cluster to a sub-course by par
-              // sequence similarity (count of matching pars at
-              // each hole position).
-              final clusterAssignment = <int, int>{}; // clusterIdx → extractedIdx
-              if (osmClusters != null) {
-                final usedExt = <int>{};
-                for (var ci = 0; ci < osmClusters.length; ci++) {
-                  final cluster = osmClusters[ci];
-                  final clusterPars = cluster.holes
-                      .map((h) => h.par)
-                      .toList(growable: false);
-                  int bestExt = -1;
-                  int bestScore = 0;
-                  for (var ei = 0; ei < extracted.length; ei++) {
-                    if (usedExt.contains(ei)) continue;
-                    final extPars = extracted[ei].pars;
-                    int score = 0;
-                    final len = clusterPars.length < extPars.length
-                        ? clusterPars.length
-                        : extPars.length;
-                    for (var h = 0; h < len; h++) {
-                      if (clusterPars[h] == extPars[h]) score++;
-                    }
-                    if (score > bestScore) {
-                      bestScore = score;
-                      bestExt = ei;
-                    }
-                  }
-                  if (bestExt >= 0 && bestScore >= 3) {
-                    clusterAssignment[ci] = bestExt;
-                    usedExt.add(bestExt);
-                    _debugLog('MULTI: OSM cluster $ci → '
-                        '${extracted[bestExt].name} (score $bestScore)');
-                  }
-                }
-              }
-
-              // Build and cache each individual sub-course.
-              for (var extIdx = 0; extIdx < extracted.length; extIdx++) {
-                final ext = extracted[extIdx];
-                final subName = '${entry.name} - ${ext.name}';
-                final subKey = NormalizedCourse.serverCacheKey(subName);
-
-                // Find the OSM cluster assigned to this sub-course.
-                NormalizedCourse? matchedCluster;
-                for (final e in clusterAssignment.entries) {
-                  if (e.value == extIdx && osmClusters != null) {
-                    matchedCluster = osmClusters[e.key];
-                    break;
-                  }
-                }
-
-                // Fallback for interleaved courses (e.g., Terra Lago
-                // North/South): if this sub-course got no cluster, check
-                // if any OTHER assigned cluster has duplicate hole numbers
-                // — meaning it contains BOTH courses' holes merged by
-                // spatial clustering. Split that cluster by par to extract
-                // this sub-course's holes.
-                if (matchedCluster == null && osmClusters != null) {
-                  for (final e in clusterAssignment.entries) {
-                    final cluster = osmClusters[e.key];
-                    // Does this cluster have more holes than the sub-
-                    // course it was assigned to?
-                    final assignedExt = extracted[e.value];
-                    if (cluster.holes.length > assignedExt.pars.length * 1.3) {
-                      // Has duplicate hole numbers = interleaved courses.
-                      final normalizer = CourseNormalizer();
-                      if (normalizer.hasMultipleCourses(
-                          NormalizedCourse(
-                            id: '', name: '', city: null, state: null,
-                            centroid: const LngLat(0, 0),
-                            holes: cluster.holes,
-                          ))) {
-                        // Split this cluster by par for our sub-course.
-                        _debugLog('MULTI: splitting interleaved cluster '
-                            '(${cluster.holes.length} holes) for ${ext.name}');
-                        // Find holes matching THIS sub-course's pars.
-                        final usedNumbers = <int>{};
-                        final extractedHoles = <NormalizedHole>[];
-                        for (var i = 0; i < ext.pars.length; i++) {
-                          final holeNum = i + 1;
-                          final expectedPar = ext.pars[i];
-                          for (final h in cluster.holes) {
-                            if (h.number == holeNum &&
-                                h.par == expectedPar &&
-                                !usedNumbers.contains(
-                                    h.hashCode)) {
-                              extractedHoles.add(h);
-                              usedNumbers.add(h.hashCode);
-                              break;
-                            }
-                          }
-                        }
-                        if (extractedHoles.length >= 3) {
-                          matchedCluster = NormalizedCourse(
-                            id: '', name: ext.name,
-                            city: null, state: null,
-                            centroid: const LngLat(0, 0),
-                            holes: extractedHoles,
-                          );
-                          _debugLog('MULTI: extracted ${extractedHoles.length}/'
-                              '${ext.pars.length} holes for ${ext.name}');
-                        }
-                        break;
-                      }
-                    }
-                  }
-                }
-
-                final subHoles = <NormalizedHole>[];
-                for (var i = 0; i < ext.pars.length; i++) {
-                  final holeNum = i + 1;
-                  final par = ext.pars[i];
-
-                  // Find matching OSM hole from the assigned cluster
-                  // by hole number.
-                  NormalizedHole? osmMatch;
-                  if (matchedCluster != null) {
-                    for (final oh in matchedCluster.holes) {
-                      if (oh.number == holeNum &&
-                          (oh.lineOfPlay != null || oh.green != null)) {
-                        osmMatch = oh;
-                        break;
-                      }
-                    }
-                  }
-
-                  subHoles.add(NormalizedHole(
-                    number: holeNum,
-                    par: par,
-                    strokeIndex: osmMatch?.strokeIndex,
-                    yardages: osmMatch?.yardages ?? const {},
-                    teeAreas: osmMatch?.teeAreas ?? const [],
-                    lineOfPlay: osmMatch?.lineOfPlay,
-                    green: osmMatch?.green,
-                    pin: osmMatch?.pin,
-                    bunkers: osmMatch?.bunkers ?? const [],
-                    water: osmMatch?.water ?? const [],
-                  ));
-                }
-                var subCourse = NormalizedCourse(
-                  id: 'multi_${entry.latitude}_${entry.longitude}_${ext.name}',
-                  name: subName,
-                  city: entry.city.isNotEmpty ? entry.city : null,
-                  state: entry.state.isNotEmpty ? entry.state : null,
-                  centroid: LngLat(entry.longitude, entry.latitude),
-                  holes: subHoles,
-                );
-                // Enrich with tee/yardage data.
-                if (ext.apiDetail != null) {
-                  subCourse = await _enrichWithScorecardData(
-                    subCourse,
-                    entry.name,
-                    preMatchedDetail: ext.apiDetail,
-                  );
-                }
-
-                // Sanity check each hole's line-of-play against
-                // expected yardage. If the OSM line is obviously
-                // too short (< 50% of expected), it's bogus — replace
-                // with a synthesized tee-centroid → green-centroid
-                // line so the map at least points in the right
-                // general direction.
-                subCourse = _repairShortLinesOfPlay(subCourse);
-
-                final holesWithGeom = subCourse.holes
-                    .where((h) => h.lineOfPlay != null || h.green != null)
-                    .length;
-
-                // Cache locally + server.
-                if (repo != null) {
-                  try { await repo.save(subKey, subCourse); } catch (_) {}
-                }
-                // Upload to server if we have geometry. Skip
-                // skeleton-only courses to avoid polluting the cache.
-                if (holesWithGeom > 0) {
-                  _cacheClient.putCourse(subKey, subCourse).ignore();
-                }
-
-                cachedSubCourses[ext.name] = subCourse;
-                final holeDetail = subCourse.holes.map((h) {
-                  final hasGeom = h.lineOfPlay != null ? 'G' : 'X';
-                  return 'H${h.number}p${h.par}$hasGeom';
-                }).join(', ');
-                _debugLog('MULTI: ${ext.name}: $holesWithGeom/${subCourse.holes.length} with geometry [$holeDetail]');
-              }
-            }
-
-            // Fire RAG ingestion (GPT-4o) in the background so the
-            // NEXT user gets properly-assigned holes from the server
-            // cache. This user gets the fast client-side overlay;
-            // the backend will produce a higher-quality version.
-            {
-              final allCachedHoles = cachedSubCourses.values
-                  .expand((c) => c.holes)
-                  .toList();
-              if (allCachedHoles.isNotEmpty) {
-                final mergedForRag = NormalizedCourse(
+                final allHoles = allCourses
+                    .expand((c) => c.holes)
+                    .toList();
+                mergedOsm = NormalizedCourse(
                   id: 'rag_${entry.latitude}_${entry.longitude}',
                   name: entry.name,
                   city: entry.city.isNotEmpty ? entry.city : null,
                   state: entry.state.isNotEmpty ? entry.state : null,
                   centroid: LngLat(entry.longitude, entry.latitude),
-                  holes: allCachedHoles,
+                  holes: allHoles,
                 );
-                _cacheClient
-                    .requestRagIngestion(entry.name, mergedForRag)
-                    .then((ok) => _debugLog(
-                        'RAG: ingestion ${ok ? "accepted" : "failed"}'))
-                    .ignore();
+                _debugLog('MULTI: Overpass → ${allHoles.length} holes for RAG');
+              } catch (e) {
+                _debugLog('MULTI: Overpass failed: $e');
+                mergedOsm = NormalizedCourse(
+                  id: 'rag_${entry.latitude}_${entry.longitude}',
+                  name: entry.name,
+                  city: entry.city.isNotEmpty ? entry.city : null,
+                  state: entry.state.isNotEmpty ? entry.state : null,
+                  centroid: LngLat(entry.longitude, entry.latitude),
+                  holes: const [],
+                );
               }
-            }
 
-            // Show picker — user picks 1 or 2.
-            if (!mounted) return;
-            final picks = await showCoursePickerDialog(
-              context: context,
-              courses: extracted,
-            );
-            if (picks == null || picks.isEmpty || !mounted) {
+              // Save pending marker in local cache.
+              final repo = _cacheRepository;
+              repo?.savePending(
+                entry.name,
+                entry.city,
+                entry.state,
+                entry.latitude,
+                entry.longitude,
+              );
+
+              // Fire RAG ingestion (fire-and-forget).
+              _cacheClient
+                  .requestRagIngestion(entry.name, mergedOsm)
+                  .then((ok) => _debugLog(
+                      'RAG: ingestion ${ok ? "accepted" : "failed"}'))
+                  .ignore();
+
+              if (!mounted) return;
               setState(() {
                 _navigatingToMap = false;
                 _downloadComplete = false;
               });
+              // ignore: use_build_context_synchronously
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'This is a multi-course facility. We\'re preparing '
+                    'the course maps — check Saved in about 30 seconds.',
+                  ),
+                  duration: Duration(seconds: 5),
+                ),
+              );
               return;
             }
-
-            // Combine selected sub-courses into one for the map.
-            final combinedHoles = <NormalizedHole>[];
-            for (final pick in picks) {
-              final sub = cachedSubCourses[pick.name];
-              if (sub != null) {
-                for (final h in sub.holes) {
-                  combinedHoles.add(NormalizedHole(
-                    number: combinedHoles.length + 1,
-                    par: h.par,
-                    strokeIndex: h.strokeIndex,
-                    yardages: h.yardages,
-                    teeAreas: h.teeAreas,
-                    lineOfPlay: h.lineOfPlay,
-                    green: h.green,
-                    pin: h.pin,
-                    bunkers: h.bunkers,
-                    water: h.water,
-                  ));
-                }
-              }
-            }
-            final combinedName = picks.length == 1
-                ? '${entry.name} - ${picks.first.name}'
-                : '${entry.name} - ${picks.map((p) => p.name).join(" + ")}';
-            course = NormalizedCourse(
-              id: 'multi_${entry.latitude}_${entry.longitude}',
-              name: combinedName,
-              city: entry.city.isNotEmpty ? entry.city : null,
-              state: entry.state.isNotEmpty ? entry.state : null,
-              centroid: LngLat(entry.longitude, entry.latitude),
-              holes: combinedHoles,
-            );
-            source = 'golf_api';
-            cacheKeyForSave = null; // don't cache the combo
-            _debugLog('MULTI: combined "${combinedName}" — ${combinedHoles.length} holes');
           }
         }
 

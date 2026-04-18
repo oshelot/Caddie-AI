@@ -43,6 +43,7 @@ class CourseSearchEntry {
     this.formattedAddress,
     this.isFavorite = false,
     this.cachedAtMs,
+    this.isPending = false,
   });
 
   /// Server cache key when [source] is `manifest`. For Nominatim and
@@ -95,6 +96,11 @@ class CourseSearchEntry {
   /// this null. The Saved tab uses it to render "Saved 2d ago"
   /// captions matching the iOS / Android format.
   final int? cachedAtMs;
+
+  /// True when the course is being processed by the backend
+  /// (RAG ingestion). Shows as "downloading" in the Saved tab
+  /// and can't be tapped until processing completes.
+  final bool isPending;
 
   /// Returns a copy of this entry with the supplied fields replaced.
   /// Used by the merger step to overlay manifest city/state onto

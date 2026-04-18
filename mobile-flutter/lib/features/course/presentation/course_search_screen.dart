@@ -782,6 +782,31 @@ class _CourseRow extends StatelessWidget {
       if (entry.state.isNotEmpty) entry.state,
     ];
     final subtitle = subtitleParts.isEmpty ? null : subtitleParts.join(', ');
+
+    // Pending entries (backend processing) — spinner, greyed out.
+    if (entry.isPending) {
+      return ListTile(
+        leading: CaddieIcons.course(size: 28),
+        title: Text(
+          entry.name,
+          style: TextStyle(color: Colors.grey.shade500),
+        ),
+        subtitle: Text(
+          'Preparing course maps\u2026',
+          style: TextStyle(
+            color: Colors.grey.shade400,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+        trailing: const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        // Not tappable while pending.
+      );
+    }
+
     Widget tile = ListTile(
       leading: CaddieIcons.course(size: 28),
       title: Text(entry.name),

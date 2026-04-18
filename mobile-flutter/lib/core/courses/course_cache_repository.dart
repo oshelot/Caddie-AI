@@ -247,6 +247,40 @@ class CourseCacheRepository {
   /// Number of distinct courses currently cached on disk.
   int get cachedCount => AppStorage.courseCacheBox.length;
 
+  // ── pending multi-course ingestion ──────────────────────────────
+
+  /// Marks a facility as "pending" (being processed by the backend).
+  /// Shows in the Saved tab with a spinner, not tappable.
+  Future<void> savePending(String facilityName, String city, String state,
+      double lat, double lon) async {
+    final key = 'pending:${NormalizedCourse.serverCacheKey(facilityName)}';
+    await AppStorage.courseCacheBox.put(
+      key,
+      jsonEncode({
+        'pending': true,
+        'name': facilityName,
+        'city': city,
+        'state': state,
+        'lat': lat,
+        'lon': lon,
+        'startedAtMs': DateTime.now().millisecondsSinceEpoch,
+      }),
+    );
+  }
+
+  /// Removes a pending marker (called when ingestion completes
+  /// or the user deletes it).
+  Future<void> removePending(String facilityName) async {
+    final key = 'pending:${NormalizedCourse.serverCacheKey(facilityName)}';
+    await AppStorage.courseCacheBox.delete(key);
+  }
+
+  /// True if this facility has a pending marker.
+  bool isPending(String facilityName) {
+    final key = 'pending:${NormalizedCourse.serverCacheKey(facilityName)}';
+    return AppStorage.courseCacheBox.containsKey(key);
+  }
+
   // ── favorites + saved listing (Story C, KAN-296 follow-up) ──────
   //
   // Mirrors `android/.../data/course/CourseCacheService.kt:102-170`
@@ -294,26 +328,46 @@ class CourseCacheRepository {
     for (final key in box.keys) {
       final raw = box.get(key);
       if (raw == null) continue;
+
+      // Pending entries (multi-course being processed by backend).
+      final keyStr = key as String;
+      if (keyStr.startsWith('pending:')) {
+        try {
+          final data = jsonDecode(raw) as Map<String, dynamic>;
+          if (data['pending'] == true) {
+            out.add(CourseSearchEntry(
+              cacheKey: keyStr,
+              name: data['name'] as String? ?? '',
+              city: data['city'] as String? ?? '',
+              state: data['state'] as String? ?? '',
+              latitude: (data['lat'] as num?)?.toDouble() ?? 0,
+              longitude: (data['lon'] as num?)?.toDouble() ?? 0,
+              source: CourseSearchSource.manifest,
+              isPending: true,
+            ));
+          }
+        } catch (_) {}
+        continue;
+      }
+
       try {
         final envelope = CachedCourseEnvelope.fromJson(
           jsonDecode(raw) as Map<String, dynamic>,
         );
         final course = envelope.course;
         out.add(CourseSearchEntry(
-          cacheKey: key as String,
+          cacheKey: keyStr,
           name: course.name,
           city: course.city ?? '',
           state: course.state ?? '',
           latitude: course.centroid.lat,
           longitude: course.centroid.lon,
           source: CourseSearchSource.manifest,
-          isFavorite: isFavorite(key),
+          isFavorite: isFavorite(keyStr),
           cachedAtMs: envelope.cachedAtMs,
         ));
       } catch (_) {
-        // Corrupt envelope — skip silently. The repository's
-        // existing tests cover the round-trip; a parse failure here
-        // means a hand-edited box, which we don't want to crash on.
+        // Corrupt envelope — skip silently.
       }
     }
     // Group multi-course sub-entries under the facility name.
