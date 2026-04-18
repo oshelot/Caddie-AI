@@ -715,60 +715,35 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
 
     if (backTee == null || greenPoint == null) return;
 
-    // Bbox span in meters (safety net).
-    final measuredMeters = haversineMeters(backTee, greenPoint);
-    final effectiveYards = expectedYards > 0
-        ? expectedYards
-        : metersToYards(measuredMeters).round();
-
-    // Yardage-to-zoom formula. Calibrated so both tee and green
-    // are visible with margin:
-    //   150y → ~16.8, 350y → ~16.1, 500y → ~15.7, 600y → ~15.5
-    double zoom;
-    if (effectiveYards <= 0) {
-      zoom = 16.5;
-    } else {
-      final y = effectiveYards.toDouble();
-      zoom = 17.5 - 0.7 * (y / 100.0 > 0 ? math.log(y / 100.0) : 0);
-    }
-
-    // Safety net: if the measured end-to-end distance is larger
-    // than the yardage-based zoom can fit (e.g., bad OSM data with
-    // a 1km line for a 400y hole), zoom out to fit. Cap the zoom-
-    // out at 1.0 stop to prevent huge regressions.
-    final measuredYards = metersToYards(measuredMeters);
-    if (effectiveYards > 0 && measuredYards > effectiveYards * 1.5) {
-      // Extra zoom-out based on overshoot factor.
-      final overshoot = measuredYards / effectiveYards;
-      final safetyZoomOut = math.min(1.0, math.log(overshoot) / math.log(2));
-      zoom -= safetyZoomOut;
-    }
-
-    // Clamp to sane range.
-    zoom = zoom.clamp(15.0, 19.0);
-    // ignore: avoid_print
-    print('ZOOM: hole $holeNumber → ${effectiveYards}y, '
-        'zoom=${zoom.toStringAsFixed(2)}, '
-        'measured=${measuredYards.toStringAsFixed(0)}y, '
-        'backTee=${backTee.lat.toStringAsFixed(5)},${backTee.lon.toStringAsFixed(5)}, '
-        'green=${greenPoint.lat.toStringAsFixed(5)},${greenPoint.lon.toStringAsFixed(5)}');
-
-    // Center biased slightly toward the tee (40/60) to compensate
-    // for the bottom panel overlay.
-    final centerLat = backTee.lat * 0.40 + greenPoint.lat * 0.60;
-    final centerLon = backTee.lon * 0.40 + greenPoint.lon * 0.60;
+    // (yardage kept for future use but zoom is now computed by
+    // Mapbox's cameraForCoordinatesPadding)
 
     final bearing = hole.teeToGreenBearing();
-    await map.flyTo(
-      mbx.CameraOptions(
-        center: mbx.Point(
-          coordinates: mbx.Position(centerLon, centerLat),
-        ),
-        zoom: zoom,
-        bearing: bearing,
+
+    // Let Mapbox compute the optimal zoom + center given the
+    // bearing rotation and bottom-panel padding. We feed it just
+    // the back-tee and green centroids (2 points) so the bbox is
+    // tight. The bottom padding accounts for the panel overlay
+    // (~280px on a typical phone).
+    final points = [
+      mbx.Point(coordinates: mbx.Position(backTee.lon, backTee.lat)),
+      mbx.Point(coordinates: mbx.Position(greenPoint.lon, greenPoint.lat)),
+    ];
+
+    final fitted = await map.cameraForCoordinatesPadding(
+      points,
+      mbx.CameraOptions(bearing: bearing),
+      mbx.MbxEdgeInsets(
+        top: 80,    // floating header
+        left: 40,
+        right: 40,
+        bottom: 280, // bottom panel
       ),
-      mbx.MapAnimationOptions(duration: 900),
+      null,
+      null,
     );
+
+    await map.flyTo(fitted, mbx.MapAnimationOptions(duration: 900));
   }
 
   Future<void> _highlightHole(int? holeNumber) async {
