@@ -1815,6 +1815,34 @@ def _fetch_course_website_images(facility_name: str) -> list[dict]:
                     )
                     if pdf_urls:
                         print(f"RAG: found {len(pdf_urls)} scorecard PDFs: {pdf_urls[:3]}")
+                        # Render PDF pages to images for GPT-4o.
+                        for pdf_url in pdf_urls[:2]:
+                            if not pdf_url.startswith('http'):
+                                pdf_url = website.rstrip('/') + '/' + pdf_url.lstrip('/')
+                            try:
+                                req3 = urllib.request.Request(pdf_url)
+                                req3.add_header("User-Agent", "CaddieAI/1.0")
+                                with urllib.request.urlopen(req3, timeout=15) as resp3:
+                                    pdf_bytes = resp3.read()
+                                import fitz  # PyMuPDF
+                                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                                for page_num in range(min(2, len(doc))):
+                                    page = doc[page_num]
+                                    pix = page.get_pixmap(dpi=200)
+                                    png_data = pix.tobytes("png")
+                                    if len(png_data) > 5000:
+                                        images.append({
+                                            "name": f"pdf_page_{page_num}",
+                                            "bytes": png_data,
+                                            "format": "png",
+                                            "url": f"{pdf_url}#page={page_num+1}",
+                                        })
+                                        print(f"RAG: rendered PDF page {page_num+1}: {len(png_data)} bytes")
+                                doc.close()
+                            except ImportError:
+                                print("RAG: PyMuPDF not installed, skipping PDF rendering")
+                            except Exception as e:
+                                print(f"RAG: PDF render failed for {pdf_url}: {e}")
 
                     # If we didn't find enough course-specific images
                     # from the main page, try linked subpages.
