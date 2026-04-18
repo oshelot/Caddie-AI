@@ -556,6 +556,47 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
 
   Future<void> _onSelectCourse(CourseSearchEntry entry) async {
     if (_navigatingToMap) return;
+
+    // Handle tapping a pending multi-course entry from Saved.
+    // Check the server cache — if the RAG backend finished,
+    // clear the pending marker and proceed normally.
+    if (entry.isPending) {
+      setState(() => _navigatingToMap = true);
+      final manifest = await _cacheClient.searchManifest(
+        query: entry.name,
+      );
+      final facilityPrefix = '${entry.name} - ';
+      final subEntries = manifest
+          .where((e) => e.name.startsWith(facilityPrefix))
+          .toList();
+      if (subEntries.length >= 2) {
+        // Ready! Clear pending and re-run as a normal tap.
+        _cacheRepository?.removePending(entry.name);
+        setState(() => _navigatingToMap = false);
+        _onSelectCourse(CourseSearchEntry(
+          cacheKey: entry.cacheKey.replaceFirst('pending:', ''),
+          name: entry.name,
+          city: entry.city,
+          state: entry.state,
+          latitude: entry.latitude,
+          longitude: entry.longitude,
+        ));
+        return;
+      }
+      // Not ready yet.
+      setState(() => _navigatingToMap = false);
+      if (mounted) {
+        // ignore: use_build_context_synchronously
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Still preparing — try again in a moment.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() {
       _navigatingToMap = true;
       _loadingJoke = null;

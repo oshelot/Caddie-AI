@@ -783,7 +783,8 @@ class _CourseRow extends StatelessWidget {
     ];
     final subtitle = subtitleParts.isEmpty ? null : subtitleParts.join(', ');
 
-    // Pending entries (backend processing) — spinner, greyed out.
+    // Pending entries (backend processing) — spinner, tappable to
+    // check if ready.
     if (entry.isPending) {
       return ListTile(
         leading: CaddieIcons.course(size: 28),
@@ -792,7 +793,7 @@ class _CourseRow extends StatelessWidget {
           style: TextStyle(color: Colors.grey.shade500),
         ),
         subtitle: Text(
-          'Preparing course maps\u2026',
+          'Preparing course maps\u2026 Tap to check.',
           style: TextStyle(
             color: Colors.grey.shade400,
             fontStyle: FontStyle.italic,
@@ -803,7 +804,7 @@ class _CourseRow extends StatelessWidget {
           height: 20,
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
-        // Not tappable while pending.
+        onTap: () => onSelect(entry),
       );
     }
 
