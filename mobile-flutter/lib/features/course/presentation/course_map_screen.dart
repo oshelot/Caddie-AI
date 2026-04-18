@@ -653,16 +653,20 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     }
 
     // Pick the tee polygon centroid that's farthest from the green
-    // as the "back tee" anchor.
+    // but still within a plausible distance (1.5x expected yardage).
+    // Tees farther than that are misassociated from other holes.
     LngLat? backTee;
     final greenCentroid = g?.centroid;
     if (hole.teeAreas.isNotEmpty && greenCentroid != null) {
+      final maxTeeDist = expectedYards > 0
+          ? expectedYards * 0.9144 * 1.5
+          : 600.0;
       double bestDist = 0;
       for (final t in hole.teeAreas) {
         final c = t.centroid;
         if (c == null) continue;
         final d = haversineMeters(c, greenCentroid);
-        if (d > bestDist) {
+        if (d > bestDist && d <= maxTeeDist) {
           bestDist = d;
           backTee = c;
         }
@@ -680,16 +684,15 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
         ? expectedYards
         : metersToYards(measuredMeters).round();
 
-    // Yardage-to-zoom formula. Calibrated so:
-    //   150y → ~18, 350y → ~17.2, 500y → ~16.5, 600y → ~16
+    // Yardage-to-zoom formula. Calibrated so the hole fills about
+    // 60-75% of the screen vertically:
+    //   150y → ~17.5, 350y → ~16.9, 500y → ~16.6, 600y → ~16.4
     double zoom;
     if (effectiveYards <= 0) {
       zoom = 17;
     } else {
-      // zoom = 19 - 1.16 * ln(yards/100). Gives 19 at 100y, 17.3 at
-      // 300y, 16.2 at 500y, 15.5 at 700y.
       final y = effectiveYards.toDouble();
-      zoom = 19.0 - 1.16 * (y / 100.0 > 0 ? math.log(y / 100.0) : 0);
+      zoom = 18.0 - 0.7 * (y / 100.0 > 0 ? math.log(y / 100.0) : 0);
     }
 
     // Safety net: if the measured end-to-end distance is larger

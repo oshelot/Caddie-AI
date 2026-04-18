@@ -332,16 +332,20 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
 
       // Synthesize: longest-yardage tee → green centroid.
       final greenCentroid = green.centroid;
-      // Pick the tee closest to the opposite end of the hole from
-      // the green (i.e., maximize tee-to-green distance). That's
-      // the back tee — most representative for the full-length line.
+      // Pick the tee farthest from the green that's still within a
+      // plausible distance (1.5x expected yardage). Tees farther
+      // than that are misassociated (e.g., combined-scorecard tees
+      // from the other end of the property).
+      final maxTeeDist = expectedYards > 0
+          ? expectedYards * 0.9144 * 1.5  // yards → meters × 1.5
+          : 600.0;
       LngLat? bestTee;
       double bestDist = 0;
       for (final tee in tees) {
         final c = tee.centroid;
         if (c == null || greenCentroid == null) continue;
         final d = haversineMeters(c, greenCentroid);
-        if (d > bestDist) {
+        if (d > bestDist && d <= maxTeeDist) {
           bestDist = d;
           bestTee = c;
         }
