@@ -1804,6 +1804,43 @@ def _fetch_course_website_images(facility_name: str) -> list[dict]:
                         r'(https://images\.squarespace-cdn\.com/[^"\']+)',
                         html,
                     )
+                    # Also grab scorecard PDF links — GPT-4o can't
+                    # read PDFs directly, but we note the URL for
+                    # the trace. For sites that have scorecard images
+                    # embedded in pages linked from the main page,
+                    # follow those links too.
+                    pdf_urls = re_mod.findall(
+                        r'href=["\']([^"\']+(?:scorecard|course)[^"\']*\.pdf)["\']',
+                        html, re_mod.IGNORECASE,
+                    )
+                    if pdf_urls:
+                        print(f"RAG: found {len(pdf_urls)} scorecard PDFs: {pdf_urls[:3]}")
+
+                    # If we didn't find enough course-specific images
+                    # from the main page, try linked subpages.
+                    if len(img_urls) < 2:
+                        subpage_urls = re_mod.findall(
+                            r'href=["\']([^"\']+(?:course|hole|layout|map)[^"\']*)["\']',
+                            html, re_mod.IGNORECASE,
+                        )
+                        for sp_url in subpage_urls[:3]:
+                            if not sp_url.startswith('http'):
+                                sp_url = website.rstrip('/') + '/' + sp_url.lstrip('/')
+                            try:
+                                req2 = urllib.request.Request(sp_url)
+                                req2.add_header("User-Agent", "CaddieAI/1.0")
+                                with urllib.request.urlopen(req2, timeout=10) as resp2:
+                                    sub_html = resp2.read().decode("utf-8", errors="ignore")
+                                sub_imgs = re_mod.findall(
+                                    r'(?:src|data-src)=["\']([^"\']+\.(?:jpg|jpeg|png|webp))["\']',
+                                    sub_html, re_mod.IGNORECASE,
+                                )
+                                # Filter for large course-related images
+                                for si in sub_imgs:
+                                    if any(kw in si.lower() for kw in ['course', 'map', 'hole', 'scorecard', 'layout', 'aerial']):
+                                        img_urls.append(si)
+                            except Exception:
+                                pass
                     # Dedupe
                     seen = set()
                     unique_urls = []
