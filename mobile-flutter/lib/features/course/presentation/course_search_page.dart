@@ -29,6 +29,7 @@
 // The city autocomplete is wired to `PlacesClient.autocomplete`. The
 // screen owns the debounce; this page just hands over the callback.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -171,11 +172,55 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
   bool _navigatingToMap = false;
   bool _downloadComplete = false;
   String? _loadingJoke;
+  Timer? _pendingCheckTimer;
 
   @override
   void initState() {
     super.initState();
     _checkLocationPermission();
+    // Poll for pending multi-course ingestions every 10 seconds.
+    _pendingCheckTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _resolvePendingEntries(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pendingCheckTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Checks the server cache for any pending multi-course
+  /// facilities. If the backend has finished processing, clears
+  /// the pending marker so the Saved tab updates automatically.
+  Future<void> _resolvePendingEntries() async {
+    final repo = _cacheRepository;
+    if (repo == null) return;
+
+    final saved = repo.listSaved();
+    final pending = saved.where((e) => e.isPending).toList();
+    if (pending.isEmpty) return;
+
+    for (final entry in pending) {
+      try {
+        final manifest = await _cacheClient.searchManifest(
+          query: entry.name,
+        );
+        final facilityPrefix = '${entry.name} - ';
+        final subEntries = manifest
+            .where((e) => e.name.startsWith(facilityPrefix))
+            .toList();
+        if (subEntries.length >= 2) {
+          await repo.removePending(entry.name);
+          _debugLog('PENDING: resolved ${entry.name} — '
+              '${subEntries.length} sub-courses ready');
+        }
+      } catch (_) {}
+    }
+
+    // Refresh UI if anything changed.
+    if (mounted) setState(() {});
   }
 
   Future<void> _checkLocationPermission() async {
