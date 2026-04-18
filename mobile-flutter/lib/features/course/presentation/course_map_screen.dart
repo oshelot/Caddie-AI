@@ -254,60 +254,15 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
         .firstWhere((t) => t!.canonicalTee == _selectedTee, orElse: () => null)
         ?.displayName;
 
+    final mediaQuery = MediaQuery.of(context);
+    final topPadding = mediaQuery.padding.top;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Course Map'),
-        actions: [
-          // Tee box selector — KAN-182 deduped, matches iOS top-right chip
-          if (_dedupedTees.length > 1)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: PopupMenuButton<String>(
-                initialValue: _selectedTee,
-                onSelected: (canonical) =>
-                    setState(() => _selectedTee = canonical),
-                itemBuilder: (_) => _dedupedTees.map((entry) {
-                  return PopupMenuItem(
-                    value: entry.canonicalTee,
-                    child: Row(
-                      children: [
-                        if (entry.canonicalTee == _selectedTee)
-                          const Icon(Icons.check, size: 18)
-                        else
-                          const SizedBox(width: 18),
-                        const SizedBox(width: 8),
-                        Text(entry.displayName),
-                        if (entry.totalYardage > 0) ...[
-                          const Spacer(),
-                          Text('${entry.totalYardage} yds',
-                              style: const TextStyle(
-                                  color: Colors.grey, fontSize: 12)),
-                        ],
-                      ],
-                    ),
-                  );
-                }).toList(),
-                child: Chip(
-                  avatar: CaddieIcons.tee(size: 16),
-                  label: Text(selectedDisplay ?? 'Tees'),
-                  backgroundColor:
-                      Theme.of(context).colorScheme.primaryContainer,
-                ),
-              ),
-            ),
-          // Single tee — show as a static label, no dropdown
-          if (_dedupedTees.length == 1)
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: Chip(
-                avatar: CaddieIcons.tee(size: 16),
-                label: Text(_dedupedTees.first.displayName),
-              ),
-            ),
-        ],
-      ),
+      // No AppBar — map is full-screen with overlaid controls.
+      extendBodyBehindAppBar: true,
       body: Stack(
         children: [
+          // Map fills the entire screen (behind status bar + panel).
           mbx.MapWidget(
             key: const ValueKey('caddieai-course-map'),
             styleUri: mbx.MapboxStyles.SATELLITE_STREETS,
@@ -322,27 +277,109 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
             onStyleLoadedListener: _onStyleLoaded,
             onTapListener: _onMapTap,
           ),
-          // Weather badge — top-left, matches iOS placement
+          // Floating header — back button + title + tee selector
+          Positioned(
+            top: topPadding + 4,
+            left: 4,
+            right: 4,
+            child: Row(
+              children: [
+                // Back button
+                Material(
+                  color: Colors.black38,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: () => Navigator.maybePop(context),
+                    tooltip: 'Back',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Title
+                Expanded(
+                  child: Text(
+                    'Course Map',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      shadows: const [
+                        Shadow(blurRadius: 4, color: Colors.black54),
+                      ],
+                    ),
+                  ),
+                ),
+                // Tee selector
+                if (_dedupedTees.length > 1)
+                  PopupMenuButton<String>(
+                    initialValue: _selectedTee,
+                    onSelected: (canonical) =>
+                        setState(() => _selectedTee = canonical),
+                    itemBuilder: (_) => _dedupedTees.map((entry) {
+                      return PopupMenuItem(
+                        value: entry.canonicalTee,
+                        child: Row(
+                          children: [
+                            if (entry.canonicalTee == _selectedTee)
+                              const Icon(Icons.check, size: 18)
+                            else
+                              const SizedBox(width: 18),
+                            const SizedBox(width: 8),
+                            Text(entry.displayName),
+                            if (entry.totalYardage > 0) ...[
+                              const Spacer(),
+                              Text('${entry.totalYardage} yds',
+                                  style: const TextStyle(
+                                      color: Colors.grey, fontSize: 12)),
+                            ],
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    child: Chip(
+                      avatar: CaddieIcons.tee(size: 16),
+                      label: Text(
+                        selectedDisplay ?? 'Tees',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      backgroundColor: Colors.black38,
+                      side: BorderSide.none,
+                    ),
+                  ),
+                if (_dedupedTees.length == 1)
+                  Chip(
+                    avatar: CaddieIcons.tee(size: 16),
+                    label: Text(
+                      _dedupedTees.first.displayName,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    backgroundColor: Colors.black38,
+                    side: BorderSide.none,
+                  ),
+              ],
+            ),
+          ),
+          // Weather badge — below floating header
           if (_weather != null)
             Positioned(
-              top: 12,
+              top: topPadding + 56,
               left: 12,
               child: _WeatherBadge(weather: _weather!),
             ),
           if (_tapYards != null)
             Positioned(
-              top: _weather != null ? 56 : 16,
+              top: topPadding + (_weather != null ? 100 : 60),
               left: 12,
               child: _DistanceHud(yards: _tapYards!),
             ),
           if (kDebugMode && _missingLayers.isNotEmpty)
             Positioned(
-              top: 12,
+              top: topPadding + 56,
               right: 12,
               child: _LayerDiagnosticBanner(
                 missing: _missingLayers,
               ),
             ),
+          // Bottom panel overlays the map
           Positioned(
             left: 0,
             right: 0,
@@ -710,12 +747,10 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     // Clamp to sane range.
     zoom = zoom.clamp(15.0, 19.0);
 
-    // Center biased toward the tee (30% from tee, 70% from green)
-    // to compensate for the bottom panel covering ~30% of the screen.
-    // This shifts the hole upward so both tee and green are visible
-    // above the panel.
-    final centerLat = backTee.lat * 0.35 + greenPoint.lat * 0.65;
-    final centerLon = backTee.lon * 0.35 + greenPoint.lon * 0.65;
+    // Center biased slightly toward the tee (40/60) to compensate
+    // for the bottom panel overlay.
+    final centerLat = backTee.lat * 0.40 + greenPoint.lat * 0.60;
+    final centerLon = backTee.lon * 0.40 + greenPoint.lon * 0.60;
 
     final bearing = hole.teeToGreenBearing();
     await map.flyTo(
