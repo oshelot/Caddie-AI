@@ -45,7 +45,7 @@ class SplashScreen extends StatefulWidget {
   const SplashScreen({
     super.key,
     required this.onComplete,
-    this.splashDuration = const Duration(milliseconds: 1500),
+    this.splashDuration = const Duration(milliseconds: 2500),
   });
 
   /// Called once after [splashDuration] elapses. The page wrapper
