@@ -960,9 +960,11 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 if (repo != null) {
                   try { await repo.save(subKey, subCourse); } catch (_) {}
                 }
-                // Upload to server. No LLM refinement — we'd rather
-                // show "not mapped yet" than risk inaccurate coords.
-                _cacheClient.putCourse(subKey, subCourse).ignore();
+                // Upload to server if we have geometry. Skip
+                // skeleton-only courses to avoid polluting the cache.
+                if (holesWithGeom > 0) {
+                  _cacheClient.putCourse(subKey, subCourse).ignore();
+                }
 
                 cachedSubCourses[ext.name] = subCourse;
                 final holeDetail = subCourse.holes.map((h) {
@@ -1106,7 +1108,15 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         } catch (_) {}
       }
       // Upload enriched course to server cache (fire-and-forget).
-      _cacheClient.putCourse(cacheKeyForSave, course).ignore();
+      // Skip if zero holes have geometry — don't pollute the cache
+      // with skeleton-only courses that would block future Overpass
+      // downloads for every subsequent user.
+      final hasAnyGeometry = course.holes.any(
+        (h) => h.lineOfPlay != null || h.green != null,
+      );
+      if (hasAnyGeometry) {
+        _cacheClient.putCourse(cacheKeyForSave, course).ignore();
+      }
     }
 
     if (!mounted) return;
