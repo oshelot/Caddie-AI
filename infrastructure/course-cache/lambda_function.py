@@ -2068,9 +2068,87 @@ def _build_courses_from_rag(
                 front_or_back=front_or_back,
             )
 
+        # Repair truncated lines-of-play. If the OSM line is
+        # shorter than 50% of the expected yardage, replace it
+        # with a straight line from the farthest tee to the green.
+        _repair_short_lines(sub_course)
+
         results.append(sub_course)
 
     return results
+
+
+def _repair_short_lines(course: dict) -> None:
+    """Repair truncated lines-of-play in a course dict (in-place).
+
+    For each hole: if lineOfPlay length < 50% of the longest tee
+    yardage, replace with a straight tee→green line. Picks the
+    tee polygon farthest from the green (within 1.5x expected
+    yardage) as the back-tee anchor.
+    """
+    for h in course.get("holes", []):
+        tees = h.get("teeAreas", [])
+        green = h.get("green")
+        lop = h.get("lineOfPlay")
+        yardages = h.get("yardages", {})
+
+        if not tees or not green:
+            continue
+
+        # Expected yardage = longest tee.
+        expected_yards = max(yardages.values(), default=0)
+        if expected_yards == 0:
+            continue
+
+        # Measure existing line length.
+        measured_m = 0
+        if lop and lop.get("coordinates") and len(lop["coordinates"]) >= 2:
+            coords = lop["coordinates"]
+            for i in range(1, len(coords)):
+                dlat = (coords[i][1] - coords[i - 1][1]) * 111000
+                dlon = (coords[i][0] - coords[i - 1][0]) * 85000
+                measured_m += math.sqrt(dlat ** 2 + dlon ** 2)
+
+        expected_m = expected_yards * 0.9144
+        if measured_m >= expected_m * 0.5 and lop is not None:
+            continue  # Line is long enough.
+
+        # Compute green centroid.
+        green_ring = green.get("coordinates", [[]])[0]
+        if not green_ring:
+            continue
+        gc_lon = sum(p[0] for p in green_ring) / len(green_ring)
+        gc_lat = sum(p[1] for p in green_ring) / len(green_ring)
+
+        # Pick the tee farthest from green within 1.5x expected.
+        max_tee_dist = expected_m * 1.5
+        best_tee = None
+        best_dist = 0
+        for t in tees:
+            ring = t.get("coordinates", [[]])[0]
+            if not ring:
+                continue
+            tc_lon = sum(p[0] for p in ring) / len(ring)
+            tc_lat = sum(p[1] for p in ring) / len(ring)
+            dlat = (tc_lat - gc_lat) * 111000
+            dlon = (tc_lon - gc_lon) * 85000
+            d = math.sqrt(dlat ** 2 + dlon ** 2)
+            if d > best_dist and d <= max_tee_dist:
+                best_dist = d
+                best_tee = (tc_lon, tc_lat)
+
+        if best_tee is None:
+            continue
+
+        h["lineOfPlay"] = {
+            "coordinates": [
+                [best_tee[0], best_tee[1]],
+                [gc_lon, gc_lat],
+            ]
+        }
+        print(f"REPAIR: {course.get('name', '?')} H{h.get('number', '?')} "
+              f"line was {measured_m:.0f}m, expected {expected_m:.0f}m → "
+              f"replaced with tee→green ({best_dist:.0f}m)")
 
 
 def handle_rag_ingest(event: dict, context) -> dict:
