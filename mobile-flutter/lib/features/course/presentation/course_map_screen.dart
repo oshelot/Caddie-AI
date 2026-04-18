@@ -684,15 +684,15 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
         ? expectedYards
         : metersToYards(measuredMeters).round();
 
-    // Yardage-to-zoom formula. Calibrated so the hole fills about
-    // 60-75% of the screen vertically:
-    //   150y → ~17.5, 350y → ~16.9, 500y → ~16.6, 600y → ~16.4
+    // Yardage-to-zoom formula. Calibrated so both tee and green
+    // are visible with margin:
+    //   150y → ~16.8, 350y → ~16.1, 500y → ~15.7, 600y → ~15.5
     double zoom;
     if (effectiveYards <= 0) {
-      zoom = 17;
+      zoom = 16.5;
     } else {
       final y = effectiveYards.toDouble();
-      zoom = 18.0 - 0.7 * (y / 100.0 > 0 ? math.log(y / 100.0) : 0);
+      zoom = 17.5 - 0.7 * (y / 100.0 > 0 ? math.log(y / 100.0) : 0);
     }
 
     // Safety net: if the measured end-to-end distance is larger
