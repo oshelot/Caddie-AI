@@ -2709,12 +2709,21 @@ def handle_async_rag_ingest(event: dict):
 
             holes.sort(key=lambda h: h.get("number", 0))
 
-            # Pad missing holes
+            # QA: Force pars from the Golf API scorecard (source of
+            # truth). OSM pars are often wrong or defaulted to 4.
             ext_match = None
             for e in extracted:
                 if e["name"].lower() == course_name.lower():
                     ext_match = e
                     break
+            if ext_match:
+                for h in holes:
+                    num = h.get("number", 0)
+                    if 1 <= num <= len(ext_match["pars"]):
+                        expected = ext_match["pars"][num - 1]
+                        if h["par"] != expected:
+                            print(f"RAG_QA: {course_name} H{num} par {h['par']} -> {expected} (scorecard)")
+                            h["par"] = expected
             if ext_match:
                 mapped = {h["number"] for h in holes}
                 for hn in range(1, len(ext_match["pars"]) + 1):
