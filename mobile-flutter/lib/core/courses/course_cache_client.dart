@@ -219,6 +219,31 @@ class CourseCacheClient {
     }
   }
 
+  /// Requests RAG-based async backend processing using GPT-4o.
+  /// The backend fetches course website images, combines with OSM
+  /// and Golf API data, and uses GPT-4o to assign holes to the
+  /// correct sub-courses. Returns true if accepted (202).
+  Future<bool> requestRagIngestion(
+    String name,
+    NormalizedCourse course,
+  ) async {
+    final url = Uri.parse('$baseUrl/courses/ingest-rag');
+    try {
+      final response = await _send(
+        'POST',
+        url,
+        body: jsonEncode({
+          'name': name,
+          'courseJson': _serializeCourse(course),
+        }),
+        contentType: 'application/json',
+      );
+      return response.statusCode == 202;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Fire-and-forget request to refine a cached course's geometry
   /// using satellite vision on the backend. The backend fetches the
   /// course from S3, identifies holes with no geometry, uses Nova Pro

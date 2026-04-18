@@ -1727,6 +1727,493 @@ def handle_async_ingest(event: dict):
             pass
 
 
+# ---------------------------------------------------------------------------
+# RAG-based multi-course ingestion (GPT-4o + website images)
+# ---------------------------------------------------------------------------
+
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+TRACES_PREFIX = "courses/traces/"
+
+
+def _get_openai_key() -> str:
+    """Get OpenAI API key from env or Secrets Manager."""
+    if OPENAI_API_KEY:
+        return OPENAI_API_KEY
+    try:
+        sm = boto3.client("secretsmanager",
+                          region_name=os.environ.get("AWS_REGION", "us-east-2"))
+        secret = sm.get_secret_value(SecretId="caddieai/openai-api-key")
+        return secret["SecretString"]
+    except Exception as e:
+        print(f"RAG: failed to get OpenAI key: {e}")
+        return ""
+
+
+def _detect_img_format(data: bytes) -> str:
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    return "jpeg"
+
+
+def _fetch_course_website_images(facility_name: str) -> list[dict]:
+    """Search for scorecard/course map images on the facility website.
+    Returns list of {name, bytes, format} dicts."""
+    images = []
+
+    # Step 1: Google search for the course website
+    search_query = f"{facility_name} golf scorecard course map"
+    try:
+        # Use Google Places Text Search to find the website
+        if GOOGLE_PLACES_API_KEY:
+            params = {
+                "textQuery": f"{facility_name} golf course",
+                "includedType": "golf_course",
+                "maxResultCount": 1,
+            }
+            req_body = json.dumps(params).encode("utf-8")
+            url = "https://places.googleapis.com/v1/places:searchText"
+            req = urllib.request.Request(url, data=req_body, method="POST")
+            req.add_header("Content-Type", "application/json")
+            req.add_header("X-Goog-Api-Key", GOOGLE_PLACES_API_KEY)
+            req.add_header("X-Goog-FieldMask", "places.websiteUri")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            places = data.get("places", [])
+            if places:
+                website = places[0].get("websiteUri", "")
+                if website:
+                    print(f"RAG: found website: {website}")
+                    # Fetch the website and extract image URLs
+                    req = urllib.request.Request(website)
+                    req.add_header("User-Agent", "CaddieAI/1.0")
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        html = resp.read().decode("utf-8", errors="ignore")
+
+                    # Extract image URLs that look like scorecards/maps
+                    import re as re_mod
+                    img_urls = re_mod.findall(
+                        r'(?:src|data-src)=["\']([^"\']+(?:scorecard|course|map|layout|CCF|hole)[^"\']*\.(?:jpg|jpeg|png|webp))["\']',
+                        html, re_mod.IGNORECASE,
+                    )
+                    # Also grab squarespace-cdn images (common pattern)
+                    img_urls += re_mod.findall(
+                        r'(https://images\.squarespace-cdn\.com/[^"\']+)',
+                        html,
+                    )
+                    # Dedupe
+                    seen = set()
+                    unique_urls = []
+                    for u in img_urls:
+                        if u not in seen:
+                            seen.add(u)
+                            unique_urls.append(u)
+
+                    for i, img_url in enumerate(unique_urls[:5]):
+                        try:
+                            req = urllib.request.Request(img_url)
+                            req.add_header("User-Agent", "CaddieAI/1.0")
+                            with urllib.request.urlopen(req, timeout=10) as resp:
+                                img_data = resp.read()
+                            if len(img_data) > 5000:  # skip tiny images
+                                fmt = _detect_img_format(img_data)
+                                images.append({
+                                    "name": f"web_image_{i}",
+                                    "bytes": img_data,
+                                    "format": fmt,
+                                    "url": img_url,
+                                })
+                                print(f"RAG: fetched image {i}: {len(img_data)} bytes ({fmt})")
+                        except Exception as e:
+                            print(f"RAG: failed to fetch image {img_url}: {e}")
+    except Exception as e:
+        print(f"RAG: website search failed: {e}")
+
+    return images
+
+
+def _call_gpt4o_assignment(
+    facility_name: str,
+    osm_holes: list[dict],
+    golf_api_data: list[dict],
+    web_images: list[dict],
+) -> tuple[dict | None, str]:
+    """Call GPT-4o to assign OSM holes to courses. Returns (result, raw_text)."""
+    api_key = _get_openai_key()
+    if not api_key:
+        return None, "No OpenAI API key"
+
+    # Build OSM summary
+    osm_lines = []
+    for h in osm_holes:
+        osm_lines.append(
+            f"  osm_id={h.get('id', '?')} ref={h.get('ref', '?')} "
+            f"par={h.get('par', '?')} lat={h.get('lat', 0):.5f} "
+            f"lon={h.get('lon', 0):.5f}"
+        )
+
+    # Build Golf API summary
+    api_lines = []
+    for c in golf_api_data:
+        name = c.get("course_name") or c.get("courseName", "")
+        pars = _extract_par_sequence(c)
+        api_lines.append(f"  {name}: pars={pars}")
+
+    prompt = f"""You are a golf course data expert. Assign each OSM hole to the correct course at this multi-course facility.
+
+## Facility
+{facility_name}
+
+## Golf Course API Data (authoritative names and pars)
+{chr(10).join(api_lines)}
+
+## OSM Data ({len(osm_holes)} holes — may have duplicate numbering)
+{chr(10).join(osm_lines)}
+
+## Attached Images
+Scorecard and course map images from the facility website. Use these to understand hole layout, names, and spatial relationships.
+
+## Task
+Match each OSM hole (by osm_id) to a course. Use par values, coordinates, scorecard data, and map layout. For duplicate hole numbers, match each to the course whose par at that position agrees.
+
+## Output
+Return ONLY JSON:
+{{
+  "courses": {{
+    "<course_name>": [
+      {{"osm_id": 12345, "hole_number": 1, "par": 4, "confidence": "high|medium|low"}},
+      ...
+    ],
+    ...
+  }},
+  "reasoning": "Brief explanation"
+}}"""
+
+    # Build multimodal content
+    content = []
+    for img in web_images:
+        mime = f"image/{img['format']}"
+        b64 = base64.b64encode(img["bytes"]).decode()
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}", "detail": "high"},
+        })
+    content.append({"type": "text", "text": prompt})
+
+    body = json.dumps({
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": content}],
+        "max_tokens": 4000,
+        "temperature": 0.1,
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read())
+        text = result["choices"][0]["message"]["content"]
+
+        # Parse JSON from response
+        clean = text.strip()
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[1].rsplit("```", 1)[0]
+        parsed = json.loads(clean)
+        return parsed, text
+
+    except Exception as e:
+        print(f"RAG: GPT-4o call failed: {e}")
+        return None, str(e)
+
+
+def _build_courses_from_rag(
+    rag_result: dict,
+    course_json: dict,
+    golf_api_data: list[dict],
+    facility_name: str,
+) -> list[dict]:
+    """Build NormalizedCourse dicts from RAG assignment results."""
+    courses_output = rag_result.get("courses", {})
+    osm_holes_by_id = {}
+    for h in course_json.get("holes", []):
+        # Use a composite key since holes might not have unique IDs
+        key = f"{h.get('number', 0)}_{h.get('par', 0)}"
+        osm_holes_by_id[key] = h
+
+    # Also index by the raw osm_id if present
+    # The course_json holes come from the normalizer which doesn't keep osm_id.
+    # We need to match by hole number + par instead.
+    results = []
+    for course_name, assignments in courses_output.items():
+        holes = []
+        used_keys = set()
+        for a in assignments:
+            hole_num = a.get("hole_number", 0)
+            par = a.get("par", 0)
+            # Find matching hole from course_json
+            for h in course_json.get("holes", []):
+                key = id(h)
+                if key in used_keys:
+                    continue
+                if h.get("number") == hole_num and h.get("par") == par:
+                    holes.append(h)
+                    used_keys.add(key)
+                    break
+
+        if not holes:
+            continue
+
+        holes.sort(key=lambda h: h.get("number", 0))
+
+        # Compute centroid
+        lats, lons = [], []
+        for h in holes:
+            lop = h.get("lineOfPlay")
+            if lop and lop.get("coordinates"):
+                coords = lop["coordinates"]
+                mid = coords[len(coords) // 2]
+                lons.append(mid[0])
+                lats.append(mid[1])
+
+        sub_name = f"{facility_name} - {course_name}"
+
+        # Find matching Golf API detail for enrichment
+        api_detail = None
+        for d in golf_api_data:
+            api_name = (d.get("course_name") or d.get("courseName", "")).lower()
+            if api_name == course_name.lower():
+                api_detail = d
+                break
+
+        sub_course = {
+            "id": normalize_name(sub_name).replace(" ", "-"),
+            "name": sub_name,
+            "city": course_json.get("city", ""),
+            "state": course_json.get("state", ""),
+            "centroid": {
+                "latitude": sum(lats) / len(lats) if lats else 0,
+                "longitude": sum(lons) / len(lons) if lons else 0,
+            },
+            "holes": holes,
+            "teeNames": [],
+            "teeYardageTotals": {},
+        }
+
+        # Enrich with Golf API tee data
+        if api_detail:
+            sub_course = enrich_with_tee_data(sub_course, api_detail)
+
+        results.append(sub_course)
+
+    return results
+
+
+def handle_rag_ingest(event: dict, context) -> dict:
+    """POST /courses/ingest-rag — RAG-based multi-course ingestion
+    using GPT-4o with website images for hole assignment."""
+    body_str = event.get("body", "")
+    if event.get("isBase64Encoded"):
+        body_str = base64.b64decode(body_str).decode("utf-8")
+    if not body_str:
+        return error_response(400, "Empty request body.")
+
+    try:
+        payload = json.loads(body_str)
+    except json.JSONDecodeError:
+        return error_response(400, "Invalid JSON.")
+
+    name = payload.get("name", "")
+    course_json = payload.get("courseJson")
+    if not name or not course_json:
+        return error_response(400, "Missing 'name' or 'courseJson'.")
+
+    # Self-invoke asynchronously
+    async_payload = {
+        "_asyncRagIngest": True,
+        "name": name,
+        "courseJson": course_json,
+        "schema": "1.0",
+    }
+
+    lambda_client = boto3.client("lambda",
+                                  region_name=os.environ.get("AWS_REGION", "us-east-2"))
+    lambda_client.invoke(
+        FunctionName=context.function_name,
+        InvocationType="Event",
+        Payload=json.dumps(async_payload).encode(),
+    )
+
+    print(f"RAG_INGEST: accepted '{name}'")
+    return {
+        "statusCode": 202,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+        },
+        "body": json.dumps({"status": "processing"}),
+    }
+
+
+def handle_async_rag_ingest(event: dict):
+    """Async RAG ingestion: fetch website + Golf API + call GPT-4o."""
+    import time as _time
+    start_time = _time.perf_counter()
+
+    name = event.get("name", "")
+    course_json = event.get("courseJson", {})
+    schema = event.get("schema", "1.0")
+
+    print(f"RAG_INGEST: starting for '{name}', "
+          f"{len(course_json.get('holes', []))} holes")
+
+    s3 = get_s3_client()
+    trace = {
+        "facility": name,
+        "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+        "steps": [],
+    }
+
+    try:
+        # 1. Golf Course API
+        api_results = golf_api_search(name)
+        api_details = []
+        for r in api_results[:6]:
+            d = golf_api_detail(r.get("id", 0))
+            if d:
+                api_details.append(d)
+
+        trace["steps"].append({
+            "step": "golf_api",
+            "courses_found": [d.get("course_name", "") for d in api_details],
+        })
+        print(f"RAG_INGEST: Golf API → {len(api_details)} courses")
+
+        if len(api_details) < 2:
+            raise RuntimeError(f"Golf API returned {len(api_details)} courses, need ≥2")
+
+        # 2. Fetch website images
+        web_images = _fetch_course_website_images(name)
+        trace["steps"].append({
+            "step": "web_images",
+            "images_found": len(web_images),
+            "urls": [img.get("url", "") for img in web_images],
+        })
+        print(f"RAG_INGEST: fetched {len(web_images)} website images")
+
+        # 3. Build OSM hole summary for the prompt
+        osm_holes = []
+        for h in course_json.get("holes", []):
+            lop = h.get("lineOfPlay")
+            lat, lon = 0, 0
+            if lop and lop.get("coordinates"):
+                coords = lop["coordinates"]
+                mid = coords[len(coords) // 2]
+                lon, lat = mid[0], mid[1]
+            osm_holes.append({
+                "id": h.get("id", f"h{h.get('number', 0)}"),
+                "ref": str(h.get("number", 0)),
+                "par": h.get("par", 0),
+                "lat": lat,
+                "lon": lon,
+            })
+
+        # 4. Call GPT-4o
+        rag_result, raw_response = _call_gpt4o_assignment(
+            name, osm_holes, api_details, web_images,
+        )
+        trace["steps"].append({
+            "step": "gpt4o_assignment",
+            "success": rag_result is not None,
+            "raw_response": raw_response[:2000] if raw_response else "",
+            "courses_assigned": list(rag_result.get("courses", {}).keys()) if rag_result else [],
+            "reasoning": rag_result.get("reasoning", "") if rag_result else "",
+        })
+
+        if not rag_result:
+            raise RuntimeError("GPT-4o assignment failed")
+
+        print(f"RAG_INGEST: GPT-4o assigned courses: "
+              f"{list(rag_result.get('courses', {}).keys())}")
+
+        # 5. Build and save sub-courses
+        sub_courses = _build_courses_from_rag(
+            rag_result, course_json, api_details, name,
+        )
+
+        for sub in sub_courses:
+            holes_with_geom = sum(
+                1 for h in sub.get("holes", [])
+                if h.get("lineOfPlay") or h.get("green")
+            )
+            print(f"RAG_INGEST: '{sub['name']}' — "
+                  f"{len(sub.get('holes', []))} holes, "
+                  f"{holes_with_geom} with geometry")
+
+            # Only save if we have geometry
+            if holes_with_geom == 0:
+                print(f"RAG_INGEST: skipping '{sub['name']}' — no geometry")
+                continue
+
+            sub_cache_key = normalize_name(sub["name"]).replace(" ", "-")
+            sub_s3_key = s3_key(schema, sub_cache_key)
+            compressed = gzip.compress(
+                json.dumps(sub, separators=(",", ":")).encode("utf-8")
+            )
+            s3.put_object(
+                Bucket=BUCKET_NAME,
+                Key=sub_s3_key,
+                Body=compressed,
+                ContentType="application/json",
+                ContentEncoding="gzip",
+            )
+            try:
+                lat = sub.get("centroid", {}).get("latitude", 0)
+                lon = sub.get("centroid", {}).get("longitude", 0)
+                update_manifest(
+                    s3, sub_cache_key, sub["name"], lat, lon, schema,
+                    sub_s3_key,
+                    city=sub.get("city", ""),
+                    state=sub.get("state", ""),
+                )
+            except Exception as e:
+                print(f"RAG_INGEST: manifest update failed for {sub_cache_key}: {e}")
+
+        elapsed = _time.perf_counter() - start_time
+        trace["result"] = {
+            "courses_saved": [s["name"] for s in sub_courses],
+            "total_time_s": round(elapsed, 2),
+        }
+        print(f"RAG_INGEST: completed in {elapsed:.1f}s — "
+              f"{len(sub_courses)} courses saved")
+
+    except Exception as e:
+        print(f"RAG_INGEST: failed — {e}")
+        trace["error"] = str(e)
+
+    # Save trace to S3
+    trace_key = f"{TRACES_PREFIX}{normalize_name(name).replace(' ', '-')}.json"
+    try:
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=trace_key,
+            Body=json.dumps(trace, indent=2, default=str).encode("utf-8"),
+            ContentType="application/json",
+        )
+        print(f"RAG_INGEST: trace saved to s3://{BUCKET_NAME}/{trace_key}")
+    except Exception as e:
+        print(f"RAG_INGEST: trace save failed: {e}")
+
+
 def handle_ingest(event: dict, context) -> dict:
     """POST /courses/ingest — accept a multi-course facility for
     async backend processing. Writes a status marker and invokes
@@ -1942,14 +2429,15 @@ def handle_review_correction(event: dict) -> dict:
 
 
 def lambda_handler(event, context):
-    # Async self-invocation for multi-course ingestion
+    # Async self-invocations
     if event.get("_asyncIngest"):
         handle_async_ingest(event)
         return {"statusCode": 200, "body": "ok"}
-
-    # Async self-invocation for single-course vision refinement
     if event.get("_asyncRefine"):
         handle_async_refine(event)
+        return {"statusCode": 200, "body": "ok"}
+    if event.get("_asyncRagIngest"):
+        handle_async_rag_ingest(event)
         return {"statusCode": 200, "body": "ok"}
 
     # Handle CORS preflight
@@ -1979,7 +2467,12 @@ def lambda_handler(event, context):
     # Dispatch by raw path for routes that don't use {courseId}
     raw_path = event.get("rawPath") or event.get("path") or ""
 
-    # POST /courses/ingest — async multi-course ingestion
+    # POST /courses/ingest-rag — RAG-based multi-course ingestion (GPT-4o)
+    if http_method == "POST" and (raw_path == "/courses/ingest-rag"
+                                  or raw_path.endswith("/courses/ingest-rag")):
+        return handle_rag_ingest(event, context)
+
+    # POST /courses/ingest — async multi-course ingestion (algorithmic fallback)
     if http_method == "POST" and (raw_path == "/courses/ingest"
                                   or raw_path.endswith("/courses/ingest")):
         return handle_ingest(event, context)

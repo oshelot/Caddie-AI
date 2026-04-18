@@ -1032,6 +1032,31 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               }
             }
 
+            // Fire RAG ingestion (GPT-4o) in the background so the
+            // NEXT user gets properly-assigned holes from the server
+            // cache. This user gets the fast client-side overlay;
+            // the backend will produce a higher-quality version.
+            {
+              final allCachedHoles = cachedSubCourses.values
+                  .expand((c) => c.holes)
+                  .toList();
+              if (allCachedHoles.isNotEmpty) {
+                final mergedForRag = NormalizedCourse(
+                  id: 'rag_${entry.latitude}_${entry.longitude}',
+                  name: entry.name,
+                  city: entry.city.isNotEmpty ? entry.city : null,
+                  state: entry.state.isNotEmpty ? entry.state : null,
+                  centroid: LngLat(entry.longitude, entry.latitude),
+                  holes: allCachedHoles,
+                );
+                _cacheClient
+                    .requestRagIngestion(entry.name, mergedForRag)
+                    .then((ok) => _debugLog(
+                        'RAG: ingestion ${ok ? "accepted" : "failed"}'))
+                    .ignore();
+              }
+            }
+
             // Show picker — user picks 1 or 2.
             if (!mounted) return;
             final picks = await showCoursePickerDialog(
