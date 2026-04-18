@@ -1944,30 +1944,42 @@ def _build_courses_from_rag(
 ) -> list[dict]:
     """Build NormalizedCourse dicts from RAG assignment results."""
     courses_output = rag_result.get("courses", {})
-    osm_holes_by_id = {}
-    for h in course_json.get("holes", []):
-        # Use a composite key since holes might not have unique IDs
-        key = f"{h.get('number', 0)}_{h.get('par', 0)}"
-        osm_holes_by_id[key] = h
+    all_holes = course_json.get("holes", [])
 
-    # Also index by the raw osm_id if present
-    # The course_json holes come from the normalizer which doesn't keep osm_id.
-    # We need to match by hole number + par instead.
+    # Index by sequential osm_id (osm_0, osm_1, ...) which matches
+    # the IDs in the prompt we sent to GPT-4o.
+    osm_by_idx = {f"osm_{i}": h for i, h in enumerate(all_holes)}
+
     results = []
+    used_ids = set()
     for course_name, assignments in courses_output.items():
         holes = []
-        used_keys = set()
         for a in assignments:
+            osm_id = a.get("osm_id", "")
             hole_num = a.get("hole_number", 0)
             par = a.get("par", 0)
-            # Find matching hole from course_json
-            for h in course_json.get("holes", []):
-                key = id(h)
-                if key in used_keys:
+
+            # Primary match: by osm_id (unique sequential index).
+            if osm_id in osm_by_idx and osm_id not in used_ids:
+                h = dict(osm_by_idx[osm_id])
+                h["number"] = hole_num
+                if par > 0:
+                    h["par"] = par
+                holes.append(h)
+                used_ids.add(osm_id)
+                continue
+
+            # Fallback: match by hole_number + par (for backwards
+            # compat with older responses that used "h11" style IDs).
+            for i, h in enumerate(all_holes):
+                key = f"osm_{i}"
+                if key in used_ids:
                     continue
                 if h.get("number") == hole_num and h.get("par") == par:
-                    holes.append(h)
-                    used_keys.add(key)
+                    matched = dict(h)
+                    matched["number"] = hole_num
+                    holes.append(matched)
+                    used_ids.add(key)
                     break
 
         if not holes:
@@ -2110,9 +2122,11 @@ def handle_async_rag_ingest(event: dict):
         })
         print(f"RAG_INGEST: fetched {len(web_images)} website images")
 
-        # 3. Build OSM hole summary for the prompt
+        # 3. Build OSM hole summary for the prompt.
+        # Use sequential index as unique ID (not hole number, which
+        # has duplicates at multi-course facilities).
         osm_holes = []
-        for h in course_json.get("holes", []):
+        for idx, h in enumerate(course_json.get("holes", [])):
             lop = h.get("lineOfPlay")
             lat, lon = 0, 0
             if lop and lop.get("coordinates"):
@@ -2120,7 +2134,7 @@ def handle_async_rag_ingest(event: dict):
                 mid = coords[len(coords) // 2]
                 lon, lat = mid[0], mid[1]
             osm_holes.append({
-                "id": h.get("id", f"h{h.get('number', 0)}"),
+                "id": f"osm_{idx}",
                 "ref": str(h.get("number", 0)),
                 "par": h.get("par", 0),
                 "lat": lat,
