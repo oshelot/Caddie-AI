@@ -57,6 +57,9 @@ class CourseNormalizer {
     /// neighboring facilities (disc golf, adjacent courses) that
     /// share the `golf=hole` tag.
     LngLat? facilityPoint,
+    /// Minimum holes per cluster. Default 3 drops small fragments.
+    /// Set to 1 for the RAG backend path to keep every hole.
+    int minClusterSize = 3,
   }) {
     // 1. Build raw holes from holeLines (or greens as fallback).
     var rawHoles = _buildRawHoles(features);
@@ -138,7 +141,7 @@ class CourseNormalizer {
     _associateWater(rawHoles, waterFeatures);
 
     // 3. Multi-course detection.
-    final clusters = _detectMultiCourse(rawHoles);
+    final clusters = _detectMultiCourse(rawHoles, minClusterSize);
 
     final courses = <NormalizedCourse>[];
     for (var i = 0; i < clusters.length; i++) {
@@ -537,7 +540,7 @@ class CourseNormalizer {
   // Multi-course detection (Union-Find clustering)
   // -------------------------------------------------------------------------
 
-  List<List<_RawHole>> _detectMultiCourse(List<_RawHole> holes) {
+  List<List<_RawHole>> _detectMultiCourse(List<_RawHole> holes, [int minSize = 3]) {
     // First, exclude par-3 course holes — they're a separate
     // facility feature that should never be mixed with regulation
     // course clusters (e.g., Kennedy's 9-hole par-3 course).
@@ -572,7 +575,7 @@ class CourseNormalizer {
     if (nonEmptyPrefixes >= 1) {
       final result = <List<_RawHole>>[];
       for (final group in prefixGroups.values) {
-        if (group.length < 3) continue;
+        if (group.length < minSize) continue;
         final isNumericGroup = group.first.refPrefix.isEmpty;
         final hasLate = group.any((h) => h.number > 9);
         final hasEarly = group.any((h) => h.number >= 1 && h.number <= 9);
@@ -594,15 +597,15 @@ class CourseNormalizer {
           for (final h in back) {
             h.number -= 9;
           }
-          if (front.length >= 3) result.add(front);
-          if (back.length >= 3) result.add(back);
+          if (front.length >= minSize) result.add(front);
+          if (back.length >= minSize) result.add(back);
         } else if (isNumericGroup && _hasDuplicateNumbers(group)) {
           // Terra Lago style: duplicates within 1-9 means two full
           // courses share numbering → spatial clustering separates
           // them.
           final subClusters = _spatialCluster(group);
           for (final sc in subClusters) {
-            if (sc.length >= 3) result.add(sc);
+            if (sc.length >= minSize) result.add(sc);
           }
         } else {
           result.add(group);
@@ -683,7 +686,7 @@ class CourseNormalizer {
 
     // Filter clusters with >= 3 holes.
     final result =
-        clusters.values.where((c) => c.length >= 3).toList();
+        clusters.values.where((c) => c.length >= minSize).toList();
     return result.isEmpty ? [holes] : result;
   }
 

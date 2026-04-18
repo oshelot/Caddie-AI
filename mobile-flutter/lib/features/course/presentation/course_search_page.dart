@@ -956,10 +956,10 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               // a pending marker. User goes to Saved tab to wait.
               _debugLog('MULTI: not cached — sending to RAG backend');
 
-              // Fetch raw OSM data to send to the backend. Skip the
-              // boundary filter — GPT-4o can distinguish Kennedy
-              // holes from disc golf by context. Sending all holes
-              // gives GPT-4o more data to work with.
+              // Fetch OSM data for the backend. Use boundary filter
+              // to exclude disc golf / neighboring courses, but
+              // skip clustering/dedup — send ALL filtered holes to
+              // GPT-4o so it has maximum data for assignment.
               NormalizedCourse? mergedOsm;
               try {
                 final overpass = OverpassClient(_transport);
@@ -971,17 +971,25 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   entry.longitude + buffer,
                 );
                 final features = OsmParser.parse(resp);
-                // Use normalize (no boundary filter) to get all
-                // holes with basic geometry association. The backend
-                // GPT-4o handles course assignment + filtering.
+
+                // Build holes directly from parsed features — no
+                // clustering or dedup. Filter par-3 course holes
+                // and apply boundary filter for disc golf exclusion.
+                final facilityPt = LngLat(entry.longitude, entry.latitude);
                 final normalizer = CourseNormalizer();
+
+                // Use normalizeAll WITH boundary filter to get
+                // properly filtered + associated holes, but merge
+                // ALL clusters (including small fragments that
+                // normalizeAll would normally drop at <3 holes).
                 final allCourses = normalizer.normalizeAll(
                   features: features,
                   courseName: entry.name,
                   osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
                   city: entry.city.isNotEmpty ? entry.city : null,
                   state: entry.state.isNotEmpty ? entry.state : null,
-                  // No facilityPoint = no boundary filtering.
+                  facilityPoint: facilityPt,
+                  minClusterSize: 1, // keep every hole for GPT-4o
                 );
                 final allHoles = allCourses
                     .expand((c) => c.holes)
