@@ -2594,6 +2594,11 @@ def handle_async_rag_ingest(event: dict):
             f"Bounds: TL ({facility_lat+0.009:.4f},{facility_lon-0.012:.4f}), "
             f"BR ({facility_lat-0.009:.4f},{facility_lon+0.012:.4f})\n\n"
             f"### Source 4: OSM data ({len(osm_holes)} elements)\n{nl.join(osm_lines)}\n\n"
+            f"## CRITICAL RULE\n"
+            f"Each osm_id can ONLY be assigned to ONE course. "
+            f"Two courses cannot share the same OSM hole. "
+            f"If two courses need the same hole number, they must use "
+            f"DIFFERENT osm_ids with different coordinates.\n\n"
             f"## EXCLUSION RULES\n"
             f'- "Par3-*" refs = par-3 course, EXCLUDE\n'
             f"- Holes at lat < {facility_lat-0.01:.3f} = likely disc golf, EXCLUDE\n"
@@ -2646,6 +2651,7 @@ def handle_async_rag_ingest(event: dict):
 
         # 5. Build courses from assignments
         osm_by_idx = {f"osm_{h['idx']}": h for h in osm_holes}
+        used_osm_ids = set()  # Prevent same OSM hole on multiple courses
         sub_courses = []
 
         for course_name, assignments in rag_result.get("courses", {}).items():
@@ -2654,7 +2660,14 @@ def handle_async_rag_ingest(event: dict):
                 osm_id = a.get("osm_id", "")
                 hole_num = a.get("hole_number", 0)
                 par = a.get("par", 0)
-                osm_h = osm_by_idx.get(osm_id)
+                # Skip if this OSM hole was already used by another course
+                if osm_id in used_osm_ids:
+                    print(f"RAG_INGEST: DEDUP skipping {osm_id} for {course_name} H{hole_num} (already used)")
+                    osm_h = None
+                else:
+                    osm_h = osm_by_idx.get(osm_id)
+                    if osm_h:
+                        used_osm_ids.add(osm_id)
                 h_data = {
                     "number": hole_num, "par": par,
                     "strokeIndex": None, "yardages": {},
