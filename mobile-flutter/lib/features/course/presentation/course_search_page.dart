@@ -956,10 +956,10 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               // a pending marker. User goes to Saved tab to wait.
               _debugLog('MULTI: not cached — sending to RAG backend');
 
-              // Fetch OSM data for the backend. Use boundary filter
-              // to exclude disc golf / neighboring courses, but
-              // skip clustering/dedup — send ALL filtered holes to
-              // GPT-4o so it has maximum data for assignment.
+              // Fetch raw OSM data for the backend. Bypass the
+              // normalizer entirely — send raw parsed holes so
+              // GPT-4o gets unmodified geometry. The normalizer's
+              // clustering/dedup/association was corrupting data.
               NormalizedCourse? mergedOsm;
               try {
                 final overpass = OverpassClient(_transport);
@@ -972,27 +972,25 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 );
                 final features = OsmParser.parse(resp);
 
-                // Build holes directly from parsed features — no
-                // clustering or dedup. Filter par-3 course holes
-                // and apply boundary filter for disc golf exclusion.
-                final facilityPt = LngLat(entry.longitude, entry.latitude);
-                final normalizer = CourseNormalizer();
-
-                // Use normalizeAll WITH boundary filter to get
-                // properly filtered + associated holes, but merge
-                // ALL clusters (including small fragments that
-                // normalizeAll would normally drop at <3 holes).
-                final allCourses = normalizer.normalizeAll(
-                  features: features,
-                  courseName: entry.name,
-                  osmCourseId: 'osm_${entry.latitude}_${entry.longitude}',
-                  city: entry.city.isNotEmpty ? entry.city : null,
-                  state: entry.state.isNotEmpty ? entry.state : null,
-                  facilityPoint: facilityPt,
-                  minClusterSize: 1, // keep every hole for GPT-4o
-                );
-                final allHoles = allCourses
-                    .expand((c) => c.holes)
+                // Build holes directly from ParsedHoleLines — no
+                // normalizer, no clustering, no dedup, no boundary
+                // filter. GPT-4o handles all filtering by context.
+                // Skip par-3 course holes (isPar3Course flag).
+                final allHoles = features.holeLines
+                    .where((hl) => !hl.isPar3Course)
+                    .where((hl) => hl.number != null && hl.number! >= 1 && hl.number! <= 18)
+                    .map((hl) => NormalizedHole(
+                      number: hl.number!,
+                      par: hl.par ?? 4,
+                      strokeIndex: null,
+                      yardages: const {},
+                      teeAreas: const [],
+                      lineOfPlay: hl.lineString,
+                      green: null,
+                      pin: null,
+                      bunkers: const [],
+                      water: const [],
+                    ))
                     .toList();
                 mergedOsm = NormalizedCourse(
                   id: 'rag_${entry.latitude}_${entry.longitude}',
