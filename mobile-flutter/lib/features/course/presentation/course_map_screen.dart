@@ -710,9 +710,12 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
     // Clamp to sane range.
     zoom = zoom.clamp(15.0, 19.0);
 
-    // Center on midpoint between back tee and green.
-    final centerLat = (backTee.lat + greenPoint.lat) / 2.0;
-    final centerLon = (backTee.lon + greenPoint.lon) / 2.0;
+    // Center biased toward the tee (30% from tee, 70% from green)
+    // to compensate for the bottom panel covering ~30% of the screen.
+    // This shifts the hole upward so both tee and green are visible
+    // above the panel.
+    final centerLat = backTee.lat * 0.35 + greenPoint.lat * 0.65;
+    final centerLon = backTee.lon * 0.35 + greenPoint.lon * 0.65;
 
     final bearing = hole.teeToGreenBearing();
     await map.flyTo(
