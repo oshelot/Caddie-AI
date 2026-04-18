@@ -1941,6 +1941,7 @@ def _build_courses_from_rag(
     course_json: dict,
     golf_api_data: list[dict],
     facility_name: str,
+    extracted_courses: list[dict] | None = None,
 ) -> list[dict]:
     """Build NormalizedCourse dicts from RAG assignment results."""
     courses_output = rag_result.get("courses", {})
@@ -1999,13 +2000,22 @@ def _build_courses_from_rag(
 
         sub_name = f"{facility_name} - {course_name}"
 
-        # Find matching Golf API detail for enrichment
+        # Find matching extracted course for enrichment.
         api_detail = None
-        for d in golf_api_data:
-            api_name = (d.get("course_name") or d.get("courseName", "")).lower()
-            if api_name == course_name.lower():
-                api_detail = d
-                break
+        front_or_back = None
+        if extracted_courses:
+            for e in extracted_courses:
+                if e["name"].lower() == course_name.lower():
+                    api_detail = e.get("detail")
+                    front_or_back = e.get("front_or_back")
+                    break
+        # Fallback: try raw Golf API data by name.
+        if api_detail is None:
+            for d in golf_api_data:
+                api_name = (d.get("course_name") or d.get("courseName", "")).lower()
+                if api_name == course_name.lower():
+                    api_detail = d
+                    break
 
         sub_course = {
             "id": normalize_name(sub_name).replace(" ", "-"),
@@ -2023,7 +2033,10 @@ def _build_courses_from_rag(
 
         # Enrich with Golf API tee data
         if api_detail:
-            sub_course = enrich_with_tee_data(sub_course, api_detail)
+            sub_course = enrich_with_tee_data(
+                sub_course, api_detail,
+                front_or_back=front_or_back,
+            )
 
         results.append(sub_course)
 
@@ -2104,14 +2117,28 @@ def handle_async_rag_ingest(event: dict):
             if d:
                 api_details.append(d)
 
+        # Decompose combo names (e.g., "West-Lind" → individual
+        # West, Lind, Creek) so GPT-4o assigns to individual 9s.
+        extracted = extract_courses(api_details)
         trace["steps"].append({
             "step": "golf_api",
-            "courses_found": [d.get("course_name", "") for d in api_details],
+            "raw_courses": [d.get("course_name", "") for d in api_details],
+            "extracted_courses": [e["name"] for e in extracted],
         })
-        print(f"RAG_INGEST: Golf API → {len(api_details)} courses")
+        print(f"RAG_INGEST: Golf API → {len(api_details)} raw, "
+              f"{len(extracted)} extracted: {[e['name'] for e in extracted]}")
 
-        if len(api_details) < 2:
-            raise RuntimeError(f"Golf API returned {len(api_details)} courses, need ≥2")
+        if len(extracted) < 2:
+            raise RuntimeError(f"Only {len(extracted)} courses extracted, need ≥2")
+
+        # Use extracted courses (individual 9s) for the prompt
+        # instead of the raw Golf API combos.
+        api_details_for_prompt = []
+        for e in extracted:
+            api_details_for_prompt.append({
+                "course_name": e["name"],
+                "tees": {"male": [{"holes": [{"par": p} for p in e["pars"]]}]},
+            })
 
         # 2. Fetch website images
         web_images = _fetch_course_website_images(name)
@@ -2141,9 +2168,9 @@ def handle_async_rag_ingest(event: dict):
                 "lon": lon,
             })
 
-        # 4. Call GPT-4o
+        # 4. Call GPT-4o with extracted individual courses
         rag_result, raw_response = _call_gpt4o_assignment(
-            name, osm_holes, api_details, web_images,
+            name, osm_holes, api_details_for_prompt, web_images,
         )
         trace["steps"].append({
             "step": "gpt4o_assignment",
@@ -2162,6 +2189,7 @@ def handle_async_rag_ingest(event: dict):
         # 5. Build and save sub-courses
         sub_courses = _build_courses_from_rag(
             rag_result, course_json, api_details, name,
+            extracted_courses=extracted,
         )
 
         for sub in sub_courses:
