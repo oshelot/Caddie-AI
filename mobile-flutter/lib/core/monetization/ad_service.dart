@@ -105,6 +105,12 @@ class StubAdService implements AdService {
   }
 
   @override
+  void loadInterstitial() {}
+
+  @override
+  bool showInterstitialIfReady() => false;
+
+  @override
   Future<void> requestReview() async {}
 
   @override
