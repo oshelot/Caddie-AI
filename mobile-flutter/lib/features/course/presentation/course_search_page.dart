@@ -615,8 +615,21 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
           .where((e) => e.name.startsWith(facilityPrefix))
           .toList();
       if (subEntries.length >= 2) {
-        // Ready! Clear pending and re-run as a normal tap.
-        _cacheRepository?.removePending(entry.name);
+        // Ready! Download sub-courses locally so they appear in Saved,
+        // THEN clear pending and re-run as a normal tap.
+        final repo = _cacheRepository;
+        if (repo != null) {
+          for (final sub in subEntries) {
+            final subKey = NormalizedCourse.serverCacheKey(sub.name);
+            if (repo.load(subKey) == null) {
+              final subCourse = await _cacheClient.fetchCourse(sub.cacheKey);
+              if (subCourse != null) {
+                try { await repo.save(subKey, subCourse); } catch (_) {}
+              }
+            }
+          }
+        }
+        repo?.removePending(entry.name);
         setState(() => _navigatingToMap = false);
         _onSelectCourse(CourseSearchEntry(
           cacheKey: entry.cacheKey.replaceFirst('pending:', ''),
@@ -939,6 +952,10 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                 final combinedName = picks.length == 1
                     ? '${entry.name} - ${picks.first.name}'
                     : '${entry.name} - ${picks.map((p) => p.name).join(" + ")}';
+                // Use teeNames/teeYardageTotals from the first picked
+                // sub-course so the enrichment guard sees them and
+                // doesn't re-enrich with the wrong Golf API result.
+                final firstSub = cachedSubCourses[picks.first.name];
                 course = NormalizedCourse(
                   id: 'multi_cached',
                   name: combinedName,
@@ -946,6 +963,8 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
                   state: entry.state.isNotEmpty ? entry.state : null,
                   centroid: LngLat(entry.longitude, entry.latitude),
                   holes: combinedHoles,
+                  teeNames: firstSub?.teeNames ?? const [],
+                  teeYardageTotals: firstSub?.teeYardageTotals ?? const {},
                 );
                 source = 'server';
                 cacheKeyForSave = null;

@@ -686,7 +686,7 @@ class CourseNormalizer {
 
     // Filter clusters with >= 3 holes.
     final result =
-        clusters.values.where((c) => c.length >= minSize).toList();
+        clusters.values.where((c) => c.length >= 3).toList();
     return result.isEmpty ? [holes] : result;
   }
 

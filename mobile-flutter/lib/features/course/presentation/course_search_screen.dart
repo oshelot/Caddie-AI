@@ -784,9 +784,9 @@ class _CourseRow extends StatelessWidget {
     final subtitle = subtitleParts.isEmpty ? null : subtitleParts.join(', ');
 
     // Pending entries (backend processing) — spinner, tappable to
-    // check if ready.
+    // check if ready. Swipe-to-delete acts as kill switch.
     if (entry.isPending) {
-      return ListTile(
+      Widget pending = ListTile(
         leading: CaddieIcons.course(size: 28),
         title: Text(
           entry.name,
@@ -806,6 +806,21 @@ class _CourseRow extends StatelessWidget {
         ),
         onTap: () => onSelect(entry),
       );
+      if (onDelete != null) {
+        pending = Dismissible(
+          key: ValueKey('dismiss-${entry.cacheKey}'),
+          direction: DismissDirection.endToStart,
+          onDismissed: (_) => onDelete!(entry),
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            color: Colors.red,
+            child: const Icon(Icons.delete, color: Colors.white),
+          ),
+          child: pending,
+        );
+      }
+      return pending;
     }
 
     Widget tile = ListTile(
