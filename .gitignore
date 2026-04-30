@@ -1,32 +1,46 @@
+# === Flutter / Dart ===
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+.pub-cache/
+.pub/
+build/
+**/doc/api/
+
+# Symbolication / obfuscation
+app.*.symbols
+app.*.map.json
+
 # === iOS / Xcode ===
 ios/build/
 ios/DerivedData/
+ios/Flutter/.last_build_id
+ios/Pods/
+ios/.symlinks/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
-ios/CaddieAI/Secrets.plist
-
-# Vendored frameworks (too large for git — download manually)
-ios/Frameworks/
-GoogleMobileAds.xcframework/
-UserMessagingPlatform.xcframework/
-
-# CocoaPods / SPM caches
-Pods/
-.build/
+.swiftpm/
 
 # === Android ===
 *.iml
-.gradle
+*.ipr
+*.iws
+.idea/
+.gradle/
 local.properties
 android/.idea/
 android/build/
 android/app/build/
+android/app/debug/
+android/app/profile/
+android/app/release/
 android/captures/
 .externalNativeBuild
 .cxx
 
-# === Secrets & credentials (both platforms) ===
+# === Secrets / credentials ===
 *.pem
 *.p12
 *.key
@@ -41,14 +55,27 @@ service-account*.json
 secrets/
 .secrets/
 
+# Build/run helpers that bundle real keys (must not be committed)
+tool/run-ios.sh
+
 # === Infrastructure (split to private CaddieAI-infra repo, 2026-04-30) ===
 # All proprietary backend code lives in github.com/oshelot/CaddieAI-infra.
 # infrastructure/ exists on disk as a nested git repo (its own remote).
 infrastructure/
 
+# === Migration / misc ===
+migrate_working_dir/
+.atom/
+.history
+.svn/
+.buildlog/
+
 # === OS / Editor ===
 .DS_Store
 Thumbs.db
+*.class
+*.log
+*.pyc
 *.swp
 *.swo
 *~
