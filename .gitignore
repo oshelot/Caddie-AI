@@ -41,11 +41,10 @@ service-account*.json
 secrets/
 .secrets/
 
-# === Infrastructure build artifacts ===
-infrastructure/llm-proxy/lambda_function.zip
-infrastructure/llm-proxy/llm-proxy-streaming.zip
-infrastructure/course-cache/function.zip
-infrastructure/llm-proxy/samconfig.toml
+# === Infrastructure (split to private CaddieAI-infra repo, 2026-04-30) ===
+# All proprietary backend code lives in github.com/oshelot/CaddieAI-infra.
+# infrastructure/ exists on disk as a nested git repo (its own remote).
+infrastructure/
 
 # === OS / Editor ===
 .DS_Store
