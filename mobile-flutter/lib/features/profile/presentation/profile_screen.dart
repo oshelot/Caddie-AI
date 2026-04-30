@@ -19,8 +19,10 @@ import 'dart:async';
 
 import '../../../core/build_mode.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/icons/caddie_icons.dart';
+import '../../../core/routing/app_router.dart';
 import '../../../core/monetization/ad_service.dart';
 import '../../../core/monetization/subscription_service.dart';
 import '../../../core/storage/secure_keys_storage.dart';
@@ -408,6 +410,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     widget.subscriptionService!.debugForcePro = v;
                     setState(() {});
                   },
+                ),
+                ListTile(
+                  key: const Key('profile-debug-theme-playground'),
+                  leading: Icon(Icons.palette_outlined,
+                      color: theme.colorScheme.primary),
+                  title: const Text('Theme Playground'),
+                  subtitle: const Text(
+                      'Try different color palettes and persist your pick'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(AppRoutes.devThemePlayground),
                 ),
               ],
             ],

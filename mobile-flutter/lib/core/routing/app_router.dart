@@ -16,12 +16,14 @@ import 'package:go_router/go_router.dart';
 import '../../features/caddie/presentation/caddie_page.dart';
 import '../../features/course/presentation/course_placeholder.dart';
 import '../../features/course/presentation/course_search_page.dart';
+import '../../features/dev/presentation/theme_playground_page.dart';
 import '../../features/history/presentation/history_page.dart';
 import '../../features/onboarding/presentation/onboarding_page.dart';
 import '../../features/profile/presentation/profile_page.dart';
 import '../../features/splash/presentation/splash_page.dart';
 import '../../models/normalized_course.dart';
 import '../../shell/main_shell.dart';
+import '../build_mode.dart';
 import '../storage/profile_repository.dart';
 
 /// Top-level routes used by the bottom navigation. Exposed as constants
@@ -58,6 +60,10 @@ abstract final class AppRoutes {
   /// first-run onboarding gate doesn't fire before the splash timer
   /// completes.
   static const splash = '/splash';
+
+  /// Dev-only theme playground. The route is only registered when
+  /// `isDevMode` is true; production builds 404 on this path.
+  static const devThemePlayground = '/dev/theme';
 }
 
 /// Build the app's `GoRouter`. Called once from `lib/app.dart` and
@@ -103,6 +109,14 @@ GoRouter buildAppRouter() {
         path: AppRoutes.onboarding,
         builder: (context, state) => const OnboardingPage(),
       ),
+      // Dev-only theme palette playground. Only registered in dev
+      // builds — production releases omit the DEV_MODE dart-define,
+      // so `isDevMode` is false and this route isn't in the tree.
+      if (isDevMode)
+        GoRoute(
+          path: AppRoutes.devThemePlayground,
+          builder: (context, state) => const ThemePlaygroundPage(),
+        ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
             MainShell(navigationShell: navigationShell),

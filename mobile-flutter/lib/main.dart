@@ -34,6 +34,7 @@ import 'core/logging/log_sender.dart';
 import 'core/logging/logging_service.dart';
 import 'core/mapbox/mapbox_init.dart';
 import 'core/storage/app_storage.dart';
+import 'core/theme/theme_controller.dart';
 
 /// Process-global LoggingService. Initialized in `main()` and read
 /// by feature code via this getter — there's no DI container in
@@ -84,6 +85,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initMapbox();
   await AppStorage.init();
+  // Restore the user's palette choice from Hive (dev-mode
+  // playground writes here). Safe after AppStorage.init; safe
+  // before runApp so the first frame uses the correct theme.
+  await themeController.load();
   _logger = _buildLogger();
   // Download centralized prompts from S3 (KAN-62).
   await PromptService.shared.fetchIfNeeded();

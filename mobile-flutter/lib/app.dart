@@ -1,15 +1,20 @@
 // Top-level MaterialApp.router. Routes are defined in
-// `core/routing/app_router.dart`; theme in `core/theme/caddie_theme.dart`.
+// `core/routing/app_router.dart`; theme construction in
+// `core/theme/caddie_theme_builder.dart`.
 //
-// The KAN-291 (S0) icon smoke test is no longer present here — the
-// bottom navigation in the MainShell now exercises 4 CaddieIcons
-// (golfer / course / history / profile) on every cold start, which is
-// the same runtime confirmation the smoke test provided.
+// The theme is driven by the global [themeController] (a
+// ValueNotifier<ThemePalette>). The dev-only Theme Playground
+// screen writes to it; this builder listens and rebuilds the whole
+// MaterialApp when the palette changes. Production builds ignore
+// that screen but still honor any palette the user previously
+// selected in a dev build (persisted to Hive).
 
 import 'package:flutter/material.dart';
 
 import 'core/routing/app_router.dart';
-import 'core/theme/caddie_theme.dart';
+import 'core/theme/caddie_theme_builder.dart';
+import 'core/theme/theme_controller.dart';
+import 'core/theme/theme_palette.dart';
 
 class CaddieApp extends StatelessWidget {
   CaddieApp({super.key});
@@ -22,11 +27,16 @@ class CaddieApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
-      title: 'CaddieAI',
-      debugShowCheckedModeBanner: false,
-      theme: CaddieTheme.light,
-      routerConfig: _router,
+    return ValueListenableBuilder<ThemePalette>(
+      valueListenable: themeController,
+      builder: (context, palette, _) {
+        return MaterialApp.router(
+          title: 'CaddieAI',
+          debugShowCheckedModeBanner: false,
+          theme: buildCaddieTheme(palette),
+          routerConfig: _router,
+        );
+      },
     );
   }
 }

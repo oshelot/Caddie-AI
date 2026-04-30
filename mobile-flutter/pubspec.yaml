@@ -65,6 +65,12 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^4.0.0
 
+  # KAN-64 — generates launcher icons for iOS + Android (legacy raster
+  # + adaptive foreground/background + monochrome for Android 13+ themed
+  # icons) from a single master. Run `dart run flutter_launcher_icons`
+  # after any source-image change. Config block is below.
+  flutter_launcher_icons: ^0.14.1
+
 flutter:
   uses-material-design: true
 
@@ -88,3 +94,19 @@ flutter:
     # Once the Ryppl Golf wordmark image arrives, drop it in here
     # and replace the bold-text fallback in `splash_screen.dart`.
     - assets/branding/
+
+# KAN-64 — launcher icon generation. The iOS launcher uses the full-bleed
+# master; Android adaptive uses a pre-padded foreground (logo scaled to 70%
+# so it survives circle/squircle/rounded-square mask crops) on a white
+# background. Regenerate with: `dart run flutter_launcher_icons`
+flutter_launcher_icons:
+  image_path: "assets/branding/app_icon.png"
+
+  ios: true
+  remove_alpha_ios: true
+
+  android: "ic_launcher"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/branding/app_icon_adaptive_fg.png"
+  adaptive_icon_monochrome: "assets/branding/app_icon_monochrome.png"

@@ -53,6 +53,11 @@ abstract final class AppStorage {
   /// Saved sections.
   static const String courseFavoritesBoxName = 'caddieai_course_favorites_v1';
 
+  /// App-level preferences. Small key/value store for settings that
+  /// don't belong to the PlayerProfile (which is user-facing domain
+  /// data). Current keys: `theme_palette` (see ThemeController).
+  static const String prefsBoxName = 'caddieai_prefs_v1';
+
   // Single key inside the profile box. The profile is a singleton —
   // there's only one player per device. The box is a key/value store
   // because Hive doesn't have a "single object" primitive, but we
@@ -90,6 +95,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(scorecardBoxName),
       Hive.openBox<String>(courseCacheBoxName),
       Hive.openBox<String>(courseFavoritesBoxName),
+      Hive.openBox<String>(prefsBoxName),
     ]);
 
     _initialized = true;
@@ -117,6 +123,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(scorecardBoxName),
       Hive.openBox<String>(courseCacheBoxName),
       Hive.openBox<String>(courseFavoritesBoxName),
+      Hive.openBox<String>(prefsBoxName),
     ]);
     _initialized = true;
   }
