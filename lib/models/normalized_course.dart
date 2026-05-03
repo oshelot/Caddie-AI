@@ -184,16 +184,28 @@ class NormalizedCourse {
     return out;
   }
 
-  /// Name-only key for the server cache. Coordinates are deliberately
-  /// excluded so iOS (MapKit) and Android/Flutter (Nominatim/Places)
-  /// converge on the same cache entry for the same course — different
-  /// providers report slightly different centroids for the same place.
-  /// Mirrors `ios/CaddieAI/Models/CourseModel.swift:99-104` exactly.
-  static String serverCacheKey(String name) {
-    return name
-        .toLowerCase()
-        .replaceAll(' ', '-')
-        .replaceAll("'", '')
-        .replaceAll('"', '');
+  /// Canonical cache key: `{slug}-{state}` (KAN-328).
+  ///
+  /// Coordinates are deliberately excluded — different geocoders
+  /// report different centroids for the same place. State suffix
+  /// disambiguates same-name courses (e.g., Coyote Creek CO vs CA).
+  /// When [state] is null or empty, returns name-only slug (graceful
+  /// degradation for entries where state isn't known yet).
+  ///
+  /// Must produce identical output to `make_cache_key()` in
+  /// `infrastructure/course-census/batch_publish.py`.
+  static String serverCacheKey(String name, {String? state}) {
+    var slug = name.toLowerCase().trim();
+    // Keep only alphanumeric, spaces, and hyphens.
+    slug = slug.replaceAll(RegExp(r'[^a-z0-9 \-]'), '');
+    slug = slug.replaceAll(' ', '-');
+    // Collapse consecutive hyphens.
+    slug = slug.replaceAll(RegExp(r'-{2,}'), '-');
+    // Strip leading/trailing hyphens.
+    slug = slug.replaceAll(RegExp(r'^-+|-+$'), '');
+    if (state != null && state.isNotEmpty) {
+      slug = '$slug-${state.toLowerCase()}';
+    }
+    return slug;
   }
 }

@@ -253,7 +253,7 @@ class CourseCacheRepository {
   /// Shows in the Saved tab with a spinner, not tappable.
   Future<void> savePending(String facilityName, String city, String state,
       double lat, double lon) async {
-    final key = 'pending:${NormalizedCourse.serverCacheKey(facilityName)}';
+    final key = 'pending:${NormalizedCourse.serverCacheKey(facilityName, state: state)}';
     await AppStorage.courseCacheBox.put(
       key,
       jsonEncode({
@@ -270,14 +270,14 @@ class CourseCacheRepository {
 
   /// Removes a pending marker (called when ingestion completes
   /// or the user deletes it).
-  Future<void> removePending(String facilityName) async {
-    final key = 'pending:${NormalizedCourse.serverCacheKey(facilityName)}';
+  Future<void> removePending(String facilityName, {String? state}) async {
+    final key = 'pending:${NormalizedCourse.serverCacheKey(facilityName, state: state)}';
     await AppStorage.courseCacheBox.delete(key);
   }
 
   /// True if this facility has a pending marker.
-  bool isPending(String facilityName) {
-    final key = 'pending:${NormalizedCourse.serverCacheKey(facilityName)}';
+  bool isPending(String facilityName, {String? state}) {
+    final key = 'pending:${NormalizedCourse.serverCacheKey(facilityName, state: state)}';
     return AppStorage.courseCacheBox.containsKey(key);
   }
 

@@ -212,7 +212,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
             .where((e) => e.name.startsWith(facilityPrefix))
             .toList();
         if (subEntries.length >= 2) {
-          await repo.removePending(entry.name);
+          await repo.removePending(entry.name, state: entry.state);
           _debugLog('PENDING: resolved ${entry.name} — '
               '${subEntries.length} sub-courses ready');
         }
@@ -620,7 +620,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         final repo = _cacheRepository;
         if (repo != null) {
           for (final sub in subEntries) {
-            final subKey = NormalizedCourse.serverCacheKey(sub.name);
+            final subKey = NormalizedCourse.serverCacheKey(sub.name, state: sub.state);
             if (repo.load(subKey) == null) {
               final subCourse = await _cacheClient.fetchCourse(sub.cacheKey);
               if (subCourse != null) {
@@ -629,7 +629,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
             }
           }
         }
-        repo?.removePending(entry.name);
+        repo?.removePending(entry.name, state: entry.state);
         setState(() => _navigatingToMap = false);
         _onSelectCourse(CourseSearchEntry(
           cacheKey: entry.cacheKey.replaceFirst('pending:', ''),
@@ -686,7 +686,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         );
       } else {
         // Step 1: Check local disk cache (instant, no network).
-        cacheKeyForSave = NormalizedCourse.serverCacheKey(entry.name);
+        cacheKeyForSave = NormalizedCourse.serverCacheKey(entry.name, state: entry.state);
         final repo = _cacheRepository;
         if (repo != null) {
           final localSw = Stopwatch()..start();
@@ -769,7 +769,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               final subName = sub.name.substring(facilityPrefix.length);
               // Try local cache first, then server.
               NormalizedCourse? subCourse;
-              final subKey = NormalizedCourse.serverCacheKey(sub.name);
+              final subKey = NormalizedCourse.serverCacheKey(sub.name, state: sub.state);
               if (repo != null) {
                 final cached = repo.load(subKey);
                 if (cached != null) subCourse = cached.course;
@@ -893,7 +893,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               for (final sub in subEntries) {
                 final subName = sub.name.substring(facilityPrefix.length);
                 NormalizedCourse? subCourse;
-                final subKey = NormalizedCourse.serverCacheKey(sub.name);
+                final subKey = NormalizedCourse.serverCacheKey(sub.name, state: sub.state);
                 if (repo != null) {
                   final cached = repo.load(subKey);
                   if (cached != null) subCourse = cached.course;
@@ -914,7 +914,7 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
               }
 
               // Remove pending marker if it exists.
-              repo?.removePending(entry.name);
+              repo?.removePending(entry.name, state: entry.state);
 
               if (extractedCourses.length >= 2) {
                 if (!mounted) return;
