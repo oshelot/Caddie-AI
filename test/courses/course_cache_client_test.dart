@@ -1,9 +1,11 @@
 // CourseCacheClient tests for KAN-275 (S5). Covers every AC:
 //
 //   AC #1: `platform=ios&schema=1.0` MUST be passed on every call.
-//          Asserted on search, fetchCourse, AND putCourse — every
-//          test in this file inspects the outbound URL params and
-//          fails the build if either is missing or wrong.
+//          Asserted on search and fetchCourse — every test in this
+//          file inspects the outbound URL params and fails the build
+//          if either is missing or wrong.
+//          (putCourse was removed in KAN-331 — cloud pipeline is the
+//          sole authoritative writer to the server cache.)
 //   AC #2: Cache miss → search → fetch → persist happy path,
 //          covered by an integration test against the fake
 //          transport (acts as the test-server double).
@@ -83,25 +85,8 @@ void main() {
       expect(url.path, '/courses/wellshire-denver');
     });
 
-    test('putCourse sends platform=ios and schema=1.0', () async {
-      // Build a real NormalizedCourse via fetchCourse against a
-      // stubbed response, then upload it.
-      transport.enqueueJson(
-        '{"id":"x","name":"X","city":"Denver","state":"CO",'
-        '"centroid":{"latitude":39.7,"longitude":-105.0},"holes":[]}',
-      );
-      final fetched = await client.fetchCourse('x');
-      expect(fetched, isNotNull);
-
-      transport.requests.clear();
-      transport.enqueueJson('{"ok":true}');
-      await client.putCourse('x', fetched!);
-
-      final url = transport.requests.first.url;
-      expect(url.queryParameters['platform'], 'ios');
-      expect(url.queryParameters['schema'], '1.0');
-      expect(transport.requests.first.method, 'PUT');
-    });
+    // putCourse test removed — KAN-331: cloud pipeline is the sole
+    // authoritative writer to the server cache.
   });
 
   group('Auth header', () {

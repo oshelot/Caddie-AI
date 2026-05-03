@@ -172,27 +172,6 @@ class CourseCacheClient {
     }
   }
 
-  // ── upload ────────────────────────────────────────────────────────
-
-  /// Fire-and-forget upload of a freshly-discovered course. The
-  /// server cache treats this as upsert. Returns true on success,
-  /// false on any error (the caller should NOT retry — discovery
-  /// will happen again on the next miss).
-  Future<bool> putCourse(String cacheKey, NormalizedCourse course) async {
-    final url = _buildCourseUrl(cacheKey);
-    try {
-      final response = await _send(
-        'PUT',
-        url,
-        body: jsonEncode(_serializeCourse(course)),
-        contentType: 'application/json',
-      );
-      return response.isSuccess;
-    } catch (_) {
-      return false;
-    }
-  }
-
   // ── async ingestion ──────────────────────────────────────────────
 
   /// Requests async backend processing for a multi-course facility.
@@ -364,12 +343,10 @@ class CourseCacheClient {
         .toList(growable: false);
   }
 
-  /// Re-serialization for `putCourse`. The model only round-trips
-  /// the fields it parses (the lifted NormalizedCourse intentionally
-  /// drops everything that isn't used by rendering — see the file
-  /// header in `lib/models/normalized_course.dart`). For the upload
-  /// path the server tolerates the lean shape; the receiving Lambda
-  /// re-fills any missing optional fields with defaults.
+  /// Serializes a NormalizedCourse for server requests (e.g., ingest).
+  /// The model only round-trips the fields it parses (the lifted
+  /// NormalizedCourse intentionally drops everything that isn't used
+  /// by rendering). The receiving Lambda tolerates the lean shape.
   Map<String, dynamic> _serializeCourse(NormalizedCourse course) {
     return {
       'id': course.id,

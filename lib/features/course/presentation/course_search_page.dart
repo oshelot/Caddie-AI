@@ -22,9 +22,9 @@
 //   - **nominatim / googlePlaces source:** synthesize the server
 //     cache key from the row's name (same rule as iOS
 //     `NormalizedCourse.serverCacheKey`) and try the cache. If 404,
-//     show a "not yet cached" snackbar — the Overpass ingestion
-//     pipeline that builds new cache entries is iOS-only today and
-//     will land in a future Flutter story.
+//     fall back to Overpass for on-device geometry (local cache only).
+//     The cloud pipeline (batch_publish.py) is the sole authoritative
+//     writer to the server cache (KAN-331).
 //
 // The city autocomplete is wired to `PlacesClient.autocomplete`. The
 // screen owns the debounce; this page just hands over the callback.
@@ -1087,10 +1087,8 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       );
     }
 
-    // Step 5: Save to local disk cache AND upload to server cache.
-    // Both happen AFTER enrichment so geometry + tee data are
-    // included. The server upload is fire-and-forget so the next
-    // user gets an instant cache hit with full data.
+    // Step 5: Save to local disk cache.
+    // Happens AFTER enrichment so geometry + tee data are included.
     final repo = _cacheRepository;
     if (course != null && cacheKeyForSave != null) {
       if (repo != null) {
@@ -1098,16 +1096,10 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
           await repo.save(cacheKeyForSave, course);
         } catch (_) {}
       }
-      // Upload enriched course to server cache (fire-and-forget).
-      // Skip if zero holes have geometry — don't pollute the cache
-      // with skeleton-only courses that would block future Overpass
-      // downloads for every subsequent user.
-      final hasAnyGeometry = course.holes.any(
-        (h) => h.lineOfPlay != null || h.green != null,
-      );
-      if (hasAnyGeometry) {
-        _cacheClient.putCourse(cacheKeyForSave, course).ignore();
-      }
+      // NOTE: server cache upload (putCourse) was removed in KAN-331.
+      // The cloud pipeline (batch_publish.py) is the sole authoritative
+      // writer to the server cache. On-device geometry from Overpass is
+      // not reliable enough to push to the shared cache.
     }
 
     if (!mounted) return;
