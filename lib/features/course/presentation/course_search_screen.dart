@@ -209,11 +209,18 @@ class _CourseSearchScreenState extends State<CourseSearchScreen> {
   }
 
   void _onSelectCitySuggestion(PlaceAutocompleteSuggestion suggestion) {
+    // Cancel any in-flight debounce so a stale autocomplete response
+    // can't repopulate the suggestions list after we've cleared it.
+    _cityDebounceTimer?.cancel();
     _suppressNextCityAutocomplete = true;
     _cityController.text = suggestion.description;
     _cityController.selection = TextSelection.fromPosition(
       TextPosition(offset: suggestion.description.length),
     );
+    // Dismiss the keyboard explicitly. We disable TextField's default
+    // onTapOutside to keep iOS from absorbing the suggestion tap (see
+    // _SearchBar), so we own keyboard dismissal at selection time.
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _citySuggestions = const []);
   }
 
@@ -561,19 +568,39 @@ class _SearchBar extends StatelessWidget {
                   child: Column(
                     children: [
                       for (int i = 0; i < citySuggestions.length; i++)
-                        ListTile(
-                          key: Key('course-search-city-suggestion-$i'),
-                          dense: true,
-                          leading: CaddieIcons.pinTarget(size: 18),
-                          title: Text(
-                            citySuggestions[i].mainText.isNotEmpty
-                                ? citySuggestions[i].mainText
-                                : citySuggestions[i].description,
+                        // KAN-345: wrap in Listener so onPointerDown
+                        // fires the selection synchronously, before
+                        // gesture-arena resolution. On iOS the
+                        // TextField's default onTapOutside handler
+                        // wins the arena over the ListTile, kicks
+                        // off keyboard dismissal, layout reflows, and
+                        // the user's tap lands on empty space — five
+                        // seconds of mashing before a suggestion
+                        // sticks. Pointer-down bypasses the arena and
+                        // runs the handler immediately.
+                        Listener(
+                          behavior: HitTestBehavior.opaque,
+                          onPointerDown: (_) =>
+                              onSelectCitySuggestion(citySuggestions[i]),
+                          child: ListTile(
+                            key: Key('course-search-city-suggestion-$i'),
+                            dense: true,
+                            leading: CaddieIcons.pinTarget(size: 18),
+                            title: Text(
+                              citySuggestions[i].mainText.isNotEmpty
+                                  ? citySuggestions[i].mainText
+                                  : citySuggestions[i].description,
+                            ),
+                            subtitle: citySuggestions[i].secondaryText.isNotEmpty
+                                ? Text(citySuggestions[i].secondaryText)
+                                : null,
+                            // onTap kept as a fallback for the widget
+                            // tests (which drive taps via the
+                            // gesture API rather than raw pointer
+                            // events).
+                            onTap: () =>
+                                onSelectCitySuggestion(citySuggestions[i]),
                           ),
-                          subtitle: citySuggestions[i].secondaryText.isNotEmpty
-                              ? Text(citySuggestions[i].secondaryText)
-                              : null,
-                          onTap: () => onSelectCitySuggestion(citySuggestions[i]),
                         ),
                     ],
                   ),
