@@ -44,6 +44,9 @@ class CourseSearchEntry {
     this.isFavorite = false,
     this.cachedAtMs,
     this.isPending = false,
+    this.facilityId,
+    this.facilityName,
+    this.subCourseSlug,
   });
 
   /// Server cache key when [source] is `manifest`. For Nominatim and
@@ -102,6 +105,23 @@ class CourseSearchEntry {
   /// and can't be tapped until processing completes.
   final bool isPending;
 
+  /// Multi-course facility identity (KAN-343). When non-null, two
+  /// entries with the same `facilityId` are sub-courses of the same
+  /// physical facility (e.g. Kennedy Creek/Lind/West) and should be
+  /// presented to the user via the multi-course picker. Single-course
+  /// entries leave it null. Older manifest payloads without this
+  /// field also leave it null — callers must fall back to the legacy
+  /// name-prefix heuristic in that case.
+  final String? facilityId;
+
+  /// Human-readable parent facility name (e.g. "Kennedy Golf Course").
+  /// Set whenever [facilityId] is set; null otherwise.
+  final String? facilityName;
+
+  /// Sub-course slug within the facility (e.g. "creek", "lind",
+  /// "west"). Distinguishes legs of a multi-course facility.
+  final String? subCourseSlug;
+
   /// Returns a copy of this entry with the supplied fields replaced.
   /// Used by the merger step to overlay manifest city/state onto
   /// Nominatim/Places results, and by the page wrapper to overlay
@@ -123,6 +143,9 @@ class CourseSearchEntry {
       formattedAddress: formattedAddress,
       isFavorite: isFavorite ?? this.isFavorite,
       cachedAtMs: cachedAtMs,
+      facilityId: facilityId,
+      facilityName: facilityName,
+      subCourseSlug: subCourseSlug,
     );
   }
 
@@ -141,6 +164,9 @@ class CourseSearchEntry {
       latitude: _parseDouble(json['lat'] ?? json['latitude']),
       longitude: _parseDouble(json['lon'] ?? json['longitude']),
       courseId: json['courseId'] as String?,
+      facilityId: json['facilityId'] as String?,
+      facilityName: json['facilityName'] as String?,
+      subCourseSlug: json['subCourseSlug'] as String?,
     );
   }
 
@@ -148,6 +174,58 @@ class CourseSearchEntry {
     if (v == null) return 0.0;
     if (v is num) return v.toDouble();
     return double.tryParse('$v') ?? 0.0;
+  }
+
+  /// Find sub-courses of a multi-course facility within a manifest.
+  ///
+  /// Each returned record pairs a manifest entry with the leg name to
+  /// show in the picker (e.g. "Creek", "West"). Resolution order:
+  ///
+  /// 1. **facilityId match** (KAN-343). If [tapped] has facilityId, or
+  ///    the manifest contains an entry whose facilityName matches
+  ///    [tapped].name, all entries sharing that facilityId are
+  ///    returned. Leg name comes from `subCourseSlug`.
+  /// 2. **Legacy name-prefix fallback.** For older manifest payloads
+  ///    that pre-date the schema fields, returns entries whose name
+  ///    starts with `"${tapped.name} - "`. Leg name is the suffix.
+  ///
+  /// Returns an empty list when nothing matches.
+  static List<({CourseSearchEntry entry, String legName})> findSubCourses(
+    CourseSearchEntry tapped,
+    List<CourseSearchEntry> manifest,
+  ) {
+    String? facilityId = tapped.facilityId;
+    if (facilityId == null) {
+      final tappedName = tapped.name.toLowerCase();
+      for (final m in manifest) {
+        final fname = m.facilityName;
+        if (fname != null && fname.toLowerCase() == tappedName) {
+          facilityId = m.facilityId;
+          break;
+        }
+      }
+    }
+
+    if (facilityId != null) {
+      return [
+        for (final m in manifest)
+          if (m.facilityId == facilityId)
+            (
+              entry: m,
+              legName: m.subCourseSlug ??
+                  (m.name.contains(' - ')
+                      ? m.name.split(' - ').last
+                      : m.name),
+            ),
+      ];
+    }
+
+    final prefix = '${tapped.name} - ';
+    return [
+      for (final m in manifest)
+        if (m.name.startsWith(prefix))
+          (entry: m, legName: m.name.substring(prefix.length)),
+    ];
   }
 }
 

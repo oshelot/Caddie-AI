@@ -207,14 +207,11 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
         final manifest = await _cacheClient.searchManifest(
           query: entry.name,
         );
-        final facilityPrefix = '${entry.name} - ';
-        final subEntries = manifest
-            .where((e) => e.name.startsWith(facilityPrefix))
-            .toList();
-        if (subEntries.length >= 2) {
+        final subPairs = CourseSearchEntry.findSubCourses(entry, manifest);
+        if (subPairs.length >= 2) {
           await repo.removePending(entry.name, state: entry.state);
           _debugLog('PENDING: resolved ${entry.name} — '
-              '${subEntries.length} sub-courses ready');
+              '${subPairs.length} sub-courses ready');
         }
       } catch (_) {}
     }
@@ -610,16 +607,14 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
       final manifest = await _cacheClient.searchManifest(
         query: entry.name,
       );
-      final facilityPrefix = '${entry.name} - ';
-      final subEntries = manifest
-          .where((e) => e.name.startsWith(facilityPrefix))
-          .toList();
-      if (subEntries.length >= 2) {
+      final subPairs = CourseSearchEntry.findSubCourses(entry, manifest);
+      if (subPairs.length >= 2) {
         // Ready! Download sub-courses locally so they appear in Saved,
         // THEN clear pending and re-run as a normal tap.
         final repo = _cacheRepository;
         if (repo != null) {
-          for (final sub in subEntries) {
+          for (final pair in subPairs) {
+            final sub = pair.entry;
             final subKey = NormalizedCourse.serverCacheKey(sub.name, state: sub.state);
             if (repo.load(subKey) == null) {
               final subCourse = await _cacheClient.fetchCourse(sub.cacheKey);
@@ -752,21 +747,19 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
           final manifest = await _cacheClient.searchManifest(
             query: entry.name,
           );
-          // Find entries that look like sub-courses of this facility
-          // (name starts with facility name + " - ").
-          final facilityPrefix = '${entry.name} - ';
-          final subEntries = manifest
-              .where((e) => e.name.startsWith(facilityPrefix))
-              .toList();
-          if (subEntries.length >= 2) {
-            _debugLog('MULTI: found ${subEntries.length} sub-courses in server cache');
+          // Prefer KAN-343 facilityId/facilityName match; fall back to
+          // legacy name-prefix for older manifest payloads.
+          final subPairs = CourseSearchEntry.findSubCourses(entry, manifest);
+          if (subPairs.length >= 2) {
+            _debugLog('MULTI: found ${subPairs.length} sub-courses in server cache');
 
             // Load each sub-course from server cache.
             final repo = _cacheRepository;
             final cachedSubCourses = <String, NormalizedCourse>{};
             final extractedCourses = <ExtractedCourse>[];
-            for (final sub in subEntries) {
-              final subName = sub.name.substring(facilityPrefix.length);
+            for (final pair in subPairs) {
+              final sub = pair.entry;
+              final subName = pair.legName;
               // Try local cache first, then server.
               NormalizedCourse? subCourse;
               final subKey = NormalizedCourse.serverCacheKey(sub.name, state: sub.state);
@@ -879,19 +872,17 @@ class _CourseSearchPageState extends State<CourseSearchPage> {
             final manifest = await _cacheClient.searchManifest(
               query: entry.name,
             );
-            final facilityPrefix = '${entry.name} - ';
-            final subEntries = manifest
-                .where((e) => e.name.startsWith(facilityPrefix))
-                .toList();
+            final subPairs = CourseSearchEntry.findSubCourses(entry, manifest);
 
-            if (subEntries.length >= extracted.length) {
+            if (subPairs.length >= extracted.length) {
               // All sub-courses in server cache — load + picker.
-              _debugLog('MULTI: ${subEntries.length} sub-courses in server cache');
+              _debugLog('MULTI: ${subPairs.length} sub-courses in server cache');
               final repo = _cacheRepository;
               final cachedSubCourses = <String, NormalizedCourse>{};
               final extractedCourses = <ExtractedCourse>[];
-              for (final sub in subEntries) {
-                final subName = sub.name.substring(facilityPrefix.length);
+              for (final pair in subPairs) {
+                final sub = pair.entry;
+                final subName = pair.legName;
                 NormalizedCourse? subCourse;
                 final subKey = NormalizedCourse.serverCacheKey(sub.name, state: sub.state);
                 if (repo != null) {
