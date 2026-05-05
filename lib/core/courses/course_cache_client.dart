@@ -141,12 +141,22 @@ class CourseCacheClient {
         statusCode: response.statusCode,
       );
     }
+    NormalizedCourse course;
     try {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
-      return NormalizedCourse.fromJson(json);
+      course = NormalizedCourse.fromJson(json);
     } catch (e) {
       throw CourseClientException('Malformed course payload: $e');
     }
+    // KAN-344 defense-in-depth: belt-and-suspenders verification that
+    // the lambda's fuzzy match returned something actually related to
+    // the query. The backend has a ratio guard that should make this
+    // unreachable, but cross-layer corroboration keeps the wrong-course
+    // bug class from reappearing if either layer regresses.
+    if (!_isReasonableMatch(query, course.name)) {
+      return null;
+    }
+    return course;
   }
 
   // ── single course fetch ──────────────────────────────────────────
@@ -424,5 +434,59 @@ class CourseCacheClient {
     final last = ring.last;
     if (first.lon == last.lon && first.lat == last.lat) return ring;
     return [...ring, first];
+  }
+
+  /// Mirrors the lambda's STRIP_WORDS so frontend + backend normalize
+  /// the same way. Keep these in lock-step with
+  /// course-cache/lambda_function.py:STRIP_WORDS.
+  static const _stripWords = {
+    'golf', 'course', 'club', 'country', 'cc', 'gc', 'the', 'and', '&', 'at', 'of',
+  };
+
+  /// Lambda-compatible name normalization (KAN-344). Lowercase, strip
+  /// apostrophes/quotes/hyphens, drop the common golf-name suffix
+  /// tokens. Same algorithm as lambda_function.py normalize_name.
+  static String _normalizeForMatch(String name) {
+    var s = name.toLowerCase().trim();
+    s = s.replaceAll(RegExp(r'''['"\-]'''), ' ');
+    final tokens = s.split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+    return tokens.where((t) => !_stripWords.contains(t)).join(' ');
+  }
+
+  /// Levenshtein edit distance — same algorithm as the lambda's so
+  /// frontend + backend agree on what counts as a match.
+  static int _levenshtein(String a, String b) {
+    if (a.length < b.length) return _levenshtein(b, a);
+    if (b.isEmpty) return a.length;
+    var prev = List<int>.generate(b.length + 1, (i) => i);
+    for (var i = 0; i < a.length; i++) {
+      final cur = <int>[i + 1, ...List.filled(b.length, 0)];
+      for (var j = 0; j < b.length; j++) {
+        final cost = a.codeUnitAt(i) == b.codeUnitAt(j) ? 0 : 1;
+        cur[j + 1] = [
+          prev[j + 1] + 1,
+          cur[j] + 1,
+          prev[j] + cost,
+        ].reduce((x, y) => x < y ? x : y);
+      }
+      prev = cur;
+    }
+    return prev.last;
+  }
+
+  /// Verify a course name returned by the server actually corresponds
+  /// to the query the user issued (KAN-344). Same rule as the lambda's
+  /// search_manifest gate: substring match, OR Levenshtein ≤ 5
+  /// AND ratio ≤ 0.34. Tested via searchFullCourse with a fake
+  /// transport — no separate helper test entry point needed.
+  static bool _isReasonableMatch(String query, String returnedName) {
+    final qn = _normalizeForMatch(query);
+    final en = _normalizeForMatch(returnedName);
+    if (qn.isEmpty || en.isEmpty) return false;
+    if (qn.contains(en) || en.contains(qn)) return true;
+    final dist = _levenshtein(qn, en);
+    final maxLen = qn.length > en.length ? qn.length : en.length;
+    final ratio = maxLen == 0 ? 0.0 : dist / maxLen;
+    return dist <= 5 && ratio <= 0.34;
   }
 }
