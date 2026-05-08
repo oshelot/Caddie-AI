@@ -58,11 +58,23 @@ abstract final class AppStorage {
   /// data). Current keys: `theme_palette` (see ThemeController).
   static const String prefsBoxName = 'caddieai_prefs_v1';
 
+  /// Active round — KAN-382. Singleton-shaped store for the one
+  /// in-flight round of golf the user is playing. Persisted across
+  /// app backgrounding/close so the lifecycle survives the OS
+  /// killing the process between holes. ActiveRoundRepository is
+  /// the only caller.
+  static const String activeRoundBoxName = 'caddieai_active_round_v1';
+
   // Single key inside the profile box. The profile is a singleton —
   // there's only one player per device. The box is a key/value store
   // because Hive doesn't have a "single object" primitive, but we
   // never put more than one entry under this key.
   static const String profileSingletonKey = 'self';
+
+  /// Single key inside the active round box. Same singleton pattern
+  /// as `profileSingletonKey` — there's at most one active round
+  /// per device.
+  static const String activeRoundSingletonKey = 'current';
 
   static bool _initialized = false;
 
@@ -96,6 +108,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(courseCacheBoxName),
       Hive.openBox<String>(courseFavoritesBoxName),
       Hive.openBox<String>(prefsBoxName),
+      Hive.openBox<String>(activeRoundBoxName),
     ]);
 
     _initialized = true;
@@ -124,6 +137,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(courseCacheBoxName),
       Hive.openBox<String>(courseFavoritesBoxName),
       Hive.openBox<String>(prefsBoxName),
+      Hive.openBox<String>(activeRoundBoxName),
     ]);
     _initialized = true;
   }
@@ -146,4 +160,6 @@ abstract final class AppStorage {
       Hive.box<String>(courseCacheBoxName);
   static Box<String> get courseFavoritesBox =>
       Hive.box<String>(courseFavoritesBoxName);
+  static Box<String> get activeRoundBox =>
+      Hive.box<String>(activeRoundBoxName);
 }

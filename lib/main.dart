@@ -14,9 +14,10 @@
 //      need profile data — not here, to keep cold-start latency
 //      bounded.
 //
-// CaddieApp is non-const because it owns a `GoRouter` instance built
-// in its constructor (see lib/app.dart) — that's why `runApp` doesn't
-// take a `const` here.
+// CaddieApp is a StatefulWidget that owns the GoRouter instance in
+// its State (see lib/app.dart). Per KAN-382 it also installs a
+// WidgetsBindingObserver so the active round controller can re-
+// hydrate on foreground transitions.
 
 import 'dart:io';
 
@@ -33,6 +34,7 @@ import 'core/monetization/subscription_service.dart';
 import 'core/logging/log_sender.dart';
 import 'core/logging/logging_service.dart';
 import 'core/mapbox/mapbox_init.dart';
+import 'core/round/active_round_controller.dart';
 import 'core/storage/app_storage.dart';
 import 'core/theme/theme_controller.dart';
 
@@ -89,6 +91,10 @@ Future<void> main() async {
   // playground writes here). Safe after AppStorage.init; safe
   // before runApp so the first frame uses the correct theme.
   await themeController.load();
+  // KAN-382: hydrate any persisted active round so the course
+  // tab can show in-round controls on the first frame. Cheap
+  // (single Hive read); safe after AppStorage.init.
+  await activeRoundController.hydrate();
   _logger = _buildLogger();
   // Download centralized prompts from S3 (KAN-62).
   await PromptService.shared.fetchIfNeeded();
@@ -107,7 +113,7 @@ Future<void> main() async {
       'platform': Platform.isIOS ? 'ios' : 'android',
     },
   );
-  runApp(CaddieApp());
+  runApp(const CaddieApp());
 }
 
 /// Builds the production LoggingService from `--dart-define`

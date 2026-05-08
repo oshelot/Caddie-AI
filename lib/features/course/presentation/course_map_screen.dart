@@ -60,12 +60,15 @@ import '../../../core/logging/logging_service.dart';
 import '../../../core/courses/http_transport.dart';
 import '../../../core/mapbox/layer_helpers.dart';
 import '../../../core/location/location_service.dart';
+import '../../../core/round/active_round.dart';
+import '../../../core/round/active_round_controller.dart';
 import 'ask_caddie_sheet.dart';
 import 'hole_analysis_sheet.dart';
 import '../../../core/weather/weather_data.dart';
 import '../../../core/weather/weather_service.dart';
 import '../../../models/normalized_course.dart';
 import '../../../services/course_geojson_builder.dart';
+import '../../round/presentation/round_controls_bar.dart';
 
 /// Layer + source IDs. Match the iOS native `LayerID` enum so
 /// log output and dashboard filters stay consistent across the
@@ -388,18 +391,68 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
                 missing: _missingLayers,
               ),
             ),
-          // Bottom panel overlays the map
+          // Bottom panel overlays the map. The round controls bar
+          // sits above _BottomPanel so the user has access to
+          // Start/Next/Prev/End at all times. KAN-382.
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            child: _BottomPanel(
-              course: course,
-              selectedHole: _selectedHole,
-              selectedTee: _selectedTee,
-              onHoleSelected: _selectHole,
-              onAskCaddie: widget.onAskCaddie ?? (widget.locationService != null ? () => _showAskCaddie() : null),
-              onAnalyze: widget.onAnalyze ?? () => _showHoleAnalysis(),
+            child: ValueListenableBuilder<ActiveRound?>(
+              valueListenable: activeRoundController,
+              builder: (context, round, _) {
+                // Drive the map's selected hole from the round when
+                // the round is active on THIS course. Posted to the
+                // next frame so we don't call setState during build.
+                if (round != null &&
+                    round.courseId == course.id &&
+                    round.currentHoleNumber != _selectedHole) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    _selectHole(round.currentHoleNumber);
+                  });
+                }
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    RoundControlsBar(
+                      round: round,
+                      courseId: course.id,
+                      courseName: course.name,
+                      totalHoles: course.holes.length,
+                      onStartRound: () => activeRoundController.startRound(
+                        courseId: course.id,
+                        courseName: course.name,
+                        totalHoles: course.holes.length,
+                        currentHoleNumber: _selectedHole ?? 1,
+                        city: course.city,
+                        state: course.state,
+                      ),
+                      onHoleChanged: (n) =>
+                          activeRoundController.jumpToHole(n),
+                      onEndRound: () => activeRoundController.endRound(),
+                    ),
+                    _BottomPanel(
+                      course: course,
+                      selectedHole: _selectedHole,
+                      selectedTee: _selectedTee,
+                      onHoleSelected: (n) {
+                        // When in-round on this course, the chip strip
+                        // routes through the controller so the round's
+                        // currentHoleNumber stays in sync. Otherwise
+                        // it's a free map navigation.
+                        if (round != null && round.courseId == course.id) {
+                          if (n != null) activeRoundController.jumpToHole(n);
+                        } else {
+                          _selectHole(n);
+                        }
+                      },
+                      onAskCaddie: widget.onAskCaddie ?? (widget.locationService != null ? () => _showAskCaddie() : null),
+                      onAnalyze: widget.onAnalyze ?? () => _showHoleAnalysis(),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
