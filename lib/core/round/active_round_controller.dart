@@ -20,6 +20,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../main.dart' show logger;
+import '../logging/log_event.dart';
 import 'active_round.dart';
 import 'active_round_repository.dart';
 
@@ -39,10 +41,27 @@ class ActiveRoundController extends ValueNotifier<ActiveRound?> {
 
   /// Read the persisted round into memory. Idempotent and safe to
   /// call multiple times (e.g. on every foreground transition).
-  Future<void> hydrate() async {
+  ///
+  /// `trigger` is recorded in telemetry to distinguish cold-start
+  /// hydrates (main()) from foreground hydrates (lifecycle observer
+  /// in CaddieApp). Empty string → not logged.
+  Future<void> hydrate({String trigger = ''}) async {
     final loaded = _repository.load();
+    final wasInactive = value == null;
     if (!_roundsEqual(loaded, value)) {
       value = loaded;
+    }
+    // Telemetry: only log when we actually restored a round from
+    // an inactive state — re-hydrates that don't change state are
+    // noise. KAN-382.
+    if (loaded != null && wasInactive && trigger.isNotEmpty) {
+      logger.info(LogCategory.lifecycle, 'round_restore', metadata: {
+        'courseId': loaded.courseId,
+        'currentHole': '${loaded.currentHoleNumber}',
+        'totalHoles': '${loaded.totalHoles}',
+        'ageMs': '${_clock().millisecondsSinceEpoch - loaded.startedAtMs}',
+        'trigger': trigger,
+      });
     }
   }
 
@@ -59,6 +78,7 @@ class ActiveRoundController extends ValueNotifier<ActiveRound?> {
     String? city,
     String? state,
   }) async {
+    final replacedPrior = value;
     final round = ActiveRound(
       courseId: courseId,
       courseName: courseName,
@@ -71,6 +91,14 @@ class ActiveRoundController extends ValueNotifier<ActiveRound?> {
     );
     await _repository.save(round);
     value = round;
+    logger.info(LogCategory.lifecycle, 'round_start', metadata: {
+      'courseId': courseId,
+      'totalHoles': '$totalHoles',
+      'startHole': '$currentHoleNumber',
+      'replacedPrior': replacedPrior != null ? 'true' : 'false',
+      if (replacedPrior != null) 'priorCourseId': replacedPrior.courseId,
+      if (subCourseSlug != null) 'subCourseSlug': subCourseSlug,
+    });
   }
 
   /// Manual hole advance. Caps at totalHoles — pressing Next on
@@ -80,9 +108,7 @@ class ActiveRoundController extends ValueNotifier<ActiveRound?> {
     final r = value;
     if (r == null) return;
     if (r.currentHoleNumber >= r.totalHoles) return;
-    final updated = r.copyWith(currentHoleNumber: r.currentHoleNumber + 1);
-    await _repository.save(updated);
-    value = updated;
+    await _changeHole(r, r.currentHoleNumber + 1, 'next');
   }
 
   /// Manual hole rewind. Floor at 1.
@@ -90,9 +116,7 @@ class ActiveRoundController extends ValueNotifier<ActiveRound?> {
     final r = value;
     if (r == null) return;
     if (r.currentHoleNumber <= 1) return;
-    final updated = r.copyWith(currentHoleNumber: r.currentHoleNumber - 1);
-    await _repository.save(updated);
-    value = updated;
+    await _changeHole(r, r.currentHoleNumber - 1, 'prev');
   }
 
   /// Jump to an arbitrary hole (clamped to [1, totalHoles]). Used
@@ -102,9 +126,19 @@ class ActiveRoundController extends ValueNotifier<ActiveRound?> {
     if (r == null) return;
     final clamped = holeNumber.clamp(1, r.totalHoles);
     if (clamped == r.currentHoleNumber) return;
-    final updated = r.copyWith(currentHoleNumber: clamped);
+    await _changeHole(r, clamped, 'jump');
+  }
+
+  Future<void> _changeHole(ActiveRound r, int toHole, String direction) async {
+    final updated = r.copyWith(currentHoleNumber: toHole);
     await _repository.save(updated);
     value = updated;
+    logger.info(LogCategory.general, 'hole_change', metadata: {
+      'courseId': r.courseId,
+      'fromHole': '${r.currentHoleNumber}',
+      'toHole': '$toHole',
+      'direction': direction,
+    });
   }
 
   /// Conclude the round. Clears Hive + memory. Future post-round
@@ -112,8 +146,19 @@ class ActiveRoundController extends ValueNotifier<ActiveRound?> {
   /// it clears, so UI calling endRound should pump the summary
   /// surface first.
   Future<void> endRound() async {
+    final r = value;
     await _repository.clear();
     value = null;
+    if (r != null) {
+      final durationMs = _clock().millisecondsSinceEpoch - r.startedAtMs;
+      logger.info(LogCategory.lifecycle, 'round_end', metadata: {
+        'courseId': r.courseId,
+        'lastHole': '${r.currentHoleNumber}',
+        'totalHoles': '${r.totalHoles}',
+        'durationMs': '$durationMs',
+        'completed': r.currentHoleNumber >= r.totalHoles ? 'true' : 'false',
+      });
+    }
   }
 
   static bool _roundsEqual(ActiveRound? a, ActiveRound? b) {

@@ -94,7 +94,7 @@ Future<void> main() async {
   // KAN-382: hydrate any persisted active round so the course
   // tab can show in-round controls on the first frame. Cheap
   // (single Hive read); safe after AppStorage.init.
-  await activeRoundController.hydrate();
+  await activeRoundController.hydrate(trigger: 'cold_start');
   _logger = _buildLogger();
   // Download centralized prompts from S3 (KAN-62).
   await PromptService.shared.fetchIfNeeded();

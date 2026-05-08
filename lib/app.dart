@@ -58,8 +58,9 @@ class _CaddieAppState extends State<CaddieApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       // Fire-and-forget — failures are swallowed inside hydrate()
       // (it returns null on a corrupt/missing record without
-      // throwing).
-      activeRoundController.hydrate();
+      // throwing). Trigger label distinguishes this from cold-
+      // start hydrate in CloudWatch's `round_restore` events.
+      activeRoundController.hydrate(trigger: 'foreground');
     }
   }
 

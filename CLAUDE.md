@@ -134,6 +134,10 @@ All client telemetry flows through a single path: app → `caddieai-logging` lam
 | `layer_drop_post_audit` | map | Layer disappeared after initial audit |
 | `app_startup` | lifecycle | Startup latency + config status |
 | `tab_dwell` | general | Time spent on each tab |
+| `round_start` | lifecycle | Active round started — courseId, totalHoles, startHole, replacedPrior |
+| `round_end` | lifecycle | Active round ended — courseId, lastHole, totalHoles, durationMs, completed |
+| `round_restore` | lifecycle | Active round re-hydrated from Hive — trigger (cold_start/foreground), ageMs |
+| `hole_change` | general | In-round hole advance/rewind/jump — fromHole, toHole, direction (next/prev/jump) |
 
 ### Known gaps (KAN-332)
 - Overpass requests — completely dark
