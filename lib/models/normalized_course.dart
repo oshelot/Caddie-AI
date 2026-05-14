@@ -37,16 +37,26 @@ class NormalizedHole {
     required this.water,
   });
 
+  // Schema-1.1 point-form fallback radii (KAN-403). Greens get a slightly
+  // wider ring than tees because the visual marker reads better that way;
+  // both are deliberately smaller than real-world averages so they don't
+  // overstate the precision we actually have.
+  static const double _greenPointRadiusM = 8.0;
+  static const double _teePointRadiusM = 3.0;
+
   factory NormalizedHole.fromJson(Map<String, dynamic> j) {
     Map<String, int> parseYardages(dynamic raw) {
       if (raw is! Map) return const {};
       return raw.map((k, v) => MapEntry(k as String, (v as num).toInt()));
     }
 
-    List<Polygon> parsePolygons(dynamic raw) {
+    List<Polygon> parsePolygons(dynamic raw, {required double pointRadiusM}) {
       if (raw is! List) return const [];
       return raw
-          .map((p) => Polygon.fromJson(p as Map<String, dynamic>))
+          .map((p) => Polygon.fromJsonOrPoint(
+                p as Map<String, dynamic>,
+                radiusMeters: pointRadiusM,
+              ))
           .toList(growable: false);
     }
 
@@ -56,18 +66,21 @@ class NormalizedHole {
       strokeIndex:
           j['strokeIndex'] == null ? null : (j['strokeIndex'] as num).toInt(),
       yardages: parseYardages(j['yardages']),
-      teeAreas: parsePolygons(j['teeAreas']),
+      teeAreas: parsePolygons(j['teeAreas'], pointRadiusM: _teePointRadiusM),
       lineOfPlay: j['lineOfPlay'] == null
           ? null
           : LineString.fromJson(j['lineOfPlay'] as Map<String, dynamic>),
       green: j['green'] == null
           ? null
-          : Polygon.fromJson(j['green'] as Map<String, dynamic>),
+          : Polygon.fromJsonOrPoint(
+              j['green'] as Map<String, dynamic>,
+              radiusMeters: _greenPointRadiusM,
+            ),
       pin: j['pin'] == null
           ? null
           : LngLat.fromLatLonObject(j['pin'] as Map<String, dynamic>),
-      bunkers: parsePolygons(j['bunkers']),
-      water: parsePolygons(j['water']),
+      bunkers: parsePolygons(j['bunkers'], pointRadiusM: _greenPointRadiusM),
+      water: parsePolygons(j['water'], pointRadiusM: _greenPointRadiusM),
     );
   }
 

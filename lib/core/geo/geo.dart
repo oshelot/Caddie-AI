@@ -44,6 +44,51 @@ class Polygon {
     return Polygon(outer);
   }
 
+  /// Synthesize an octagonal ring around a point at the given radius in
+  /// meters. Used when the server sends a single `{latitude, longitude}`
+  /// point for a green or tee (cache schema 1.1, KAN-403) instead of a
+  /// full polygon — gives the renderer something it can draw without
+  /// faking richer data than we have.
+  factory Polygon.fromPointWithRadius(LngLat center, double radiusMeters) {
+    const metersPerDegreeLat = 111320.0;
+    final cosLat = math.cos(_degToRad(center.lat));
+    final metersPerDegreeLon = metersPerDegreeLat * cosLat.abs();
+    if (metersPerDegreeLon == 0) return Polygon([center]);
+    final dLat = radiusMeters / metersPerDegreeLat;
+    final dLon = radiusMeters / metersPerDegreeLon;
+    const sides = 8;
+    final ring = <LngLat>[];
+    for (var i = 0; i < sides; i++) {
+      final theta = 2 * math.pi * i / sides;
+      ring.add(LngLat(
+        center.lon + dLon * math.sin(theta),
+        center.lat + dLat * math.cos(theta),
+      ));
+    }
+    // Close the ring (first == last) so GeoJSON consumers stay happy.
+    ring.add(ring.first);
+    return Polygon(ring);
+  }
+
+  /// Auto-detect between full GeoJSON polygon (`{coordinates: [[[lon,lat],
+  /// ...]]}`, schema 1.0) and the schema-1.1 point form (`{latitude,
+  /// longitude}`). Point form synthesizes a small ring at [radiusMeters].
+  factory Polygon.fromJsonOrPoint(
+    Map<String, dynamic> j, {
+    required double radiusMeters,
+  }) {
+    if (j.containsKey('coordinates')) {
+      return Polygon.fromJson(j);
+    }
+    if (j.containsKey('latitude') && j.containsKey('longitude')) {
+      return Polygon.fromPointWithRadius(
+        LngLat.fromLatLonObject(j),
+        radiusMeters,
+      );
+    }
+    return const Polygon([]);
+  }
+
   /// Arithmetic mean of the ring vertices. Good enough for camera fits
   /// and bearing calculations at course scale — do NOT use for precise
   /// geometric centroids where the polygon is far from convex.

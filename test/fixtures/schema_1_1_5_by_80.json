@@ -1,0 +1,412 @@
+{
+  "id": "5-by-80-golf-and-country-club-ia",
+  "name": "5 by 80 Golf and Country Club",
+  "state": "IA",
+  "city": "Menlo",
+  "centroid": {
+    "latitude": 41.4932299,
+    "longitude": -94.4472993
+  },
+  "schemaVersion": "1.1",
+  "teeNames": [
+    "Blue",
+    "Red",
+    "White",
+    "Yellow"
+  ],
+  "holes": [
+    {
+      "number": 1,
+      "par": 4,
+      "lineOfPlay": {
+        "coordinates": [
+          [
+            -94.4490648,
+            41.4919452
+          ],
+          [
+            -94.4477474,
+            41.4920069
+          ],
+          [
+            -94.4462027,
+            41.4920792
+          ],
+          [
+            -94.4448692,
+            41.4918173
+          ]
+        ]
+      },
+      "green": {
+        "latitude": 41.491825938,
+        "longitude": -94.444852991
+      },
+      "teeAreas": [
+        {
+          "latitude": 41.491953342,
+          "longitude": -94.449101025
+        }
+      ],
+      "yardages": {
+        "Red": 296,
+        "Blue": 399,
+        "White": 386,
+        "Yellow": 370
+      },
+      "sources": {
+        "line": "osm",
+        "pin": "osm",
+        "par": "scorecard",
+        "tee": "osm"
+      }
+    },
+    {
+      "number": 2,
+      "par": 3,
+      "lineOfPlay": {
+        "coordinates": [
+          [
+            -94.4446396,
+            41.4924505
+          ],
+          [
+            -94.4435552,
+            41.4938232
+          ]
+        ]
+      },
+      "green": {
+        "latitude": 41.493821086,
+        "longitude": -94.443551359
+      },
+      "teeAreas": [
+        {
+          "latitude": 41.4924567,
+          "longitude": -94.444637317
+        }
+      ],
+      "yardages": {
+        "Red": 131,
+        "Blue": 193,
+        "White": 163,
+        "Yellow": 135
+      },
+      "sources": {
+        "line": "osm",
+        "pin": "osm",
+        "par": "scorecard",
+        "tee": "osm"
+      }
+    },
+    {
+      "number": 3,
+      "par": 5,
+      "lineOfPlay": {
+        "coordinates": [
+          [
+            -94.4432438,
+            41.4944493
+          ],
+          [
+            -94.4434869,
+            41.4943414
+          ],
+          [
+            -94.4463173,
+            41.4930851
+          ],
+          [
+            -94.4477616,
+            41.4925264
+          ]
+        ]
+      },
+      "green": {
+        "latitude": 41.492537584,
+        "longitude": -94.447706246
+      },
+      "teeAreas": [
+        {
+          "latitude": 41.494394657,
+          "longitude": -94.44333065
+        }
+      ],
+      "yardages": {
+        "Red": 369,
+        "Blue": 468,
+        "White": 448,
+        "Yellow": 437
+      },
+      "sources": {
+        "line": "osm",
+        "pin": "osm",
+        "par": "scorecard",
+        "tee": "osm"
+      }
+    },
+    {
+      "number": 4,
+      "par": 5,
+      "lineOfPlay": {
+        "coordinates": [
+          [
+            -94.4488023,
+            41.4927015
+          ],
+          [
+            -94.4487549,
+            41.4927239
+          ],
+          [
+            -94.4477406,
+            41.4932031
+          ],
+          [
+            -94.4460075,
+            41.4940219
+          ],
+          [
+            -94.4439051,
+            41.4947231
+          ]
+        ]
+      },
+      "green": {
+        "latitude": 41.494706464,
+        "longitude": -94.443913066
+      },
+      "teeAreas": [
+        {
+          "latitude": 41.49270476,
+          "longitude": -94.448805433
+        }
+      ],
+      "yardages": {
+        "Red": 431,
+        "Blue": 505,
+        "White": 492,
+        "Yellow": 484
+      },
+      "sources": {
+        "line": "osm",
+        "pin": "osm",
+        "par": "scorecard",
+        "tee": "osm"
+      }
+    },
+    {
+      "number": 5,
+      "par": 3,
+      "lineOfPlay": {
+        "coordinates": [
+          [
+            -94.443563,
+            41.4951646
+          ],
+          [
+            -94.4453456,
+            41.4950925
+          ],
+          [
+            -94.4455988,
+            41.4950823
+          ]
+        ]
+      },
+      "green": {
+        "latitude": 41.495082784,
+        "longitude": -94.445607307
+      },
+      "teeAreas": [
+        {
+          "latitude": 41.495163292,
+          "longitude": -94.443595877
+        }
+      ],
+      "yardages": {
+        "Red": 211,
+        "Blue": 217,
+        "White": 208,
+        "Yellow": 200
+      },
+      "sources": {
+        "line": "osm",
+        "pin": "osm",
+        "par": "scorecard",
+        "tee": "osm"
+      }
+    },
+    {
+      "number": 6,
+      "par": 4,
+      "lineOfPlay": {
+        "coordinates": [
+          [
+            -94.4462969,
+            41.4952694
+          ],
+          [
+            -94.4482875,
+            41.4936112
+          ],
+          [
+            -94.4492368,
+            41.4930888
+          ]
+        ]
+      },
+      "green": {
+        "latitude": 41.493083925,
+        "longitude": -94.449242784
+      },
+      "teeAreas": [
+        {
+          "latitude": 41.49526695,
+          "longitude": -94.446316083
+        }
+      ],
+      "yardages": {
+        "Red": 365,
+        "Blue": 389,
+        "White": 376,
+        "Yellow": 364
+      },
+      "sources": {
+        "line": "osm",
+        "pin": "osm",
+        "par": "scorecard",
+        "tee": "osm"
+      }
+    },
+    {
+      "number": 7,
+      "par": 3,
+      "lineOfPlay": {
+        "coordinates": [
+          [
+            -94.4499929,
+            41.4925499
+          ],
+          [
+            -94.4512215,
+            41.4918887
+          ]
+        ]
+      },
+      "green": {
+        "latitude": 41.491893481,
+        "longitude": -94.451203783
+      },
+      "teeAreas": [
+        {
+          "latitude": 41.492510069,
+          "longitude": -94.450094946
+        }
+      ],
+      "yardages": {
+        "Red": 113,
+        "Blue": 133,
+        "White": 113,
+        "Yellow": 107
+      },
+      "sources": {
+        "line": "osm",
+        "pin": "osm",
+        "par": "scorecard",
+        "tee": "osm"
+      }
+    },
+    {
+      "number": 8,
+      "par": 5,
+      "lineOfPlay": {
+        "coordinates": [
+          [
+            -94.4514654,
+            41.4923247
+          ],
+          [
+            -94.4507718,
+            41.4939582
+          ],
+          [
+            -94.4492194,
+            41.4947802
+          ],
+          [
+            -94.4478562,
+            41.4951524
+          ]
+        ]
+      },
+      "green": {
+        "latitude": 41.495136466,
+        "longitude": -94.447835308
+      },
+      "teeAreas": [
+        {
+          "latitude": 41.492376348,
+          "longitude": -94.451447143
+        }
+      ],
+      "yardages": {
+        "Red": 428,
+        "Blue": 514,
+        "White": 490,
+        "Yellow": 482
+      },
+      "sources": {
+        "line": "osm",
+        "pin": "osm",
+        "par": "scorecard",
+        "tee": "osm"
+      }
+    },
+    {
+      "number": 9,
+      "par": 4,
+      "lineOfPlay": {
+        "coordinates": [
+          [
+            -94.4469576,
+            41.4952035
+          ],
+          [
+            -94.449066,
+            41.4939626
+          ],
+          [
+            -94.4504121,
+            41.4929656
+          ]
+        ]
+      },
+      "green": {
+        "latitude": 41.49296079,
+        "longitude": -94.450415817
+      },
+      "teeAreas": [
+        {
+          "latitude": 41.495169245,
+          "longitude": -94.446988309
+        }
+      ],
+      "yardages": {
+        "Red": 416,
+        "Blue": 410,
+        "White": 398,
+        "Yellow": 387
+      },
+      "sources": {
+        "line": "osm",
+        "pin": "osm",
+        "par": "scorecard",
+        "tee": "osm"
+      }
+    }
+  ],
+  "publishedFrom": "postgis-resolved",
+  "publishedAt": "2026-05-13T23:31:22Z",
+  "courseId": "IA/osm-way-297224920"
+}
