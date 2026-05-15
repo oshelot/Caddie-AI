@@ -519,6 +519,29 @@ class _CourseMapScreenState extends State<CourseMapScreen> {
 
     final t0 = DateTime.now();
 
+    // KAN-406: If the course prefers Esri satellite tiles (scored greener),
+    // add a raster source beneath Mapbox labels so imagery is swapped but
+    // labels/roads remain from Mapbox.
+    if (widget.course.tileSource == 'esri') {
+      try {
+        final esriSource = mbx.RasterSource(
+          id: 'esri-satellite',
+          tiles: [
+            'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+          ],
+          tileSize: 256,
+        );
+        await map.style.addSource(esriSource);
+        await map.style.addLayerAt(
+          mbx.RasterLayer(id: 'esri-satellite-layer', sourceId: 'esri-satellite'),
+          mbx.LayerPosition(below: 'road-label'),
+        );
+      } catch (e) {
+        // Non-fatal — fall back to default Mapbox satellite
+        debugPrint('KAN-406: Esri raster overlay failed: $e');
+      }
+    }
+
     final fc = CourseGeoJsonBuilder.buildFeatureCollection(widget.course);
     final geojson = jsonEncode(fc);
 

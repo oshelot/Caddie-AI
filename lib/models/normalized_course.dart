@@ -155,6 +155,10 @@ class NormalizedCourse {
   /// Same provenance as `teeNames`.
   final Map<String, int> teeYardageTotals;
 
+  /// KAN-406: Preferred satellite tile provider ("mapbox" or "esri").
+  /// Scored at publish time based on greenness analysis of fairway/tee pixels.
+  final String tileSource;
+
   const NormalizedCourse({
     required this.id,
     required this.name,
@@ -164,6 +168,7 @@ class NormalizedCourse {
     required this.holes,
     this.teeNames = const [],
     this.teeYardageTotals = const {},
+    this.tileSource = 'mapbox',
   });
 
   factory NormalizedCourse.fromJson(Map<String, dynamic> j) {
@@ -179,6 +184,7 @@ class NormalizedCourse {
           .toList(growable: false),
       teeNames: _decodeStringList(j['teeNames']),
       teeYardageTotals: _decodeIntMap(j['teeYardageTotals'] ?? j['holeYardagesByTee']),
+      tileSource: (j['tileSource'] as String?) ?? 'mapbox',
     );
   }
 
