@@ -65,6 +65,10 @@ abstract final class AppStorage {
   /// the only caller.
   static const String activeRoundBoxName = 'caddieai_active_round_v1';
 
+  /// KAN-416: Pending sync operations. Tracks records that failed to push
+  /// to the cloud and need retrying on connectivity restore.
+  static const String syncQueueBoxName = 'caddieai_sync_queue_v1';
+
   // Single key inside the profile box. The profile is a singleton —
   // there's only one player per device. The box is a key/value store
   // because Hive doesn't have a "single object" primitive, but we
@@ -109,6 +113,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(courseFavoritesBoxName),
       Hive.openBox<String>(prefsBoxName),
       Hive.openBox<String>(activeRoundBoxName),
+      Hive.openBox<String>(syncQueueBoxName),
     ]);
 
     _initialized = true;
@@ -138,6 +143,7 @@ abstract final class AppStorage {
       Hive.openBox<String>(courseFavoritesBoxName),
       Hive.openBox<String>(prefsBoxName),
       Hive.openBox<String>(activeRoundBoxName),
+      Hive.openBox<String>(syncQueueBoxName),
     ]);
     _initialized = true;
   }
@@ -162,4 +168,14 @@ abstract final class AppStorage {
       Hive.box<String>(courseFavoritesBoxName);
   static Box<String> get activeRoundBox =>
       Hive.box<String>(activeRoundBoxName);
+
+  /// KAN-416: Sync queue box. Returns null if not yet initialized
+  /// (graceful for tests and guest mode).
+  static Box<String>? get syncQueueBox {
+    try {
+      return Hive.box<String>(syncQueueBoxName);
+    } catch (_) {
+      return null;
+    }
+  }
 }

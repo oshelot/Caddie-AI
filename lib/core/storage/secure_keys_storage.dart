@@ -68,6 +68,13 @@ abstract final class SecureKey {
   /// importer can preserve a user-overridden token if iOS ever
   /// shipped one.
   static const String mapbox = 'mapboxAccessToken';
+
+  // ── KAN-415: Cognito auth tokens ──────────────────────────────
+  static const String cognitoAccessToken = 'cognitoAccessToken';
+  static const String cognitoIdToken = 'cognitoIdToken';
+  static const String cognitoRefreshToken = 'cognitoRefreshToken';
+  static const String cognitoUserId = 'cognitoUserId';
+  static const String authProvider = 'authProvider';
 }
 
 /// Thin abstraction over the secret backend so unit tests can swap
@@ -148,6 +155,11 @@ class SecureKeysStorage {
       SecureKey.gemini,
       SecureKey.golfCourseApi,
       SecureKey.mapbox,
+      SecureKey.cognitoAccessToken,
+      SecureKey.cognitoIdToken,
+      SecureKey.cognitoRefreshToken,
+      SecureKey.cognitoUserId,
+      SecureKey.authProvider,
     ]) {
       await _backend.delete(key);
     }

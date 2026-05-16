@@ -126,6 +126,16 @@ class PlayerProfile {
   final String preferredTeeBox;
   final String? ironType;
 
+  // ── Account (KAN-415) ─────────────────────────────────────────────
+  /// Cognito user ID (sub claim). Null = guest / no account.
+  final String? cognitoUserId;
+
+  /// Sign-in provider: 'apple' or 'google'. Null = guest.
+  final String? authProvider;
+
+  /// Whether cloud sync is active for this profile.
+  final bool cloudSyncEnabled;
+
   // ── Metadata ─────────────────────────────────────────────────────
   /// Epoch milliseconds. Set when the profile is first imported or
   /// created. Android tracked this natively; iOS-migrated profiles
@@ -191,6 +201,9 @@ class PlayerProfile {
     this.scoringEnabled = false,
     this.preferredTeeBox = 'white',
     this.ironType,
+    this.cognitoUserId,
+    this.authProvider,
+    this.cloudSyncEnabled = false,
     this.createdAtMs = 0,
     this.updatedAtMs = 0,
   });
@@ -233,6 +246,9 @@ class PlayerProfile {
     bool? scoringEnabled,
     String? preferredTeeBox,
     String? ironType,
+    String? cognitoUserId,
+    String? authProvider,
+    bool? cloudSyncEnabled,
     int? createdAtMs,
     int? updatedAtMs,
   }) {
@@ -281,6 +297,9 @@ class PlayerProfile {
       scoringEnabled: scoringEnabled ?? this.scoringEnabled,
       preferredTeeBox: preferredTeeBox ?? this.preferredTeeBox,
       ironType: ironType ?? this.ironType,
+      cognitoUserId: cognitoUserId ?? this.cognitoUserId,
+      authProvider: authProvider ?? this.authProvider,
+      cloudSyncEnabled: cloudSyncEnabled ?? this.cloudSyncEnabled,
       createdAtMs: createdAtMs ?? this.createdAtMs,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
     );
@@ -324,6 +343,9 @@ class PlayerProfile {
         'scoringEnabled': scoringEnabled,
         'preferredTeeBox': preferredTeeBox,
         'ironType': ironType,
+        'cognitoUserId': cognitoUserId,
+        'authProvider': authProvider,
+        'cloudSyncEnabled': cloudSyncEnabled,
         'createdAtMs': createdAtMs,
         'updatedAtMs': updatedAtMs,
       };
@@ -375,6 +397,9 @@ class PlayerProfile {
       scoringEnabled: json['scoringEnabled'] as bool? ?? false,
       preferredTeeBox: json['preferredTeeBox'] as String? ?? 'white',
       ironType: json['ironType'] as String?,
+      cognitoUserId: json['cognitoUserId'] as String?,
+      authProvider: json['authProvider'] as String?,
+      cloudSyncEnabled: json['cloudSyncEnabled'] as bool? ?? false,
       createdAtMs: (json['createdAtMs'] as num?)?.toInt() ?? 0,
       updatedAtMs: (json['updatedAtMs'] as num?)?.toInt() ?? 0,
     );
@@ -431,6 +456,9 @@ class PlayerProfile {
         scoringEnabled == other.scoringEnabled &&
         preferredTeeBox == other.preferredTeeBox &&
         ironType == other.ironType &&
+        cognitoUserId == other.cognitoUserId &&
+        authProvider == other.authProvider &&
+        cloudSyncEnabled == other.cloudSyncEnabled &&
         createdAtMs == other.createdAtMs &&
         updatedAtMs == other.updatedAtMs;
   }
@@ -474,6 +502,9 @@ class PlayerProfile {
         scoringEnabled,
         preferredTeeBox,
         ironType,
+        cognitoUserId,
+        authProvider,
+        cloudSyncEnabled,
         createdAtMs,
         updatedAtMs,
       ]);

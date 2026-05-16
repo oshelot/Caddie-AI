@@ -37,6 +37,10 @@ dependencies:
   path_provider: ^2.1.0
   flutter_secure_storage: ^9.2.0
 
+  # KAN-415: Optional Apple/Google sign-in via Cognito
+  sign_in_with_apple: ^6.1.0
+  google_sign_in: ^6.2.0
+
   # KAN-274 (S4) — location + permissions foundation. We deliberately
   # split the responsibilities: `geolocator` for "where am I + heading"
   # and `permission_handler` for "did the user grant location access".

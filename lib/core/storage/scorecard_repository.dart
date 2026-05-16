@@ -43,6 +43,13 @@ class ScorecardRepository {
   List<ScorecardEntry> get completedScorecards =>
       loadAll().where((e) => e.status == _statusCompleted).toList();
 
+  /// KAN-416: Load a single scorecard by ID. Returns null if not found.
+  ScorecardEntry? loadById(String id) {
+    final raw = AppStorage.scorecardBox.get(id);
+    if (raw == null) return null;
+    return ScorecardEntry.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+  }
+
   Future<void> save(ScorecardEntry scorecard) {
     return AppStorage.scorecardBox.put(
       scorecard.id,

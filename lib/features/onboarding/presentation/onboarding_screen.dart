@@ -34,6 +34,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../core/auth/auth_service.dart';
 import '../../../core/icons/caddie_icons.dart';
 import '../../../models/player_profile.dart';
 
@@ -43,11 +44,13 @@ class OnboardingScreen extends StatefulWidget {
     required this.initialProfile,
     required this.onComplete,
     required this.onSkip,
+    this.authService,
   });
 
   final PlayerProfile initialProfile;
   final Future<void> Function(PlayerProfile profile) onComplete;
   final Future<void> Function(PlayerProfile profile) onSkip;
+  final AuthService? authService;
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -65,8 +68,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentStep = 0;
   bool _saving = false;
+  bool _signingIn = false;
 
-  static const int _totalSteps = 6;
+  static const int _totalSteps = 7;
+  // Step indices
+  static const int _stepSignIn = 1;
 
   @override
   void dispose() {
@@ -169,6 +175,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               onPageChanged: (i) => setState(() => _currentStep = i),
               children: [
                 _setupNoticeStep(theme),
+                _signInStep(theme),
                 _contactStep(theme),
                 _handicapStep(theme),
                 _shortGameStep(theme),
@@ -191,7 +198,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : Text(
-                        _currentStep == _totalSteps - 1 ? 'Finish' : 'Next',
+                        _currentStep == _totalSteps - 1
+                            ? 'Finish'
+                            : _currentStep == _stepSignIn
+                                ? 'Continue as Guest'
+                                : 'Next',
                       ),
               ),
             ),
@@ -445,6 +456,201 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         },
       ),
     ]);
+  }
+
+  // ── KAN-414: Sign-in step ────────────────────────────────────────
+
+  Widget _signInStep(ThemeData theme) {
+    final isSignedIn = _draft.cognitoUserId != null;
+    return _stepScroll([
+      const SizedBox(height: 8),
+      Center(
+        child: Icon(
+          isSignedIn ? Icons.check_circle_outline : Icons.cloud_outlined,
+          size: 72,
+          color: isSignedIn
+              ? Colors.green
+              : theme.colorScheme.primary,
+        ),
+      ),
+      const SizedBox(height: 24),
+      Text(
+        isSignedIn ? 'You\'re signed in!' : 'Sync across devices',
+        style: theme.textTheme.headlineSmall,
+        textAlign: TextAlign.center,
+      ),
+      const SizedBox(height: 12),
+      if (isSignedIn) ...[
+        Text(
+          'Signed in with ${_draft.authProvider == "apple" ? "Apple" : "Google"}',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Your profile and rounds will sync to the cloud.',
+          style: theme.textTheme.bodyMedium,
+          textAlign: TextAlign.center,
+        ),
+      ] else ...[
+        Text(
+          'Sign in to back up your profile, rounds, and '
+          'scorecards. Pick up where you left off on any device.',
+          style: theme.textTheme.bodyMedium,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 24),
+        // Apple sign-in button
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton.icon(
+            onPressed: _signingIn ? null : _handleAppleSignIn,
+            icon: const Icon(Icons.apple, size: 24),
+            label: const Text('Sign in with Apple'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Google sign-in button
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: OutlinedButton.icon(
+            onPressed: _signingIn ? null : _handleGoogleSignIn,
+            icon: const Text('G', style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF4285F4),
+            )),
+            label: const Text('Sign in with Google'),
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              side: BorderSide(color: theme.colorScheme.outline.withAlpha(80)),
+            ),
+          ),
+        ),
+        if (_signingIn) ...[
+          const SizedBox(height: 16),
+          const Center(child: CircularProgressIndicator()),
+        ],
+        const SizedBox(height: 24),
+        // Benefits card
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer.withAlpha(40),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _benefitRow(Icons.sync, 'Sync profile & scores across devices', theme),
+              const SizedBox(height: 10),
+              _benefitRow(Icons.cloud_done_outlined, 'Cloud backup — never lose your rounds', theme),
+              const SizedBox(height: 10),
+              _benefitRow(Icons.phone_iphone, 'Switch phones seamlessly', theme),
+              const SizedBox(height: 10),
+              _benefitRow(Icons.lock_outline, 'Your data stays private', theme),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'This is optional. You can always sign in later\nfrom the Profile tab.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    ]);
+  }
+
+  Widget _benefitRow(IconData icon, String text, ThemeData theme) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: theme.colorScheme.primary),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(text, style: theme.textTheme.bodyMedium),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _handleAppleSignIn() async {
+    final auth = widget.authService;
+    if (auth == null) return;
+    setState(() => _signingIn = true);
+    try {
+      final result = await auth.signInWithApple();
+      if (result.success && mounted) {
+        setState(() {
+          _draft = _draft.copyWith(
+            cognitoUserId: result.userId,
+            authProvider: 'apple',
+            cloudSyncEnabled: true,
+            name: _nameController.text.isEmpty ? (result.displayName ?? '') : null,
+            email: _emailController.text.isEmpty ? (result.email ?? '') : null,
+          );
+          // Pre-fill contact controllers for the next step
+          if (_nameController.text.isEmpty && result.displayName != null) {
+            _nameController.text = result.displayName!;
+          }
+          if (_emailController.text.isEmpty && result.email != null) {
+            _emailController.text = result.email!;
+          }
+        });
+        // Auto-advance after short delay so user sees the success state
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (mounted) _next();
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _signingIn = false);
+    }
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    final auth = widget.authService;
+    if (auth == null) return;
+    setState(() => _signingIn = true);
+    try {
+      final result = await auth.signInWithGoogle();
+      if (result.success && mounted) {
+        setState(() {
+          _draft = _draft.copyWith(
+            cognitoUserId: result.userId,
+            authProvider: 'google',
+            cloudSyncEnabled: true,
+            name: _nameController.text.isEmpty ? (result.displayName ?? '') : null,
+            email: _emailController.text.isEmpty ? (result.email ?? '') : null,
+          );
+          if (_nameController.text.isEmpty && result.displayName != null) {
+            _nameController.text = result.displayName!;
+          }
+          if (_emailController.text.isEmpty && result.email != null) {
+            _emailController.text = result.email!;
+          }
+        });
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (mounted) _next();
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _signingIn = false);
+    }
   }
 
   Widget _stepScroll(List<Widget> children) {

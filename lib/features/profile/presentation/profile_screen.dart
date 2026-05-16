@@ -21,6 +21,7 @@ import '../../../core/build_mode.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/auth/auth_service.dart';
 import '../../../core/icons/caddie_icons.dart';
 import '../../../core/routing/app_router.dart';
 import '../../../core/monetization/ad_service.dart';
@@ -52,6 +53,7 @@ class ProfileScreen extends StatefulWidget {
     this.subscriptionService,
     this.showDebugSection = isDevMode,
     this.adService,
+    this.authService,
   });
 
   final PlayerProfile profile;
@@ -62,6 +64,9 @@ class ProfileScreen extends StatefulWidget {
 
   /// Optional ad service for banner ads on the profile screen.
   final AdService? adService;
+
+  /// KAN-414: Optional auth service for sign-in/sign-out.
+  final AuthService? authService;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -126,6 +131,240 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  // ── KAN-414: Account card ──────────────────────────────────────
+
+  Widget _buildAccountCard(ThemeData theme) {
+    final auth = widget.authService;
+    if (auth != null && auth.isAuthenticated) {
+      return _buildSignedInAccountCard(theme, auth);
+    }
+    return _buildGuestAccountCard(theme);
+  }
+
+  Widget _buildSignedInAccountCard(ThemeData theme, AuthService auth) {
+    return _ProfileCard(
+      title: 'Account',
+      theme: theme,
+      children: [
+          Row(
+            children: [
+              Icon(
+                auth.authProvider == 'apple' ? Icons.apple : Icons.language,
+                size: 24,
+                color: theme.colorScheme.onSurface,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Signed in with ${auth.authProvider == "apple" ? "Apple" : "Google"}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (auth.email != null)
+                      Text(
+                        auth.email!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Icon(Icons.check_circle, size: 20, color: Colors.green.shade600),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.cloud_done_outlined, size: 18,
+                  color: theme.colorScheme.outline),
+              const SizedBox(width: 8),
+              Text('Cloud sync active',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  )),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Sign out?'),
+                    content: const Text(
+                      'Your data stays on this device, but cloud sync '
+                      'will stop until you sign in again.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Sign Out'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  await auth.signOut();
+                  if (mounted) {
+                    setState(() {
+                      _draft = _draft.copyWith(
+                        cognitoUserId: null,
+                        authProvider: null,
+                        cloudSyncEnabled: false,
+                      );
+                    });
+                  }
+                }
+              },
+              child: const Text('Sign Out'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // KAN-417: Account deletion
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Delete Account?'),
+                    content: const Text(
+                      'This will permanently delete your cloud account and '
+                      'all synced data (profile, rounds, scorecards). '
+                      'Data on this device will be preserved.\n\n'
+                      'This cannot be undone.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: Theme.of(ctx).colorScheme.error,
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Delete Account'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  // Cloud deletion handled by caller wiring SyncClient.deleteAccount()
+                  await auth.deleteAccount();
+                  if (mounted) {
+                    setState(() {
+                      _draft = _draft.copyWith(
+                        cognitoUserId: null,
+                        authProvider: null,
+                        cloudSyncEnabled: false,
+                      );
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Account deleted')),
+                    );
+                  }
+                }
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
+              child: const Text('Delete Account'),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildGuestAccountCard(ThemeData theme) {
+    return _ProfileCard(
+      title: 'Account',
+      theme: theme,
+      subtitle: 'Sign in to sync across devices',
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton.icon(
+            onPressed: () => _handleProfileSignIn('apple'),
+            icon: const Icon(Icons.apple, size: 22),
+            label: const Text('Sign in with Apple'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: () => _handleProfileSignIn('google'),
+            icon: const Text('G', style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF4285F4),
+            )),
+            label: const Text('Sign in with Google'),
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Sync your profile, rounds, and scorecards across devices.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Future<void> _handleProfileSignIn(String provider) async {
+    final auth = widget.authService;
+    if (auth == null) return;
+
+    final result = provider == 'apple'
+        ? await auth.signInWithApple()
+        : await auth.signInWithGoogle();
+
+    if (result.success && mounted) {
+      setState(() {
+        _draft = _draft.copyWith(
+          cognitoUserId: result.userId,
+          authProvider: result.provider,
+          cloudSyncEnabled: true,
+          name: _draft.name.isEmpty ? (result.displayName ?? '') : null,
+          email: _draft.email.isEmpty ? (result.email ?? '') : null,
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Signed in successfully!')),
+      );
+    }
+  }
+
   // ── sub-screen navigation helpers ──────────────────────────────
 
   Future<void> _pushSubScreen(Widget screen) async {
@@ -170,6 +409,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
+          // ── Section 0: Account (KAN-414) ─────────────────────────
+          _buildAccountCard(theme),
+
           // ── Section 1: Player Info ──────────────────────────────
           // iOS ProfileView.swift:18-37
           _ProfileCard(
