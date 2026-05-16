@@ -90,6 +90,9 @@ GoRouter buildAppRouter() {
       // on `/course`, and the redirect runs there normally.
       if (state.matchedLocation == AppRoutes.onboarding) return null;
       if (state.matchedLocation == AppRoutes.splash) return null;
+      // KAN-410: Absorb OAuth callback deep links — handled by EventChannel,
+      // not by the router. Return current location to prevent "no route" error.
+      if (state.uri.toString().contains('callback')) return AppRoutes.course;
       try {
         final profile = ProfileRepository().loadOrDefault();
         if (!profile.hasCompletedSwingOnboarding) {

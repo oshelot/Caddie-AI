@@ -150,10 +150,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               Icon(
                 auth.authProvider == 'apple' ? Icons.apple : Icons.language,
-                size: 24,
+                size: 22,
                 color: theme.colorScheme.onSurface,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,118 +174,90 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
               ),
-              Icon(Icons.check_circle, size: 20, color: Colors.green.shade600),
+              Icon(Icons.cloud_done_outlined, size: 18, color: Colors.green.shade600),
             ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Icon(Icons.cloud_done_outlined, size: 18,
-                  color: theme.colorScheme.outline),
-              const SizedBox(width: 8),
-              Text('Cloud sync active',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  )),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () async {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Sign out?'),
-                    content: const Text(
-                      'Your data stays on this device, but cloud sync '
-                      'will stop until you sign in again.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Cancel'),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Sign Out'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirm == true) {
-                  await auth.signOut();
-                  if (mounted) {
-                    setState(() {
-                      _draft = _draft.copyWith(
-                        cognitoUserId: null,
-                        authProvider: null,
-                        cloudSyncEnabled: false,
-                      );
-                    });
-                  }
-                }
-              },
-              child: const Text('Sign Out'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          // KAN-417: Account deletion
-          SizedBox(
-            width: double.infinity,
-            child: TextButton(
-              onPressed: () async {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Delete Account?'),
-                    content: const Text(
-                      'This will permanently delete your cloud account and '
-                      'all synced data (profile, rounds, scorecards). '
-                      'Data on this device will be preserved.\n\n'
-                      'This cannot be undone.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Cancel'),
-                      ),
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          foregroundColor: Theme.of(ctx).colorScheme.error,
-                        ),
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Delete Account'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirm == true) {
-                  // Cloud deletion handled by caller wiring SyncClient.deleteAccount()
-                  await auth.deleteAccount();
-                  if (mounted) {
-                    setState(() {
-                      _draft = _draft.copyWith(
-                        cognitoUserId: null,
-                        authProvider: null,
-                        cloudSyncEnabled: false,
-                      );
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Account deleted')),
-                    );
-                  }
-                }
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: Theme.of(context).colorScheme.error,
-              ),
-              child: const Text('Delete Account'),
-            ),
           ),
       ],
     );
+  }
+
+  Future<void> _handleSignOut(AuthService auth) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text(
+          'Your data stays on this device, but cloud sync '
+          'will stop until you sign in again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await auth.signOut();
+      if (mounted) {
+        setState(() {
+          _draft = _draft.copyWith(
+            cognitoUserId: null,
+            authProvider: null,
+            cloudSyncEnabled: false,
+          );
+        });
+      }
+    }
+  }
+
+  Future<void> _handleDeleteAccount(AuthService auth) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Account?'),
+        content: const Text(
+          'This will permanently delete your account and all '
+          'synced data including your profile, rounds, and '
+          'scorecards from the cloud.\n\n'
+          'Data stored locally on this device will be preserved.\n\n'
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete Account'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await auth.deleteAccount();
+      if (mounted) {
+        setState(() {
+          _draft = _draft.copyWith(
+            cognitoUserId: null,
+            authProvider: null,
+            cloudSyncEnabled: false,
+          );
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Account deleted')),
+        );
+      }
+    }
   }
 
   Widget _buildGuestAccountCard(ThemeData theme) {
@@ -345,23 +317,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final auth = widget.authService;
     if (auth == null) return;
 
-    final result = provider == 'apple'
-        ? await auth.signInWithApple()
-        : await auth.signInWithGoogle();
-
-    if (result.success && mounted) {
-      setState(() {
-        _draft = _draft.copyWith(
-          cognitoUserId: result.userId,
-          authProvider: result.provider,
-          cloudSyncEnabled: true,
-          name: _draft.name.isEmpty ? (result.displayName ?? '') : null,
-          email: _draft.email.isEmpty ? (result.email ?? '') : null,
+    if (provider == 'apple') {
+      final result = await auth.signInWithApple();
+      if (result.success && mounted) {
+        setState(() {
+          _draft = _draft.copyWith(
+            cognitoUserId: result.userId,
+            authProvider: result.provider,
+            cloudSyncEnabled: true,
+            name: _draft.name.isEmpty ? (result.displayName ?? '') : null,
+            email: _draft.email.isEmpty ? (result.email ?? '') : null,
+          );
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Signed in successfully!')),
         );
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Signed in successfully!')),
-      );
+      }
+    } else {
+      // Google: launches browser, result comes back via deep link
+      void onAuthChanged() {
+        if (!mounted) return;
+        if (auth.isAuthenticated) {
+          auth.removeListener(onAuthChanged);
+          setState(() {
+            _draft = _draft.copyWith(
+              cognitoUserId: auth.cognitoUserId,
+              authProvider: 'google',
+              cloudSyncEnabled: true,
+              name: _draft.name.isEmpty ? (auth.displayName ?? '') : null,
+              email: _draft.email.isEmpty ? (auth.email ?? '') : null,
+            );
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Signed in successfully!')),
+          );
+        }
+      }
+      auth.addListener(onAuthChanged);
+      await auth.signInWithGoogle();
     }
   }
 
@@ -707,6 +700,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _pushSubScreen(ContactInfoScreen(profile: _draft)),
           ),
           const SizedBox(height: 24),
+          // ── Sign Out / Delete Account (bottom of page) ──────────
+          if (widget.authService != null && widget.authService!.isAuthenticated)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 32),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: () => _handleSignOut(widget.authService!),
+                    style: TextButton.styleFrom(
+                      textStyle: theme.textTheme.bodySmall,
+                    ),
+                    child: const Text('Sign Out'),
+                  ),
+                  Text(' · ', style: TextStyle(color: theme.colorScheme.outline)),
+                  TextButton(
+                    onPressed: () => _handleDeleteAccount(widget.authService!),
+                    style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.error,
+                      textStyle: theme.textTheme.bodySmall,
+                    ),
+                    child: const Text('Delete Account'),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
       bottomNavigationBar: widget.adService?.bannerAd(),

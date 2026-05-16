@@ -35,6 +35,10 @@ import 'core/logging/log_sender.dart';
 import 'core/logging/logging_service.dart';
 import 'core/mapbox/mapbox_init.dart';
 import 'core/round/active_round_controller.dart';
+import 'package:flutter/services.dart';
+
+import 'core/auth/auth_service.dart';
+import 'core/courses/http_transport.dart';
 import 'core/storage/app_storage.dart';
 import 'core/theme/theme_controller.dart';
 
@@ -82,6 +86,11 @@ class _NoopLogSender implements LogSender {
 /// StubAdService in test runtime where main() hasn't run.
 AdService adService = StubAdService();
 
+/// KAN-410: Global auth service for optional Apple/Google sign-in.
+/// Initialized in main() from dart-defines. Feature code reads via
+/// this getter — same pattern as `logger` and `adService`.
+AuthService? authService;
+
 Future<void> main() async {
   final startupSw = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
@@ -96,6 +105,28 @@ Future<void> main() async {
   // (single Hive read); safe after AppStorage.init.
   await activeRoundController.hydrate(trigger: 'cold_start');
   _logger = _buildLogger();
+  // KAN-410: Initialize auth service from dart-defines.
+  const cognitoDomain = String.fromEnvironment('COGNITO_DOMAIN');
+  const cognitoClientId = String.fromEnvironment('COGNITO_CLIENT_ID');
+  const googleServerClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
+  if (cognitoDomain.isNotEmpty && cognitoClientId.isNotEmpty) {
+    authService = AuthService(
+      cognitoDomain: cognitoDomain,
+      cognitoClientId: cognitoClientId,
+      googleServerClientId: googleServerClientId.isNotEmpty ? googleServerClientId : null,
+      transport: DartIoHttpTransport(),
+    );
+    authService!.restoreSession();
+
+    // Listen for OAuth callback deep links (caddieai://callback?code=...)
+    const EventChannel('caddieai/deeplink')
+        .receiveBroadcastStream()
+        .listen((dynamic link) {
+      if (link is String && link.startsWith('caddieai://callback')) {
+        authService!.handleCallbackUri(Uri.parse(link));
+      }
+    });
+  }
   // Download centralized prompts from S3 (KAN-62).
   await PromptService.shared.fetchIfNeeded();
   // Initialize ads. In debug builds with Pro override, banners are

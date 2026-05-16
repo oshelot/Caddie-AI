@@ -626,31 +626,44 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final auth = widget.authService;
     if (auth == null) return;
     setState(() => _signingIn = true);
-    try {
-      final result = await auth.signInWithGoogle();
-      if (result.success && mounted) {
+
+    // Listen for auth state change (callback arrives via deep link)
+    void onAuthChanged() {
+      if (!mounted) return;
+      if (auth.isAuthenticated) {
+        auth.removeListener(onAuthChanged);
         setState(() {
+          _signingIn = false;
           _draft = _draft.copyWith(
-            cognitoUserId: result.userId,
+            cognitoUserId: auth.cognitoUserId,
             authProvider: 'google',
             cloudSyncEnabled: true,
-            name: _nameController.text.isEmpty ? (result.displayName ?? '') : null,
-            email: _emailController.text.isEmpty ? (result.email ?? '') : null,
+            name: _nameController.text.isEmpty ? (auth.displayName ?? '') : null,
+            email: _emailController.text.isEmpty ? (auth.email ?? '') : null,
           );
-          if (_nameController.text.isEmpty && result.displayName != null) {
-            _nameController.text = result.displayName!;
+          if (_nameController.text.isEmpty && auth.displayName != null) {
+            _nameController.text = auth.displayName!;
           }
-          if (_emailController.text.isEmpty && result.email != null) {
-            _emailController.text = result.email!;
+          if (_emailController.text.isEmpty && auth.email != null) {
+            _emailController.text = auth.email!;
           }
         });
         Future.delayed(const Duration(milliseconds: 800), () {
           if (mounted) _next();
         });
       }
-    } finally {
-      if (mounted) setState(() => _signingIn = false);
     }
+
+    auth.addListener(onAuthChanged);
+    await auth.signInWithGoogle();
+
+    // Timeout: if no callback after 60s, reset
+    Future.delayed(const Duration(seconds: 60), () {
+      if (mounted && _signingIn) {
+        auth.removeListener(onAuthChanged);
+        setState(() => _signingIn = false);
+      }
+    });
   }
 
   Widget _stepScroll(List<Widget> children) {

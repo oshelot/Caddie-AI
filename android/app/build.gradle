@@ -68,7 +68,6 @@ android {
     // 2026-04-11 toolchain refresh (AGP 8.7 + Kotlin 2.1 + Gradle 8.9):
     // - compileSdk 35 required by flutter_plugin_android_lifecycle
     // - NDK 27.0 requested by mapbox_maps_flutter on the current toolchain
-    //   (was 26.1 on the older spike toolchain)
     compileSdk = 35
     ndkVersion = "27.0.12077973"
 

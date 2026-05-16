@@ -8,8 +8,10 @@
 //
 // No Cognito SDK — plain HTTP via CognitoTokenClient.
 
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/services.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../courses/http_transport.dart';
@@ -22,6 +24,7 @@ class AuthService extends ChangeNotifier {
     required String cognitoDomain,
     required String cognitoClientId,
     required HttpTransport transport,
+    this.googleServerClientId,
     SecureKeysStorage? secureKeys,
   })  : _tokenClient = CognitoTokenClient(
           domain: cognitoDomain,
@@ -33,6 +36,7 @@ class AuthService extends ChangeNotifier {
 
   final CognitoTokenClient _tokenClient;
   final SecureKeysStorage _secureKeys;
+  final String? googleServerClientId;
 
   AuthState _state = AuthState.guest;
   String? _cognitoUserId;
@@ -121,43 +125,70 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  // ── Sign in with Google ──────────────────────────────────────────
+  // ── Sign in with Google (via Cognito Hosted UI) ──────────────────
 
-  Future<AuthResult> signInWithGoogle() async {
+  /// Launches the Cognito hosted UI in the system browser, which handles
+  /// the Google OAuth redirect internally. The app receives the auth code
+  /// via the `caddieai://callback?code=...` deep link.
+  ///
+  /// Call [handleCallbackUri] when the app receives the deep link.
+  Future<void> signInWithGoogle() async {
     _state = AuthState.signingIn;
+    _authProvider = 'google';
     notifyListeners();
 
+    final uri = Uri.https(_tokenClient.domain, '/oauth2/authorize', {
+      'response_type': 'code',
+      'client_id': _tokenClient.clientId,
+      'redirect_uri': _tokenClient.redirectUri,
+      'scope': 'openid email profile',
+      'identity_provider': 'Google',
+    });
+
     try {
-      final googleSignIn = GoogleSignIn(
-        scopes: ['openid', 'email', 'profile'],
-      );
-      final account = await googleSignIn.signIn();
-      if (account == null) {
-        return _fail('Google sign-in cancelled');
+      // Launch URL in system browser without url_launcher dependency
+      if (Platform.isAndroid) {
+        await const MethodChannel('caddieai/auth')
+            .invokeMethod('launchUrl', uri.toString());
+      } else {
+        // iOS: Process.run won't work; for now fall back to nothing
+        // (Apple Sign In is the primary iOS flow)
+        debugPrint('Google sign-in via hosted UI not yet supported on iOS');
       }
+    } catch (e) {
+      _fail('Could not launch sign-in: $e');
+    }
+  }
 
-      final serverAuthCode = account.serverAuthCode;
-      if (serverAuthCode == null) {
-        return _fail('Google sign-in: no server auth code. '
-            'Ensure serverClientId is configured.');
-      }
+  /// Handle the callback deep link from Cognito hosted UI.
+  /// Called by the app's deep link handler when `caddieai://callback?code=X` arrives.
+  Future<AuthResult> handleCallbackUri(Uri uri) async {
+    final code = uri.queryParameters['code'];
+    final error = uri.queryParameters['error'];
 
-      final tokens = await _tokenClient.exchangeCode(serverAuthCode);
+    if (error != null) {
+      return _fail('Sign-in error: $error');
+    }
+    if (code == null || code.isEmpty) {
+      return _fail('No authorization code in callback');
+    }
+
+    try {
+      final tokens = await _tokenClient.exchangeCode(code);
       _applyTokens(tokens);
-      _authProvider = 'google';
-      _displayName = account.displayName;
+      _authProvider ??= 'google';
 
       await _persistTokens();
       _state = AuthState.authenticated;
       notifyListeners();
       return AuthResult.success(
         userId: _cognitoUserId!,
-        email: _email ?? account.email,
+        email: _email,
         displayName: _displayName,
-        provider: 'google',
+        provider: _authProvider!,
       );
     } catch (e) {
-      return _fail('Google sign-in failed: $e');
+      return _fail('Token exchange failed: $e');
     }
   }
 
