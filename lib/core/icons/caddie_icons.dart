@@ -4,8 +4,8 @@
 // supports fills only); see ADR 0006 "Why this was wrong" for the
 // post-mortem.
 //
-// Source: /home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/, mirrored
-// into `mobile-flutter/assets/icons/` as the runtime asset.
+// Source: the Caddie-AI-Iconagraphy/caddieai-icons/ design repo,
+// mirrored into `assets/icons/` as the runtime asset.
 //
 // ## Usage
 //
@@ -27,9 +27,9 @@
 //
 // ## Adding a new icon
 //
-// 1. Drop the SVG into `mobile-flutter/assets/icons/` as `icon-{name}.svg`
-//    (also mirror into the source-of-truth dir at
-//    /home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/)
+// 1. Drop the SVG into `assets/icons/` as `icon-{name}.svg`
+//    (also mirror into the Caddie-AI-Iconagraphy/caddieai-icons/
+//    design repo, the source of truth)
 // 2. Add an entry to the `_paths` map below (camelCase key → asset path)
 // 3. Add a named getter that delegates to `_render('name', size, color)`
 // 4. Update `docs/design/icons.md` with the new icon's name + intended use

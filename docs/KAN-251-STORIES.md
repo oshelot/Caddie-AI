@@ -67,7 +67,7 @@ dependency arrows (`→`) encode hard blockers.
   closed subtasks. Decision recorded in **ADR 0006** (icon font over SVG/PNG).
 - Scope:
   - Generate an icon font from the 45 SVGs in
-    `/home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/` via `fluttericon`
+    `Caddie-AI-Iconagraphy/caddieai-icons/` via `fluttericon`
   - Build a `CaddieIcons` constants class with 45 named entries
   - Wire the font into `pubspec.yaml`
   - Spec doc at `mobile-flutter/docs/design/icons.md` covering sizes,
@@ -145,7 +145,7 @@ dependency arrows (`→`) encode hard blockers.
 - Scope:
   - Port the native `LoggingService` / `DiagnosticLogger` contract.
   - Batched HTTP POST to the existing logging endpoint
-    (`3wcw5juj2d.execute-api.us-east-2.amazonaws.com/prod/logs`) —
+    (the `LOGGING_ENDPOINT` API Gateway URL) —
     reuse the same API key via `--dart-define`.
   - Log categories matching native: `llm`, `network`, `general`,
     `lifecycle`, `map`.

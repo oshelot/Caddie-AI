@@ -13,7 +13,7 @@ class CognitoTokenClient {
     required HttpTransport transport,
   }) : _transport = transport;
 
-  /// Cognito hosted UI domain, e.g. "caddieai.auth.us-east-2.amazoncognito.com"
+  /// Cognito hosted UI domain, e.g. "<pool>.auth.<region>.amazoncognito.com"
   final String domain;
 
   /// Cognito App Client ID (public, no secret).

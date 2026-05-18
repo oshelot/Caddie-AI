@@ -243,7 +243,7 @@ must reference a captured ADR in `docs/adr/` before merging.
 ## 6. Icons — always use `CaddieIcons`, never Material defaults
 
 The CaddieAI app has a custom 45-icon set that's part of the brand
-identity. Source SVGs live in `/home/apatel/Caddie-AI-Iconagraphy/
+identity. Source SVGs live in `Caddie-AI-Iconagraphy/
 caddieai-icons/` and are mirrored into `mobile-flutter/assets/icons/`
 as the runtime asset. They're rendered via `flutter_svg` per
 **ADR 0007** (which superseded the failed icon-font attempt in
@@ -280,7 +280,7 @@ name isn't in the registry — fail loud, not silent.
 If a UI story needs an icon that isn't in the set, **add it to the
 set first** via a separate ticket that:
 
-1. Drops the new SVG into `/home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/`
+1. Drops the new SVG into `Caddie-AI-Iconagraphy/caddieai-icons/`
    (the source-of-truth dir) AND mirrors it into
    `mobile-flutter/assets/icons/` (the runtime asset)
 2. Adds an entry to the `_paths` map in `lib/core/icons/caddie_icons.dart`

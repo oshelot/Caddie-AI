@@ -37,6 +37,7 @@ DART_DEFINES="--dart-define=DEV_MODE=true"
 for KEY in COURSE_CACHE_ENDPOINT COURSE_CACHE_API_KEY MAPBOX_TOKEN \
            LLM_PROXY_ENDPOINT LLM_PROXY_API_KEY \
            LOGGING_ENDPOINT LOGGING_API_KEY GOLF_COURSE_API_KEY \
+           PROMPTS_ENDPOINT \
            COGNITO_USER_POOL_ID COGNITO_CLIENT_ID COGNITO_DOMAIN \
            GOOGLE_SERVER_CLIENT_ID; do
   # `|| true`: a missing key makes grep exit non-zero, which under

@@ -16,7 +16,7 @@ This ADR captures the corrected decision based on **actually inspecting the SVGs
 
 ## SVG inspection (the verification ADR 0006 should have done)
 
-Sampled 5 SVGs from `/home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/`:
+Sampled 5 SVGs from `Caddie-AI-Iconagraphy/caddieai-icons/`:
 
 | File | Path style | Fill | Stroke | Closed regions |
 |---|---|---|---|---|
@@ -132,7 +132,7 @@ The dependency footprint (~200 KB extra) is acceptable. The arm64 release APK is
 ## References
 
 - `flutter_svg` package: https://pub.dev/packages/flutter_svg
-- Source icon set: `/home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/` (45 SVGs, all `fill: none; stroke: #000;`)
+- Source icon set: `Caddie-AI-Iconagraphy/caddieai-icons/` (45 SVGs, all `fill: none; stroke: #000;`)
 - Runtime asset path: `mobile-flutter/assets/icons/`
 - KAN-291 (S0 icon foundation story) — implements this decision
 - ADR 0006 (Superseded) — the failed icon-font attempt and post-mortem

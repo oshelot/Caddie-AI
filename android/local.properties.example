@@ -32,6 +32,9 @@ LLM_PROXY_API_KEY=your_llm_proxy_api_key
 LOGGING_ENDPOINT=https://your-logging-endpoint
 LOGGING_API_KEY=your_logging_api_key
 GOLF_COURSE_API_KEY=your_golf_course_api_key
+# Remote prompts JSON (KAN-62). Without it the app uses built-in
+# default prompts.
+PROMPTS_ENDPOINT=https://your-prompts-endpoint/prompts.json
 
 # --- Optional sign-in (Amazon Cognito) ------------------------------------
 # Enables optional Apple/Google sign-in + cloud sync. Leave blank to run the

@@ -1,10 +1,9 @@
 // PromptService — downloads and caches the centralized prompts.json
-// from S3 (KAN-62/KAN-83). The iOS app calls fetchIfNeeded() at
-// startup (CaddieAIApp.swift:145); we do the same in main.dart.
+// (KAN-62/KAN-83), fetched once at startup from main.dart.
 //
-// Bucket: s3://caddieai-config/config/prompts.json
-// Served via: direct S3 public read or a CloudFront/presigned URL.
-// For now we hit the S3 object URL directly (public-read ACL).
+// The endpoint URL comes from the PROMPTS_ENDPOINT dart-define (see
+// android/local.properties); when unset, the built-in default prompts
+// below are used instead.
 //
 // The prompts.json contains:
 //   caddieSystemPrompt — structured JSON-response prompt for shot advice
@@ -24,8 +23,10 @@ class PromptService {
 
   static final PromptService shared = PromptService._();
 
+  // Prompts endpoint — supplied via the PROMPTS_ENDPOINT dart-define.
+  // Empty when unset → fetchIfNeeded() applies the built-in defaults.
   static const String _defaultUrl =
-      'https://caddieai-config.s3.us-east-2.amazonaws.com/config/prompts.json';
+      String.fromEnvironment('PROMPTS_ENDPOINT');
 
   // Cached prompt data
   String _caddieSystemPrompt = '';
@@ -90,6 +91,11 @@ class PromptService {
     String url = _defaultUrl,
   }) async {
     if (_loaded) return;
+    if (url.isEmpty) {
+      // No PROMPTS_ENDPOINT configured — use the built-in defaults.
+      _applyDefaults();
+      return;
+    }
     final t = transport ?? DartIoHttpTransport();
     try {
       final response = await t.send(HttpRequestLike(
@@ -134,13 +140,13 @@ class PromptService {
 
       _loaded = true;
       // ignore: avoid_print
-      print('PROMPTS: loaded from S3 — '
+      print('PROMPTS: loaded from remote — '
           '${_caddieSystemPrompt.length} chars system, '
           '${_personaFragments.length} personas, '
           '${_golfKeywords.length} keywords');
     } catch (e) {
       // ignore: avoid_print
-      print('PROMPTS: S3 fetch failed ($e), using defaults');
+      print('PROMPTS: remote fetch failed ($e), using defaults');
       _applyDefaults();
     }
   }

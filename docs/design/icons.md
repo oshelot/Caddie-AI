@@ -165,13 +165,13 @@ All paths under `assets/icons/`. Asset filename convention: `icon-{kebab-case-na
 
 The icon set is rendered directly from the source SVGs at runtime — there is no codegen / font generation step. To add, remove, or modify icons:
 
-1. **Update the source set** at `/home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/`. The SVGs should be:
+1. **Update the source set** at `Caddie-AI-Iconagraphy/caddieai-icons/`. The SVGs should be:
    - **Stroke-based** (`fill: none; stroke: #000;`) — matches the existing set's style
    - **24 × 24 viewBox** — the standard mobile icon canvas
    - **Single-color** (black strokes) — flutter_svg can recolor at runtime via `colorFilter`, but the source should be neutral
 2. **Mirror the change** into `mobile-flutter/assets/icons/`:
    ```bash
-   cp /home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/icon-newicon.svg \
+   cp Caddie-AI-Iconagraphy/caddieai-icons/icon-newicon.svg \
      mobile-flutter/assets/icons/
    ```
 3. **Update `lib/core/icons/caddie_icons.dart`**:
@@ -197,4 +197,4 @@ The icon set is rendered directly from the source SVGs at runtime — there is n
 
 ## License
 
-The icon set is the property of CaddieAI / the project owner. The runtime SVGs (`assets/icons/`) are committed under the same license as the rest of the repo. The source `.ai` (Adobe Illustrator) file in `/home/apatel/Caddie-AI-Iconagraphy/Files/` is the design source-of-truth.
+The icon set is the property of CaddieAI / the project owner. The runtime SVGs (`assets/icons/`) are committed under the same license as the rest of the repo. The source `.ai` (Adobe Illustrator) file in `Caddie-AI-Iconagraphy/Files/` is the design source-of-truth.

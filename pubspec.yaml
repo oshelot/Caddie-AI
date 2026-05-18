@@ -80,7 +80,7 @@ flutter:
   uses-material-design: true
 
   # CaddieAI custom icon set — 45 stroke-based SVGs from
-  # /home/apatel/Caddie-AI-Iconagraphy/caddieai-icons/. Rendered via
+  # Caddie-AI-Iconagraphy/caddieai-icons/. Rendered via
   # flutter_svg (see ADR 0007). All UI code references icons via the
   # named getters in `lib/core/icons/caddie_icons.dart`
   # (CONVENTIONS C-6). The SVGs ARE the runtime artifact — there is
