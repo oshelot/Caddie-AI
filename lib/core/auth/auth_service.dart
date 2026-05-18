@@ -8,11 +8,10 @@
 //
 // No Cognito SDK — plain HTTP via CognitoTokenClient.
 
-import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../courses/http_transport.dart';
 import '../storage/secure_keys_storage.dart';
@@ -48,6 +47,11 @@ class AuthService extends ChangeNotifier {
   String? _refreshToken;
   DateTime? _tokenExpiresAt;
 
+  /// Completes when an awaited sign-in (Apple) finishes its OAuth
+  /// round-trip via [handleCallbackUri]. Google uses the listener
+  /// pattern instead and leaves this null.
+  Completer<AuthResult>? _pendingAuth;
+
   AuthState get state => _state;
   String? get cognitoUserId => _cognitoUserId;
   String? get authProvider => _authProvider;
@@ -79,90 +83,82 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── Sign in with Apple ───────────────────────────────────────────
+  // ── Hosted-UI sign-in (Apple + Google) ───────────────────────────
+  //
+  // Both providers federate through the Cognito hosted UI: the app
+  // opens `/oauth2/authorize?identity_provider=...`, Cognito brokers
+  // the IdP handshake and redirects to `caddieai://callback?code=...`
+  // with a *Cognito-issued* code. The native layer (AppDelegate.swift
+  // on iOS, MainActivity.kt on Android) launches the URL and streams
+  // the callback back over the `caddieai/deeplink` EventChannel, which
+  // `main.dart` routes into [handleCallbackUri].
+  //
+  // This is the only Cognito-supported way to federate Apple/Google
+  // into a User Pool — the token endpoint only accepts codes Cognito
+  // itself issued, so a native-SDK auth code cannot be exchanged here.
 
+  /// Launches Apple sign-in via the Cognito hosted UI and resolves
+  /// once the OAuth round-trip completes (or times out / is cancelled).
   Future<AuthResult> signInWithApple() async {
     _state = AuthState.signingIn;
+    _authProvider = 'apple';
     notifyListeners();
 
-    try {
-      final credential = await SignInWithApple.getAppleIDCredential(
-        scopes: [
-          AppleIDAuthorizationScopes.email,
-          AppleIDAuthorizationScopes.fullName,
-        ],
-      );
+    final completer = Completer<AuthResult>();
+    _pendingAuth = completer;
 
-      if (credential.authorizationCode.isEmpty) {
-        return _fail('Apple sign-in cancelled');
-      }
+    await _launchHostedUi('SignInWithApple');
 
-      final tokens = await _tokenClient.exchangeCode(
-        credential.authorizationCode,
-      );
-
-      _applyTokens(tokens);
-      _authProvider = 'apple';
-
-      // Apple only gives name on first sign-in — use it if available
-      if (credential.givenName != null) {
-        _displayName = [credential.givenName, credential.familyName]
-            .where((s) => s != null && s.isNotEmpty)
-            .join(' ');
-      }
-
-      await _persistTokens();
-      _state = AuthState.authenticated;
-      notifyListeners();
-      return AuthResult.success(
-        userId: _cognitoUserId!,
-        email: _email,
-        displayName: _displayName,
-        provider: 'apple',
-      );
-    } catch (e) {
-      return _fail('Apple sign-in failed: $e');
-    }
+    return completer.future.timeout(
+      const Duration(seconds: 120),
+      onTimeout: () => _fail('Apple sign-in timed out'),
+    );
   }
 
-  // ── Sign in with Google (via Cognito Hosted UI) ──────────────────
-
-  /// Launches the Cognito hosted UI in the system browser, which handles
-  /// the Google OAuth redirect internally. The app receives the auth code
-  /// via the `caddieai://callback?code=...` deep link.
-  ///
-  /// Call [handleCallbackUri] when the app receives the deep link.
+  /// Launches Google sign-in via the Cognito hosted UI. The result
+  /// arrives asynchronously through [handleCallbackUri]; callers
+  /// observe the outcome via the [ChangeNotifier] listener (see the
+  /// profile / onboarding screens).
   Future<void> signInWithGoogle() async {
     _state = AuthState.signingIn;
     _authProvider = 'google';
     notifyListeners();
 
+    await _launchHostedUi('Google');
+  }
+
+  /// Builds the Cognito `/oauth2/authorize` URL for [identityProvider]
+  /// and hands it to the native layer to open in a web-auth session.
+  Future<void> _launchHostedUi(String identityProvider) async {
     final uri = Uri.https(_tokenClient.domain, '/oauth2/authorize', {
       'response_type': 'code',
       'client_id': _tokenClient.clientId,
       'redirect_uri': _tokenClient.redirectUri,
       'scope': 'openid email profile',
-      'identity_provider': 'Google',
+      'identity_provider': identityProvider,
     });
 
     try {
-      // Launch URL in system browser without url_launcher dependency
-      if (Platform.isAndroid) {
-        await const MethodChannel('caddieai/auth')
-            .invokeMethod('launchUrl', uri.toString());
-      } else {
-        // iOS: Process.run won't work; for now fall back to nothing
-        // (Apple Sign In is the primary iOS flow)
-        debugPrint('Google sign-in via hosted UI not yet supported on iOS');
-      }
+      await const MethodChannel('caddieai/auth')
+          .invokeMethod('launchUrl', uri.toString());
     } catch (e) {
       _fail('Could not launch sign-in: $e');
     }
   }
 
-  /// Handle the callback deep link from Cognito hosted UI.
-  /// Called by the app's deep link handler when `caddieai://callback?code=X` arrives.
+  /// Handle the callback deep link from the Cognito hosted UI.
+  /// Called by the app's deep link handler when
+  /// `caddieai://callback?code=X` (or `?error=...`) arrives.
   Future<AuthResult> handleCallbackUri(Uri uri) async {
+    final result = await _exchangeCallback(uri);
+    // Resolve any awaited sign-in (Apple); Google leaves _pendingAuth null.
+    final pending = _pendingAuth;
+    _pendingAuth = null;
+    if (pending != null && !pending.isCompleted) pending.complete(result);
+    return result;
+  }
+
+  Future<AuthResult> _exchangeCallback(Uri uri) async {
     final code = uri.queryParameters['code'];
     final error = uri.queryParameters['error'];
 

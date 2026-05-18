@@ -39,13 +39,16 @@ for KEY in COURSE_CACHE_ENDPOINT COURSE_CACHE_API_KEY MAPBOX_TOKEN \
            LOGGING_ENDPOINT LOGGING_API_KEY GOLF_COURSE_API_KEY \
            COGNITO_USER_POOL_ID COGNITO_CLIENT_ID COGNITO_DOMAIN \
            GOOGLE_SERVER_CLIENT_ID; do
-  VAL=$(grep "^${KEY}=" "$PROPS" 2>/dev/null | head -1 | cut -d= -f2-)
+  # `|| true`: a missing key makes grep exit non-zero, which under
+  # `set -euo pipefail` would abort the script before the `-n` guard
+  # below. Tolerate absent keys so a partial local.properties builds.
+  VAL=$(grep "^${KEY}=" "$PROPS" 2>/dev/null | head -1 | cut -d= -f2- || true)
   if [ -n "$VAL" ]; then
     DART_DEFINES="$DART_DEFINES --dart-define=$KEY=$VAL"
   fi
 done
 
-echo "Injecting dart-defines for: $(echo $DART_DEFINES | grep -oP '(?<=--dart-define=)[A-Z_]+(?==)' | tr '\n' ' ')"
+echo "Injecting dart-defines for: $(echo "$DART_DEFINES" | tr ' ' '\n' | sed -n 's/^--dart-define=\([A-Za-z_]*\)=.*/\1/p' | tr '\n' ' ')"
 echo ""
 
 # Force --debug unless the user explicitly passes --release or --profile.
