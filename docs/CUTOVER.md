@@ -60,7 +60,7 @@ For each device, build with:
 ```bash
 cd mobile-flutter
 flutter run -d <device-id> \
-  --dart-define=MAPBOX_TOKEN=pk.eyJ1IjoicGF0... \
+  --dart-define=MAPBOX_TOKEN=pk.<your-mapbox-token> \
   --dart-define=COURSE_CACHE_ENDPOINT=https://cache.caddieai.app \
   --dart-define=COURSE_CACHE_API_KEY=... \
   --dart-define=LLM_PROXY_ENDPOINT=https://llm-proxy.caddieai.app \

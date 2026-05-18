@@ -357,7 +357,7 @@ flutter test
 
 # Android debug run (on the moto g play)
 flutter run -d ZL8325C8V3 \
-  --dart-define=MAPBOX_TOKEN=pk.eyJ1Ijoic3ViY3VsdHVyZWdvbGYi...
+  --dart-define=MAPBOX_TOKEN=pk.<your-mapbox-token>
 
 # iOS — on a Mac with ~/.netrc configured:
 # 1. Bump ios/Podfile: `platform :ios, '14.0'` (not '12.0')

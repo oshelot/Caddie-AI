@@ -16,16 +16,37 @@ The spike findings are preserved as git tag [`spike/kan-252-flutter-perf`](https
 
 ## Running
 
-```bash
-flutter pub get
-flutter test
-flutter run --profile -d <device-id> \
-  --dart-define=MAPBOX_TOKEN=pk.xxx
-```
+All configuration — the Mapbox token, backend endpoints, and API keys — is
+supplied at build time via `--dart-define`. **Nothing sensitive is committed;
+you provide your own values.**
 
-For full build/run details and dart-define wiring, see [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md). Local helper scripts in [`tool/`](tool/) (notably `tool/run.sh`) handle dart-define injection automatically — they read tokens from environment variables, never from committed files.
+1. Copy the config template to the gitignored `android/local.properties` and
+   fill in your own values:
 
-`MAPBOX_TOKEN`, `LLM_PROXY_API_KEY`, `COURSE_CACHE_API_KEY`, `LOGGING_API_KEY`, and `GOLF_COURSE_API_KEY` come from your local environment. `tool/run-ios.sh` (gitignored) holds the active values for local-dev convenience — never commit it.
+   ```bash
+   cp android/local.properties.example android/local.properties
+   ```
+
+   At minimum, set `MAPBOX_TOKEN` to a free [Mapbox](https://account.mapbox.com/access-tokens/)
+   public token so the map renders. The backend and sign-in keys are optional —
+   the comments in the file explain what each enables; without them the app
+   runs in a degraded / guest-only mode.
+
+2. Build and run with the helper script. It reads `android/local.properties`
+   and injects every value as a `--dart-define` — the guaranteed wiring path
+   for both Android and iOS:
+
+   ```bash
+   flutter pub get
+   ./tool/run.sh                  # default device, debug
+   ./tool/run.sh -d <device-id>   # a specific device
+   ./tool/run.sh --release        # release build
+   ```
+
+   Unit tests need no device or config: `flutter test`.
+
+`android/local.properties` is gitignored and must never be committed. For full
+build/run details and dart-define wiring, see [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md).
 
 ## Project layout
 

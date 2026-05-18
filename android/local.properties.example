@@ -1,0 +1,43 @@
+# CaddieAI — build configuration template.
+#
+# Copy this file to `android/local.properties` (which is gitignored and never
+# committed) and fill in your own values. `tool/run.sh` reads these and injects
+# them as --dart-define flags for both Android and iOS builds:
+#
+#     cp android/local.properties.example android/local.properties
+#
+# Supply your own keys and backends — none of these values ship in the repo.
+
+# --- Flutter SDK -----------------------------------------------------------
+# Path to your Flutter SDK. Flutter tooling usually writes this line
+# automatically on first build; set it by hand if it is missing.
+flutter.sdk=/path/to/your/flutter
+
+# --- Maps (required) -------------------------------------------------------
+# Mapbox PUBLIC access token (starts with "pk."). Required for the map and
+# satellite imagery to render. Create one (free) at:
+#   https://account.mapbox.com/access-tokens/
+# Use a public token with minimal scopes (styles/tiles/fonts read) — it is
+# bundled into the app binary by design, so it must not be a secret ("sk.")
+# token. Set a billing cap on your Mapbox account as the backstop.
+MAPBOX_TOKEN=pk.your_mapbox_public_token
+
+# --- Backend services (optional) ------------------------------------------
+# The app builds and runs without these, but course data, the AI caddie, and
+# telemetry are disabled. Point them at your own deployed backends.
+COURSE_CACHE_ENDPOINT=https://your-course-cache-endpoint
+COURSE_CACHE_API_KEY=your_course_cache_api_key
+LLM_PROXY_ENDPOINT=https://your-llm-proxy-endpoint
+LLM_PROXY_API_KEY=your_llm_proxy_api_key
+LOGGING_ENDPOINT=https://your-logging-endpoint
+LOGGING_API_KEY=your_logging_api_key
+GOLF_COURSE_API_KEY=your_golf_course_api_key
+
+# --- Optional sign-in (Amazon Cognito) ------------------------------------
+# Enables optional Apple/Google sign-in + cloud sync. Leave blank to run the
+# app in guest-only mode. Point at your own Cognito user pool. These are
+# public OAuth identifiers (no client secret), but still supply your own.
+COGNITO_DOMAIN=your-pool.auth.us-east-2.amazoncognito.com
+COGNITO_CLIENT_ID=your_cognito_app_client_id
+COGNITO_USER_POOL_ID=your_cognito_user_pool_id
+GOOGLE_SERVER_CLIENT_ID=your_google_oauth_server_client_id
