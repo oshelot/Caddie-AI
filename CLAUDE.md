@@ -180,7 +180,7 @@ gh api repos/oshelot/CaddieAI-infra/contents/CLAUDE.md --jq '.content' | base64 
 - **Multi-course selection** — never cache; always re-prompt the picker.
 - **`tool/run.sh` is canonical** — don't bypass it for IDE run configs unless you've manually wired all dart-defines.
 - **infrastructure/ is a nested git repo** — NEVER `rm -rf infrastructure`. See "Repo relationship" section above.
-- **AWS profile** — use `default` (not `caddieai` as the infra CLAUDE.md says — that profile doesn't exist on this machine).
+- **AWS profiles** — `default` is read-only (Athena/Grafana; no IAM or Cognito access). `caddieai` is the admin profile — use only when an operation genuinely needs write/IAM access. `cognito` assumes a read-only role for Cognito user-pool reads.
 
 ## Git workflow
 
