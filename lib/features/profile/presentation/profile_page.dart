@@ -26,7 +26,7 @@ import '../../../core/monetization/subscription_service.dart';
 import '../../../main.dart' show adService;
 import '../../../core/storage/profile_repository.dart';
 import '../../../core/storage/secure_keys_storage.dart';
-import '../../../main.dart' show logger;
+import '../../../main.dart' show authService, logger;
 import '../../../models/player_profile.dart';
 import 'profile_screen.dart';
 
@@ -134,6 +134,7 @@ class _ProfilePageState extends State<ProfilePage> {
       onSave: _onSave,
       subscriptionService: _subscriptionService,
       adService: adService,
+      authService: authService,
     );
   }
 }

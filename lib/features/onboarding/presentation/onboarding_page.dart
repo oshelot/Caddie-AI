@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/routing/app_router.dart';
 import '../../../core/storage/profile_repository.dart';
+import '../../../main.dart' show authService;
 import '../../../models/player_profile.dart';
 import 'onboarding_screen.dart';
 
@@ -50,6 +51,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
       initialProfile: _safeLoadProfile(),
       onComplete: _save,
       onSkip: _save,
+      authService: authService,
     );
   }
 }
