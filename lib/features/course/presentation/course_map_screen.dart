@@ -1346,8 +1346,7 @@ class _BottomPanel extends StatelessWidget {
           const SizedBox(height: 2),
           Row(
             children: [
-              Icon(Icons.info_outline,
-                  size: 14, color: theme.colorScheme.error),
+              CaddieIcons.info(size: 14, color: theme.colorScheme.error),
               const SizedBox(width: 4),
               Text(
                 "This hole isn't mapped yet — we're working on it",

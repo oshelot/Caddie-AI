@@ -9,6 +9,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'caddie_hud_colors.dart';
+import 'caddie_text_styles.dart';
 import 'theme_palette.dart';
 
 ThemeData buildCaddieTheme(ThemePalette palette) {
@@ -82,6 +84,13 @@ ThemeData buildCaddieTheme(ThemePalette palette) {
     brightness: palette.brightness,
     colorScheme: colorScheme,
     scaffoldBackgroundColor: scaffoldBg,
+    // KAN-432: redesign design tokens. HUD colors vary by brightness
+    // (the Midnight palette gets a deeper glass); the text ramp is
+    // brightness-independent.
+    extensions: <ThemeExtension<dynamic>>[
+      CaddieHudColors.forBrightness(palette.brightness),
+      CaddieTextStyles.standard,
+    ],
     appBarTheme: AppBarTheme(
       backgroundColor: colorScheme.surface,
       surfaceTintColor: Colors.transparent,
