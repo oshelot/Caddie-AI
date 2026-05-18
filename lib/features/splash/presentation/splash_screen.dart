@@ -52,7 +52,7 @@ class SplashScreen extends StatefulWidget {
   /// hooks this to navigate to the next route.
   final VoidCallback onComplete;
 
-  /// How long the splash stays visible. Default 1.5 s — long
+  /// How long the splash stays visible. Default 2.5 s — long
   /// enough for the fade-in animations to land, short enough that
   /// the user doesn't get bored. Tests pass `Duration.zero` to
   /// fire the timer instantly.
